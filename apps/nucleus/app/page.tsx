@@ -14,27 +14,38 @@ const CATEGORIES = [
   'AI',
 ] as const
 
-// Keywords are matched against discipline_slug (substring, lowercase).
-// Order matters: first match wins. More specific entries go first.
-const CATEGORY_KEYWORDS: [string, string[]][] = [
-  ['AI',                    ['ai', 'machine-learning', 'ml', 'llm', 'genai']],
-  ['Agile',                 ['agile', 'scrum', 'kanban', 'lean']],
-  ['Analysis & Design',     ['analysis', 'design', 'analyst', 'ux', 'research']],
-  ['Architecture',          ['architecture', 'architect']],
-  ['Data',                  ['data', 'analytics', 'bi', 'database', 'warehouse']],
-  ['Delivery & Management', ['delivery', 'management', 'project', 'programme', 'program', 'pmo']],
-  ['Engineering',           ['engineering', 'development', 'devops', 'platform', 'sre']],
-  ['Product',               ['product']],
-  ['Quality',               ['quality', 'qa', 'test', 'assurance']],
-  ['Security',              ['security', 'cyber', 'infosec', 'appsec']],
-]
+const SLUG_TO_CATEGORY: Record<string, string> = {
+  'backend':               'Engineering',
+  'frontend':              'Engineering',
+  'full-stack':            'Engineering',
+  'mobile':                'Engineering',
+  'platform':              'Engineering',
+  'site-reliability':      'Engineering',
+  'developer-experience':  'Engineering',
+  'architecture':          'Architecture',
+  'cyber-security':        'Security',
+  'quality-assurance':     'Quality',
+  'product-management':    'Product',
+  'product-strategy':      'Product',
+  'product-discovery':     'Product',
+  'delivery-management':   'Delivery & Management',
+  'programme-management':  'Delivery & Management',
+  'commercial-management': 'Delivery & Management',
+  'supplier-management':   'Delivery & Management',
+  'service-management':    'Delivery & Management',
+  'governance-compliance': 'Delivery & Management',
+  'analysis':              'Analysis & Design',
+  'ux-design':             'Analysis & Design',
+  'data-engineering':      'Data',
+  'data-analytics':        'Data',
+  'data-science':          'Data',
+  'scrum-master':          'Agile',
+  'agile-coaching':        'Agile',
+  'ai-ml-engineering':     'AI',
+}
 
 function slugToCategory(slug: string): string {
-  const lower = slug.toLowerCase()
-  for (const [category, keywords] of CATEGORY_KEYWORDS) {
-    if (keywords.some((kw) => lower.includes(kw))) return category
-  }
-  return 'Other'
+  return SLUG_TO_CATEGORY[slug] ?? 'Engineering'
 }
 
 export default async function Page() {
@@ -47,10 +58,7 @@ export default async function Page() {
     return acc
   }, {})
 
-  const ordered = [
-    ...CATEGORIES.filter((c) => grouped[c]?.length),
-    ...Object.keys(grouped).filter((c) => !(CATEGORIES as readonly string[]).includes(c)),
-  ]
+  const ordered = CATEGORIES.filter((c) => grouped[c]?.length)
 
   return (
     <>
