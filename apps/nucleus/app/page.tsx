@@ -1,7 +1,7 @@
 import { getDisciplines } from '@plato/schema'
 import type { Discipline } from '@plato/schema'
 
-const CATEGORY_ORDER = [
+const CATEGORIES = [
   'Engineering',
   'Architecture',
   'Security',
@@ -12,22 +12,44 @@ const CATEGORY_ORDER = [
   'Data',
   'Agile',
   'AI',
+] as const
+
+// Keywords are matched against discipline_slug (substring, lowercase).
+// Order matters: first match wins. More specific entries go first.
+const CATEGORY_KEYWORDS: [string, string[]][] = [
+  ['AI',                    ['ai', 'machine-learning', 'ml', 'llm', 'genai']],
+  ['Agile',                 ['agile', 'scrum', 'kanban', 'lean']],
+  ['Analysis & Design',     ['analysis', 'design', 'analyst', 'ux', 'research']],
+  ['Architecture',          ['architecture', 'architect']],
+  ['Data',                  ['data', 'analytics', 'bi', 'database', 'warehouse']],
+  ['Delivery & Management', ['delivery', 'management', 'project', 'programme', 'program', 'pmo']],
+  ['Engineering',           ['engineering', 'development', 'devops', 'platform', 'sre']],
+  ['Product',               ['product']],
+  ['Quality',               ['quality', 'qa', 'test', 'assurance']],
+  ['Security',              ['security', 'cyber', 'infosec', 'appsec']],
 ]
+
+function slugToCategory(slug: string): string {
+  const lower = slug.toLowerCase()
+  for (const [category, keywords] of CATEGORY_KEYWORDS) {
+    if (keywords.some((kw) => lower.includes(kw))) return category
+  }
+  return 'Other'
+}
 
 export default async function Page() {
   const disciplines = await getDisciplines()
 
   const grouped = disciplines.reduce<Record<string, Discipline[]>>((acc, d) => {
-    const cat = d.discipline_category
+    const cat = slugToCategory(d.discipline_slug)
     if (!acc[cat]) acc[cat] = []
     acc[cat].push(d)
     return acc
   }, {})
 
-  // Categories with disciplines, in defined order first, then any extras
   const ordered = [
-    ...CATEGORY_ORDER.filter((c) => grouped[c]?.length),
-    ...Object.keys(grouped).filter((c) => !CATEGORY_ORDER.includes(c)),
+    ...CATEGORIES.filter((c) => grouped[c]?.length),
+    ...Object.keys(grouped).filter((c) => !(CATEGORIES as readonly string[]).includes(c)),
   ]
 
   return (

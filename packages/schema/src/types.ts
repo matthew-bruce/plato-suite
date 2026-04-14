@@ -6,7 +6,6 @@ export type Database = {
           discipline_id: string
           discipline_name: string
           discipline_slug: string
-          discipline_category: string
           sort_order: number
           deleted_at: string | null
         }
@@ -14,7 +13,6 @@ export type Database = {
           discipline_id?: string
           discipline_name: string
           discipline_slug: string
-          discipline_category: string
           sort_order: number
           deleted_at?: string | null
         }
@@ -22,7 +20,6 @@ export type Database = {
           discipline_id?: string
           discipline_name?: string
           discipline_slug?: string
-          discipline_category?: string
           sort_order?: number
           deleted_at?: string | null
         }
