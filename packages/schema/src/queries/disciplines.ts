@@ -14,6 +14,9 @@ export async function getDisciplines(): Promise<Discipline[]> {
     .is('deleted_at', null)
     .order('sort_order', { ascending: true })
 
-  if (error) throw error
+  if (error) {
+    console.error('[getDisciplines] Supabase error:', error)
+    throw error
+  }
   return data
 }
