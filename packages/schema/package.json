@@ -1,5 +1,9 @@
 {
   "name": "@plato/schema",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "main": "./index.ts",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.43.0"
+  }
 }

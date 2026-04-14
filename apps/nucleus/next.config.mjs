@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  transpilePackages: ['@plato/schema'],
+}
 
-export default nextConfig;
+export default nextConfig
