@@ -1,6 +1,0 @@
-{
-  "framework": "nextjs",
-  "rootDirectory": "apps/nucleus",
-  "installCommand": "cd ../.. && npm install",
-  "buildCommand": "npm run build"
-}
