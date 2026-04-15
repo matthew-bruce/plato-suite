@@ -1,0 +1,15 @@
+@import '../../../packages/config/tokens/rmg.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--rmg-color-surface-light);
+  color: var(--rmg-color-text-body);
+  font-family: var(--rmg-font-body);
+}

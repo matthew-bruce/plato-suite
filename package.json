@@ -1,0 +1,8 @@
+{
+  "name": "plato-suite",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

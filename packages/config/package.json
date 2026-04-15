@@ -1,0 +1,9 @@
+{
+  "name": "@plato/config",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tailwind/rmg.preset": "./tailwind/rmg.preset.ts",
+    "./tokens/rmg.css": "./tokens/rmg.css"
+  }
+}

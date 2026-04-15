@@ -1,0 +1,551 @@
+export default function DesignSystemPage() {
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)' }}>
+
+      {/* ── HEADER ─────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 'var(--rmg-spacing-11)' }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--rmg-spacing-04)',
+            backgroundColor: 'var(--rmg-color-red)',
+            padding: 'var(--rmg-spacing-03) var(--rmg-spacing-06)',
+            borderRadius: 'var(--rmg-radius-s)',
+            marginBottom: 'var(--rmg-spacing-06)',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--rmg-font-display)',
+              fontSize: 'var(--rmg-text-h4)',
+              lineHeight: 'var(--rmg-leading-h4)',
+              color: 'var(--rmg-color-white)',
+              fontWeight: 700,
+            }}
+          >
+            Royal Mail
+          </span>
+        </div>
+        <h1
+          style={{
+            fontFamily: 'var(--rmg-font-display)',
+            fontSize: 'var(--rmg-text-d2)',
+            lineHeight: 'var(--rmg-leading-d2)',
+            color: 'var(--rmg-color-text-heading)',
+            marginBottom: 'var(--rmg-spacing-03)',
+          }}
+        >
+          Design System
+        </h1>
+        <p
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-b2)',
+            lineHeight: 'var(--rmg-leading-b2)',
+            color: 'var(--rmg-color-text-light)',
+          }}
+        >
+          v1 · Token reference extracted from Figma RM-Design-System
+        </p>
+      </div>
+
+      {/* ── COLOURS ────────────────────────────────────────────────── */}
+      <Section title="Colours">
+
+        <ColourGroup label="Core Brand">
+          <Swatch name="red"          token="--rmg-color-red"          hex="#DA202A" />
+          <Swatch name="yellow"       token="--rmg-color-yellow"        hex="#FDDA24" dark />
+          <Swatch name="white"        token="--rmg-color-white"         hex="#FFFFFF" dark border />
+        </ColourGroup>
+
+        <ColourGroup label="Primary Accents">
+          <Swatch name="warm-red"     token="--rmg-color-warm-red"      hex="#B70D12" />
+          <Swatch name="bright-red"   token="--rmg-color-bright-red"    hex="#E63338" />
+          <Swatch name="pink"         token="--rmg-color-pink"          hex="#F4AEBA" dark />
+          <Swatch name="orange"       token="--rmg-color-orange"        hex="#F3920D" dark />
+        </ColourGroup>
+
+        <ColourGroup label="Greys">
+          <Swatch name="black"        token="--rmg-color-black"         hex="#2A2A2D" />
+          <Swatch name="dark-grey"    token="--rmg-color-dark-grey"     hex="#404044" />
+          <Swatch name="grey-1"       token="--rmg-color-grey-1"        hex="#8F9495" />
+          <Swatch name="grey-2"       token="--rmg-color-grey-2"        hex="#D5D5D5" dark />
+          <Swatch name="grey-3"       token="--rmg-color-grey-3"        hex="#EEEEEE" dark />
+          <Swatch name="grey-4"       token="--rmg-color-grey-4"        hex="#F5F5F5" dark border />
+          <Swatch name="grey-300"     token="--rmg-color-grey-300"      hex="#D9D9D9" dark />
+          <Swatch name="brand-black"  token="--rmg-color-brand-black"   hex="#2A2A2A" />
+        </ColourGroup>
+
+        <ColourGroup label="Functional">
+          <Swatch name="blue"           token="--rmg-color-blue"           hex="#0892CB" />
+          <Swatch name="green"          token="--rmg-color-green"          hex="#62A531" />
+          <Swatch name="green-contrast" token="--rmg-color-green-contrast" hex="#008A00" />
+        </ColourGroup>
+
+        <ColourGroup label="Tints">
+          <Swatch name="tint-yellow" token="--rmg-color-tint-yellow" hex="#FEEB87" dark />
+          <Swatch name="tint-orange" token="--rmg-color-tint-orange" hex="#FFBD80" dark />
+          <Swatch name="tint-pink"   token="--rmg-color-tint-pink"   hex="#F9CFD6" dark />
+          <Swatch name="tint-green"  token="--rmg-color-tint-green"  hex="#C1E3C1" dark />
+          <Swatch name="tint-red"    token="--rmg-color-tint-red"    hex="#F8E7E7" dark />
+        </ColourGroup>
+
+        <ColourGroup label="Surfaces">
+          <Swatch name="surface-white" token="--rmg-color-surface-white" hex="#FFFFFF" dark border />
+          <Swatch name="surface-light" token="--rmg-color-surface-light" hex="#F1F2F5" dark border />
+        </ColourGroup>
+
+        <ColourGroup label="Semantic Text — Light Mode">
+          <Swatch name="text-heading" token="--rmg-color-text-heading" hex="#2A2A2D" />
+          <Swatch name="text-body"    token="--rmg-color-text-body"    hex="#333333" />
+          <Swatch name="text-light"   token="--rmg-color-text-light"   hex="#666666" />
+          <Swatch name="text-accent"  token="--rmg-color-text-accent"  hex="#DA202A" />
+        </ColourGroup>
+
+        <ColourGroup label="Semantic Text — Dark Mode">
+          <Swatch name="text-dark-heading" token="--rmg-color-text-dark-heading" hex="#FFFFFF" dark border />
+          <Swatch name="text-dark-accent"  token="--rmg-color-text-dark-accent"  hex="#FDDA24" dark />
+        </ColourGroup>
+
+      </Section>
+
+      {/* ── TYPOGRAPHY ─────────────────────────────────────────────── */}
+      <Section title="Typography">
+
+        <div style={{ marginBottom: 'var(--rmg-spacing-06)' }}>
+          <TypeLabel>Display — RM First Class (responsive)</TypeLabel>
+        </div>
+
+        <TypeSample
+          label="D1"
+          sizeToken="--rmg-text-d1"
+          leadToken="--rmg-leading-d1"
+          family="var(--rmg-font-display)"
+          sample="Royal Mail delivers"
+        />
+        <TypeSample
+          label="D2"
+          sizeToken="--rmg-text-d2"
+          leadToken="--rmg-leading-d2"
+          family="var(--rmg-font-display)"
+          sample="Royal Mail delivers"
+        />
+
+        <div style={{ marginTop: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-06)' }}>
+          <TypeLabel>Headings — RM First Class (responsive)</TypeLabel>
+        </div>
+
+        {(['h1','h2','h3','h4','h5','h6','h7'] as const).map((level) => (
+          <TypeSample
+            key={level}
+            label={level.toUpperCase()}
+            sizeToken={`--rmg-text-${level}`}
+            leadToken={`--rmg-leading-${level}`}
+            family="var(--rmg-font-display)"
+            sample="The quick brown fox"
+          />
+        ))}
+
+        <div style={{ marginTop: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-06)' }}>
+          <TypeLabel>Body — PF DinText Std (fixed)</TypeLabel>
+        </div>
+
+        {(['b1','b2','b3'] as const).map((level) => (
+          <TypeSample
+            key={level}
+            label={level.toUpperCase()}
+            sizeToken={`--rmg-text-${level}`}
+            leadToken={`--rmg-leading-${level}`}
+            family="var(--rmg-font-body)"
+            sample="The quick brown fox jumps over the lazy dog"
+          />
+        ))}
+
+        <div style={{ marginTop: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-06)' }}>
+          <TypeLabel>Caption — PF DinText Std (fixed)</TypeLabel>
+        </div>
+
+        {(['c1','c2'] as const).map((level) => (
+          <TypeSample
+            key={level}
+            label={level.toUpperCase()}
+            sizeToken={`--rmg-text-${level}`}
+            leadToken={`--rmg-leading-${level}`}
+            family="var(--rmg-font-body)"
+            sample="The quick brown fox jumps over the lazy dog"
+          />
+        ))}
+
+      </Section>
+
+      {/* ── SPACING ────────────────────────────────────────────────── */}
+      <Section title="Spacing">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-03)' }}>
+          {[
+            { num: '01', px: '4px' },
+            { num: '02', px: '8px' },
+            { num: '03', px: '12px' },
+            { num: '04', px: '16px' },
+            { num: '05', px: '20px' },
+            { num: '06', px: '24px' },
+            { num: '07', px: '32px' },
+            { num: '08', px: '40px' },
+            { num: '09', px: '48px' },
+            { num: '10', px: '64px' },
+            { num: '11', px: '80px' },
+            { num: '12', px: '96px' },
+            { num: '13', px: '128px' },
+          ].map(({ num, px }) => (
+            <div key={num} style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-05)' }}>
+              <span
+                style={{
+                  width: '80px',
+                  fontSize: 'var(--rmg-text-c1)',
+                  lineHeight: 'var(--rmg-leading-c1)',
+                  color: 'var(--rmg-color-text-light)',
+                  fontFamily: 'var(--rmg-font-body)',
+                  flexShrink: 0,
+                }}
+              >
+                spacing-{num}
+              </span>
+              <div
+                style={{
+                  height: '20px',
+                  width: `var(--rmg-spacing-${num})`,
+                  backgroundColor: 'var(--rmg-color-red)',
+                  borderRadius: 'var(--rmg-radius-xs)',
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 'var(--rmg-text-c1)',
+                  lineHeight: 'var(--rmg-leading-c1)',
+                  color: 'var(--rmg-color-text-light)',
+                  fontFamily: 'var(--rmg-font-body)',
+                }}
+              >
+                {px}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── BORDER RADIUS ──────────────────────────────────────────── */}
+      <Section title="Border Radius">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-07)' }}>
+          {[
+            { name: 'xs',  token: '--rmg-radius-xs',  value: '4px' },
+            { name: 's',   token: '--rmg-radius-s',   value: '8px' },
+            { name: 'm',   token: '--rmg-radius-m',   value: '12px' },
+            { name: 'l',   token: '--rmg-radius-l',   value: '24px' },
+            { name: 'xl',  token: '--rmg-radius-xl',  value: '100px (pill)' },
+          ].map(({ name, token, value }) => (
+            <div key={name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--rmg-spacing-03)' }}>
+              <div
+                style={{
+                  width: '80px',
+                  height: '80px',
+                  backgroundColor: 'var(--rmg-color-red)',
+                  borderRadius: `var(${token})`,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 'var(--rmg-text-c1)',
+                  lineHeight: 'var(--rmg-leading-c1)',
+                  fontFamily: 'var(--rmg-font-body)',
+                  color: 'var(--rmg-color-text-heading)',
+                  fontWeight: 700,
+                }}
+              >
+                radius-{name}
+              </span>
+              <span
+                style={{
+                  fontSize: 'var(--rmg-text-c2)',
+                  lineHeight: 'var(--rmg-leading-c2)',
+                  fontFamily: 'var(--rmg-font-body)',
+                  color: 'var(--rmg-color-text-light)',
+                }}
+              >
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── SHADOWS ────────────────────────────────────────────────── */}
+      <Section title="Shadows">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)' }}>
+          {[
+            { name: 'shadow-card',     token: '--rmg-shadow-card',     label: 'Card', desc: '0 4px 56px rgba(0,0,0,0.08)' },
+            { name: 'shadow-megamenu', token: '--rmg-shadow-megamenu', label: 'Megamenu', desc: '0 4px 16px rgba(0,0,0,0.20)' },
+            { name: 'shadow-header',   token: '--rmg-shadow-header',   label: 'Header', desc: '0 2px 12px rgba(0,0,0,0.08)' },
+          ].map(({ name, token, label, desc }) => (
+            <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)' }}>
+              <div
+                style={{
+                  width: '200px',
+                  height: '120px',
+                  backgroundColor: 'var(--rmg-color-surface-white)',
+                  borderRadius: 'var(--rmg-radius-m)',
+                  boxShadow: `var(${token})`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 'var(--rmg-text-c1)',
+                    lineHeight: 'var(--rmg-leading-c1)',
+                    fontFamily: 'var(--rmg-font-body)',
+                    color: 'var(--rmg-color-text-light)',
+                  }}
+                >
+                  {label}
+                </span>
+              </div>
+              <div>
+                <div
+                  style={{
+                    fontSize: 'var(--rmg-text-c1)',
+                    lineHeight: 'var(--rmg-leading-c1)',
+                    fontFamily: 'var(--rmg-font-body)',
+                    color: 'var(--rmg-color-text-heading)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {name}
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--rmg-text-c2)',
+                    lineHeight: 'var(--rmg-leading-c2)',
+                    fontFamily: 'var(--rmg-font-body)',
+                    color: 'var(--rmg-color-text-light)',
+                  }}
+                >
+                  {desc}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+    </div>
+  )
+}
+
+/* ── Sub-components ────────────────────────────────────────────────── */
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section style={{ marginBottom: 'var(--rmg-spacing-12)' }}>
+      <h2
+        style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: 'var(--rmg-text-h3)',
+          lineHeight: 'var(--rmg-leading-h3)',
+          color: 'var(--rmg-color-text-heading)',
+          marginBottom: 'var(--rmg-spacing-07)',
+          paddingBottom: 'var(--rmg-spacing-04)',
+          borderBottom: '2px solid var(--rmg-color-red)',
+        }}
+      >
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
+}
+
+function ColourGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 'var(--rmg-spacing-07)' }}>
+      <h3
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c1)',
+          lineHeight: 'var(--rmg-leading-c1)',
+          color: 'var(--rmg-color-text-light)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          marginBottom: 'var(--rmg-spacing-04)',
+        }}
+      >
+        {label}
+      </h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-04)' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Swatch({
+  name,
+  token,
+  hex,
+  dark = false,
+  border = false,
+}: {
+  name: string
+  token: string
+  hex: string
+  dark?: boolean
+  border?: boolean
+}) {
+  return (
+    <div style={{ width: '120px' }}>
+      <div
+        style={{
+          width: '120px',
+          height: '72px',
+          backgroundColor: `var(${token})`,
+          borderRadius: 'var(--rmg-radius-s)',
+          marginBottom: 'var(--rmg-spacing-02)',
+          border: border ? '1px solid var(--rmg-color-grey-2)' : 'none',
+        }}
+      />
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c1)',
+          lineHeight: 'var(--rmg-leading-c1)',
+          color: 'var(--rmg-color-text-heading)',
+          fontWeight: 700,
+        }}
+      >
+        {name}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          color: 'var(--rmg-color-text-light)',
+        }}
+      >
+        {hex}
+      </div>
+      <div
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          color: 'var(--rmg-color-text-light)',
+          overflowWrap: 'break-word',
+        }}
+      >
+        {token}
+      </div>
+    </div>
+  )
+}
+
+function TypeLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        fontFamily: 'var(--rmg-font-body)',
+        fontSize: 'var(--rmg-text-c1)',
+        lineHeight: 'var(--rmg-leading-c1)',
+        color: 'var(--rmg-color-text-light)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+function TypeSample({
+  label,
+  sizeToken,
+  leadToken,
+  family,
+  sample,
+}: {
+  label: string
+  sizeToken: string
+  leadToken: string
+  family: string
+  sample: string
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 'var(--rmg-spacing-06)',
+        paddingBottom: 'var(--rmg-spacing-05)',
+        borderBottom: '1px solid var(--rmg-color-grey-3)',
+        marginBottom: 'var(--rmg-spacing-05)',
+      }}
+    >
+      <div
+        style={{
+          width: '48px',
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c1)',
+            lineHeight: 'var(--rmg-leading-c1)',
+            color: 'var(--rmg-color-text-light)',
+            fontWeight: 700,
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontFamily: family,
+            fontSize: `var(${sizeToken})`,
+            lineHeight: `var(${leadToken})`,
+            color: 'var(--rmg-color-text-heading)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {sample}
+        </div>
+      </div>
+      <div style={{ flexShrink: 0, textAlign: 'right' }}>
+        <div
+          style={{
+            fontFamily: 'monospace',
+            fontSize: 'var(--rmg-text-c2)',
+            lineHeight: 'var(--rmg-leading-c2)',
+            color: 'var(--rmg-color-text-light)',
+          }}
+        >
+          {sizeToken}
+        </div>
+        <div
+          style={{
+            fontFamily: 'monospace',
+            fontSize: 'var(--rmg-text-c2)',
+            lineHeight: 'var(--rmg-leading-c2)',
+            color: 'var(--rmg-color-text-light)',
+          }}
+        >
+          {leadToken}
+        </div>
+      </div>
+    </div>
+  )
+}
