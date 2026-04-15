@@ -114,8 +114,8 @@
   --rmg-leading-d2: 54px;  /* ~ */
   --rmg-leading-h1: 46px;  /* ~ */
   --rmg-leading-h2: 40px;  /* ~ */
-  --rmg-leading-h3: 36px;  /* ~ */
-  --rmg-leading-h4: 36px;  /* ~ */
+  --rmg-leading-h3: 38px;  /* confirmed — Figma Typography JSX */
+  --rmg-leading-h4: 38px;  /* confirmed — Figma Typography JSX */
   --rmg-leading-h5: 34px;  /* confirmed (same size as documented H6) */
   --rmg-leading-h6: 34px;  /* confirmed */
   --rmg-leading-h7: 28px;  /* ~ */
@@ -182,10 +182,10 @@
     --rmg-leading-d1: 76px;  /* ~ */
     --rmg-leading-d2: 64px;  /* ~ */
     --rmg-leading-h1: 54px;  /* confirmed (desktop H2 ratio) */
-    --rmg-leading-h2: 46px;  /* ~ */
-    --rmg-leading-h3: 40px;  /* ~ */
-    --rmg-leading-h4: 36px;  /* ~ */
-    --rmg-leading-h5: 36px;  /* ~ */
+    --rmg-leading-h2: 48px;  /* confirmed — Figma Typography JSX */
+    --rmg-leading-h3: 42px;  /* confirmed — Figma Typography JSX */
+    --rmg-leading-h4: 38px;  /* confirmed — Figma Typography JSX */
+    --rmg-leading-h5: 38px;  /* confirmed — Figma Typography JSX */
     --rmg-leading-h6: 34px;  /* confirmed */
     --rmg-leading-h7: 28px;  /* ~ */
   }
@@ -211,9 +211,9 @@
     --rmg-leading-d2: 76px;  /* ~ */
     --rmg-leading-h1: 64px;  /* confirmed */
     --rmg-leading-h2: 54px;  /* confirmed */
-    --rmg-leading-h3: 46px;  /* ~ */
-    --rmg-leading-h4: 40px;  /* ~ */
-    --rmg-leading-h5: 36px;  /* ~ */
+    --rmg-leading-h3: 48px;  /* confirmed — Figma Typography JSX */
+    --rmg-leading-h4: 42px;  /* confirmed — Figma Typography JSX */
+    --rmg-leading-h5: 38px;  /* confirmed — Figma Typography JSX */
     --rmg-leading-h6: 34px;  /* confirmed */
     --rmg-leading-h7: 28px;  /* ~ */
   }
