@@ -234,3 +234,15 @@
   Ticket: confirm with RMG DS team — what is the canonical focus ring token?
   Candidate: add --rmg-color-focus: <confirmed value> once agreed.
 */
+
+/* ==========================================================
+   BROWSER NORMALISATION
+   ========================================================== */
+
+/* Hide native date/time picker icons — FormField uses custom styling */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
