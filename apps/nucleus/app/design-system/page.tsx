@@ -1,6 +1,6 @@
 'use client'
 
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification } from '@plato/ui/components/rmg'
 
 export default function DesignSystemPage() {
   return (
@@ -281,6 +281,58 @@ export default function DesignSystemPage() {
             </div>
           ))}
         </div>
+      </Section>
+
+      {/* ── NOTIFICATION ───────────────────────────────────────────── */}
+      <Section title="Notification">
+
+        <ComponentSubheading>Banner</ComponentSubheading>
+        {/* Negative margin lets the full-bleed bars break out of the page's 32px padding */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-03)', marginBottom: 'var(--rmg-spacing-08)', margin: '0 calc(-1 * var(--rmg-spacing-07)) var(--rmg-spacing-08)' }}>
+          <Notification variant="banner" status="warning" paddingX={32}
+            title="Royal Mail strike"
+            message="Strikes have been announced for Thursday XX, Friday XX and Saturday XX of July."
+            onDismiss={() => {}} />
+          <Notification variant="banner" status="information" paddingX={32}
+            title="Royal Mail strike"
+            message="Strikes have been announced for Thursday XX, Friday XX and Saturday XX of July."
+            onDismiss={() => {}} />
+          <Notification variant="banner" status="error" paddingX={32}
+            title="Royal Mail strike"
+            message="Strikes have been announced for Thursday XX, Friday XX and Saturday XX of July."
+            onDismiss={() => {}} />
+          <Notification variant="banner" status="success" paddingX={32}
+            title="Royal Mail strike"
+            message="Strikes have been announced for Thursday XX, Friday XX and Saturday XX of July."
+            onDismiss={() => {}} />
+          <Notification variant="banner" status="sustainability" paddingX={32}
+            title="Royal Mail strike"
+            message="Strikes have been announced for Thursday XX, Friday XX and Saturday XX of July."
+            onDismiss={() => {}} />
+        </div>
+
+        <ComponentSubheading>Inline — with title</ComponentSubheading>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)', maxWidth: 576, marginBottom: 'var(--rmg-spacing-08)' }}>
+          <Notification variant="inline" status="warning"
+            title="Royal Mail strike" message="Items posted before, during or after strike action will be delayed." />
+          <Notification variant="inline" status="information"
+            title="Royal Mail strike" message="Items posted before, during or after strike action will be delayed." />
+          <Notification variant="inline" status="error"
+            title="Royal Mail strike" message="Items posted before, during or after strike action will be delayed." />
+          <Notification variant="inline" status="success"
+            title="Royal Mail strike" message="Items posted before, during or after strike action will be delayed." />
+          <Notification variant="inline" status="sustainability"
+            title="Royal Mail strike" message="Items posted before, during or after strike action will be delayed." />
+        </div>
+
+        <ComponentSubheading>Inline — message only</ComponentSubheading>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)', maxWidth: 576 }}>
+          <Notification variant="inline" status="success"
+            message="Items posted before, during or after strike action will be delayed." />
+          <Notification variant="inline" status="information"
+            message="Items posted before, during or after strike action will be delayed." />
+        </div>
+
       </Section>
 
       {/* ── BREADCRUMB ─────────────────────────────────────────────── */}
