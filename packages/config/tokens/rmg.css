@@ -122,7 +122,7 @@
   --rmg-leading-b1: 28px;  /* confirmed */
   --rmg-leading-b2: 24px;  /* confirmed */
   --rmg-leading-b3: 22px;  /* confirmed */
-  --rmg-leading-c1: 18px;  /* ~ */
+  --rmg-leading-c1: 20px;  /* confirmed — Caption 1/Reg from Stepper component */
   --rmg-leading-c2: 16px;  /* ~ */
 
   /* ----------------------------------------------------------
