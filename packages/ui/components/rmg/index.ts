@@ -1,3 +1,6 @@
+export { Button } from './Button'
+export type { ButtonProps, ButtonVariant, ButtonSize, ButtonBackground } from './Button'
+
 export { Checkbox } from './Checkbox'
 export type { CheckboxProps, CheckboxSize, CheckboxState } from './Checkbox'
 

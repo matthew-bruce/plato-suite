@@ -1,6 +1,6 @@
 'use client'
 
-import { Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
+import { Button, Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
 
 export default function DesignSystemPage() {
   return (
@@ -281,6 +281,118 @@ export default function DesignSystemPage() {
             </div>
           ))}
         </div>
+      </Section>
+
+      {/* ── BUTTON ─────────────────────────────────────────────────── */}
+      <Section title="Button">
+
+        {/* Light background */}
+        <ComponentSubheading>Solid — Light background</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <ButtonShowcase label="large">
+            <Button variant="solid" size="large" background="light">Continue</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="medium">
+            <Button variant="solid" size="medium" background="light">Continue</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="small">
+            <Button variant="solid" size="small" background="light">Continue</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled">
+            <Button variant="solid" size="large" background="light" disabled>Continue</Button>
+          </ButtonShowcase>
+        </div>
+
+        <ComponentSubheading>Outline — Light background</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <ButtonShowcase label="large">
+            <Button variant="outline" size="large" background="light">Find out more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="medium">
+            <Button variant="outline" size="medium" background="light">Find out more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="small">
+            <Button variant="outline" size="small" background="light">Find out more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled">
+            <Button variant="outline" size="large" background="light" disabled>Find out more</Button>
+          </ButtonShowcase>
+        </div>
+
+        <ComponentSubheading>Link — Light background</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <ButtonShowcase label="large">
+            <Button variant="link" size="large" background="light">Learn more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="medium">
+            <Button variant="link" size="medium" background="light">Learn more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="small">
+            <Button variant="link" size="small" background="light">Learn more</Button>
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled">
+            <Button variant="link" size="large" background="light" disabled>Learn more</Button>
+          </ButtonShowcase>
+        </div>
+
+        {/* Dark background */}
+        <div
+          style={{
+            backgroundColor: 'var(--rmg-color-red)',
+            borderRadius: 'var(--rmg-radius-m)',
+            padding: 'var(--rmg-spacing-08)',
+            marginBottom: 'var(--rmg-spacing-04)',
+          }}
+        >
+          <ComponentSubheading dark>Solid — Dark background</ComponentSubheading>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)', marginBottom: 'var(--rmg-spacing-08)' }}>
+            <ButtonShowcase label="large" dark>
+              <Button variant="solid" size="large" background="dark">Continue</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="medium" dark>
+              <Button variant="solid" size="medium" background="dark">Continue</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="small" dark>
+              <Button variant="solid" size="small" background="dark">Continue</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="disabled" dark>
+              <Button variant="solid" size="large" background="dark" disabled>Continue</Button>
+            </ButtonShowcase>
+          </div>
+
+          <ComponentSubheading dark>Outline — Dark background</ComponentSubheading>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)', marginBottom: 'var(--rmg-spacing-08)' }}>
+            <ButtonShowcase label="large" dark>
+              <Button variant="outline" size="large" background="dark">Find out more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="medium" dark>
+              <Button variant="outline" size="medium" background="dark">Find out more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="small" dark>
+              <Button variant="outline" size="small" background="dark">Find out more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="disabled" dark>
+              <Button variant="outline" size="large" background="dark" disabled>Find out more</Button>
+            </ButtonShowcase>
+          </div>
+
+          <ComponentSubheading dark>Link — Dark background</ComponentSubheading>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-06)' }}>
+            <ButtonShowcase label="large" dark>
+              <Button variant="link" size="large" background="dark">Learn more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="medium" dark>
+              <Button variant="link" size="medium" background="dark">Learn more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="small" dark>
+              <Button variant="link" size="small" background="dark">Learn more</Button>
+            </ButtonShowcase>
+            <ButtonShowcase label="disabled" dark>
+              <Button variant="link" size="large" background="dark" disabled>Learn more</Button>
+            </ButtonShowcase>
+          </div>
+        </div>
+
       </Section>
 
       {/* ── CHEVRON BUTTON ─────────────────────────────────────────── */}
@@ -709,7 +821,7 @@ function TypeSample({
   )
 }
 
-function ComponentSubheading({ children }: { children: React.ReactNode }) {
+function ComponentSubheading({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
   return (
     <div
       style={{
@@ -719,7 +831,7 @@ function ComponentSubheading({ children }: { children: React.ReactNode }) {
         fontWeight: 700,
         letterSpacing: '0.06em',
         textTransform: 'uppercase' as const,
-        color: 'var(--rmg-color-text-light)',
+        color: dark ? 'rgba(255,255,255,0.6)' : 'var(--rmg-color-text-light)',
         marginBottom: 'var(--rmg-spacing-05)',
       }}
     >
@@ -728,7 +840,7 @@ function ComponentSubheading({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ButtonShowcase({ label, children }: { label: string; children: React.ReactNode }) {
+function ButtonShowcase({ label, children, dark = false }: { label: string; children: React.ReactNode; dark?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--rmg-spacing-03)' }}>
       {children}
@@ -737,7 +849,7 @@ function ButtonShowcase({ label, children }: { label: string; children: React.Re
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 'var(--rmg-text-c2)',
           lineHeight: 'var(--rmg-leading-c2)',
-          color: 'var(--rmg-color-text-light)',
+          color: dark ? 'rgba(255,255,255,0.6)' : 'var(--rmg-color-text-light)',
         }}
       >
         {label}

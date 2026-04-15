@@ -44,6 +44,7 @@ const rmgPreset: Partial<Config> = {
           /* Primary accents */
           'warm-red':   'var(--rmg-color-warm-red)',
           'bright-red': 'var(--rmg-color-bright-red)',
+          'deep-red':   'var(--rmg-color-deep-red)',
           pink:         'var(--rmg-color-pink)',
           orange:       'var(--rmg-color-orange)',
 
