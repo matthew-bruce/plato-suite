@@ -179,6 +179,14 @@ const rmgPreset: Partial<Config> = {
         'rmg-megamenu': 'var(--rmg-shadow-megamenu)',
         'rmg-header':   'var(--rmg-shadow-header)',
       },
+
+      borderRadius: {
+        'rmg-xs':  'var(--rmg-radius-xs)',
+        'rmg-s':   'var(--rmg-radius-s)',
+        'rmg-m':   'var(--rmg-radius-m)',
+        'rmg-l':   'var(--rmg-radius-l)',
+        'rmg-xl':  'var(--rmg-radius-xl)',
+      },
     },
   },
 }
