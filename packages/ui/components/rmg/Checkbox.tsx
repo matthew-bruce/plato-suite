@@ -37,51 +37,37 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     const id = useId()
     const isControlled = checked !== undefined
     const [internalChecked, setInternalChecked] = useState(defaultChecked)
+    const [isFocused, setIsFocused] = useState(false)
     const isChecked = isControlled ? checked : internalChecked
 
     const isError = state === 'error'
     const isSuccess = state === 'success'
     const showCheckmark = isSuccess || (!disabled && isChecked)
+    const checkStroke = isSuccess ? 'var(--rmg-color-green-contrast)' : 'var(--rmg-color-white)'
 
-    const checkStroke = isSuccess
-      ? 'var(--rmg-color-green-contrast)'
-      : 'var(--rmg-color-white)'
-
-    // Box visual styles
-    const boxStyle: React.CSSProperties = disabled
-      ? {
-          backgroundColor: 'var(--rmg-color-grey-2)',
-          borderColor: 'var(--rmg-color-grey-1)',
-        }
-      : isSuccess
-      ? {
-          backgroundColor: 'var(--rmg-color-tint-success)',
-          borderColor: 'transparent',
-        }
-      : isError
-      ? {
-          backgroundColor: 'var(--rmg-color-white)',
-          borderColor: 'var(--rmg-color-red)',
-        }
-      : isChecked
-      ? {
-          backgroundColor: 'var(--rmg-color-red)',
-          borderColor: 'var(--rmg-color-red)',
-        }
-      : {
-          backgroundColor: 'var(--rmg-color-white)',
-          borderColor: 'var(--rmg-color-dark-grey)',
-        }
-
-    const labelSize =
-      size === 'large'
-        ? 'text-[length:var(--rmg-text-b2)] leading-[var(--rmg-leading-b2)]'
-        : 'text-[length:var(--rmg-text-c1)] leading-[var(--rmg-leading-c1)]'
-
-    const errorTextSize =
-      size === 'large'
-        ? 'text-[length:var(--rmg-text-c1)] leading-[var(--rmg-leading-c1)]'
-        : 'text-[length:var(--rmg-text-c2)] leading-[var(--rmg-leading-c2)]'
+    const boxStyle: React.CSSProperties = {
+      width: 24,
+      height: 24,
+      borderRadius: 'var(--rmg-radius-xs)',
+      border: '1px solid',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+      transition: 'background-color 150ms, border-color 150ms',
+      outline: isFocused ? '2px solid var(--rmg-color-dark-grey)' : 'none',
+      outlineOffset: 2,
+      pointerEvents: 'none',
+      ...(disabled
+        ? { backgroundColor: 'var(--rmg-color-grey-2)', borderColor: 'var(--rmg-color-grey-1)' }
+        : isSuccess
+        ? { backgroundColor: 'var(--rmg-color-tint-success)', borderColor: 'transparent' }
+        : isError
+        ? { backgroundColor: 'var(--rmg-color-white)', borderColor: 'var(--rmg-color-red)' }
+        : isChecked
+        ? { backgroundColor: 'var(--rmg-color-red)', borderColor: 'var(--rmg-color-red)' }
+        : { backgroundColor: 'var(--rmg-color-white)', borderColor: 'var(--rmg-color-dark-grey)' }),
+    }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!isControlled) setInternalChecked(e.target.checked)
@@ -89,21 +75,14 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     }
 
     return (
-      <div
-        className={`inline-flex flex-col items-start ${className ?? ''}`}
-      >
+      <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }} className={className}>
         <label
           htmlFor={id}
-          className={`inline-flex items-center select-none ${
-            disabled ? 'cursor-not-allowed' : 'cursor-pointer'
-          }`}
+          style={{ display: 'inline-flex', alignItems: 'center', cursor: disabled ? 'not-allowed' : 'pointer', userSelect: 'none' }}
         >
           {/* 44×44 touch target */}
-          <span className="relative flex w-[44px] h-[44px] shrink-0 items-center justify-center">
-            {/*
-              Input fills the full touch target and is invisible.
-              It must be FIRST so peer-* classes work on the following sibling.
-            */}
+          <span style={{ position: 'relative', display: 'flex', width: 44, height: 44, flexShrink: 0, alignItems: 'center', justifyContent: 'center' }}>
+            {/* Input fills the touch target invisibly — inline styles because Tailwind does not scan packages/ui */}
             <input
               ref={ref}
               id={id}
@@ -112,51 +91,52 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               defaultChecked={!isControlled ? defaultChecked : undefined}
               disabled={disabled}
               onChange={handleChange}
-              className="sr-only peer"
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
               aria-invalid={isError || undefined}
+              style={{
+                position: 'absolute',
+                opacity: 0,
+                width: '100%',
+                height: '100%',
+                top: 0,
+                left: 0,
+                margin: 0,
+                padding: 0,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                zIndex: 1,
+              }}
             />
-
-            {/* Visual box — direct sibling of input, peer-focus-visible works here */}
-            <span
-              className="w-6 h-6 rounded-[var(--rmg-radius-xs)] border flex items-center justify-center pointer-events-none transition-[border-color,background-color] duration-150 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--rmg-color-dark-grey)]"
-              style={boxStyle}
-              aria-hidden="true"
-            >
+            {/* Visual box */}
+            <span style={boxStyle} aria-hidden="true">
               <svg
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
-                className={`transition-opacity duration-150 ${showCheckmark ? 'opacity-100' : 'opacity-0'}`}
+                style={{ opacity: showCheckmark ? 1 : 0, transition: 'opacity 150ms' }}
                 aria-hidden="true"
               >
-                <path
-                  d={CHECKMARK_PATH}
-                  stroke={checkStroke}
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d={CHECKMARK_PATH} stroke={checkStroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
           </span>
 
           {/* Label */}
-          <span
-            className={`font-body ${labelSize} ${
-              disabled
-                ? 'text-[var(--rmg-color-grey-1)]'
-                : 'text-[var(--rmg-color-text-heading)]'
-            }`}
-          >
+          <span style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: size === 'large' ? 'var(--rmg-text-b2)' : 'var(--rmg-text-c1)',
+            lineHeight: size === 'large' ? 'var(--rmg-leading-b2)' : 'var(--rmg-leading-c1)',
+            color: disabled ? 'var(--rmg-color-grey-1)' : 'var(--rmg-color-text-heading)',
+          }}>
             {label}
           </span>
         </label>
 
-        {/* Error message — only when state=error and errorMessage provided */}
+        {/* Error message */}
         {isError && errorMessage && !disabled && (
-          <div className="flex items-center gap-[6px] pl-[10px] mt-0">
+          <div style={{ display: 'flex', alignItems: 'center', gap: size === 'large' ? 6 : 4, paddingLeft: 10 }}>
             {size === 'large' ? (
               <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <circle cx="8.5" cy="8.5" r="8" stroke="var(--rmg-color-red)" strokeLinecap="round" strokeLinejoin="round"/>
@@ -168,7 +148,12 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
                 <path fillRule="evenodd" clipRule="evenodd" d="M7.1852 4.1468C7.1852 4.4996 6.8996 4.7852 6.5384 4.7852C6.1856 4.7852 5.9 4.4996 5.9 4.1468C5.9 3.7856 6.1856 3.5 6.5384 3.5C6.8996 3.5 7.1852 3.7856 7.1852 4.1468ZM7.1096 9.2456C7.1096 9.5564 6.8576 9.8084 6.5384 9.8084C6.236 9.8084 5.9756 9.5564 5.9756 9.2456V5.9108C5.9756 5.6 6.236 5.3396 6.5384 5.3396C6.8576 5.3396 7.1096 5.6 7.1096 5.9108V9.2456Z" fill="var(--rmg-color-red)"/>
               </svg>
             )}
-            <span className={`font-body ${errorTextSize} text-[var(--rmg-color-red)]`}>
+            <span style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: size === 'large' ? 'var(--rmg-text-c1)' : 'var(--rmg-text-c2)',
+              lineHeight: size === 'large' ? 'var(--rmg-leading-c1)' : 'var(--rmg-leading-c2)',
+              color: 'var(--rmg-color-red)',
+            }}>
               {errorMessage}
             </span>
           </div>
