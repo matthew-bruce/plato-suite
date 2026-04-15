@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Tabs } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Stepper, Tabs } from '@plato/ui/components/rmg'
 
 function TabsDesktopDemo() {
   const [active, setActive] = useState('tracked')
@@ -35,6 +35,48 @@ function TabsMobileDemo() {
         { id: 'guaranteed', label: 'Guaranteed' },
       ]}
     />
+  )
+}
+
+const DEMO_STEPS = [
+  { label: 'Select options' },
+  { label: 'Provide details' },
+  { label: 'Send item' },
+  { label: 'Payment' },
+  { label: 'Confirmation' },
+]
+
+function StepperDemo() {
+  const [current, setCurrent] = useState(3)
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex gap-3 items-center">
+        <span className="font-body text-b3 text-[var(--rmg-color-text-light)]">
+          Current step:
+        </span>
+        {DEMO_STEPS.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => setCurrent(i + 1)}
+            className={`w-8 h-8 rounded-full text-sm font-bold border ${
+              current === i + 1
+                ? 'bg-[var(--rmg-color-red)] text-white border-transparent'
+                : 'bg-white text-[var(--rmg-color-text-heading)] border-[var(--rmg-color-grey-2)]'
+            }`}
+          >
+            {i + 1}
+          </button>
+        ))}
+      </div>
+      <div style={{ margin: '0 calc(-1 * var(--rmg-spacing-07))' }}>
+        <Stepper
+          steps={DEMO_STEPS}
+          currentStep={current}
+          processTitle="Send your item"
+          paddingX={32}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -651,6 +693,11 @@ export default function DesignSystemPage() {
           </FieldShowcase>
         </div>
 
+      </Section>
+
+      {/* ── STEPPER ────────────────────────────────────────────────── */}
+      <Section title="Stepper">
+        <StepperDemo />
       </Section>
 
       {/* ── TABS ───────────────────────────────────────────────────── */}
