@@ -218,3 +218,19 @@
     --rmg-leading-h7: 28px;  /* ~ */
   }
 }
+
+/* ==========================================================
+   TOKENS PENDING DESIGN SYSTEM CONFIRMATION
+   ========================================================== */
+
+/*
+  Focus ring colour — the Figma Checkbox spec shows #4C33E6 (purple/indigo)
+  as the focus ring. This is not in the RMG palette and appears to be a
+  Figma accessibility annotation placeholder.
+
+  Until confirmed by the RMG design team, all interactive components use
+  --rmg-color-dark-grey (#404044) as the focus outline colour.
+
+  Ticket: confirm with RMG DS team — what is the canonical focus ring token?
+  Candidate: add --rmg-color-focus: <confirmed value> once agreed.
+*/
