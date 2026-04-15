@@ -1,0 +1,8 @@
+{
+  "name": "@plato/ui",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "@types/react": "^18.0.0"
+  }
+}
