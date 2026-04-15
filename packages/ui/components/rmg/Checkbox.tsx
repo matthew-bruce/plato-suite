@@ -89,10 +89,8 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     }
 
     return (
-      // TODO: add --rmg-color-tint-success: #E0EDD6 to packages/config/tokens/rmg.css
       <div
         className={`inline-flex flex-col items-start ${className ?? ''}`}
-        style={{ '--rmg-color-tint-success': '#E0EDD6' } as React.CSSProperties}
       >
         <label
           htmlFor={id}
