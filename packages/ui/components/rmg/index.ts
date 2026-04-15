@@ -1,3 +1,6 @@
+export { Checkbox } from './Checkbox'
+export type { CheckboxProps, CheckboxSize, CheckboxState } from './Checkbox'
+
 export { ChevronButton } from './ChevronButton'
 export type { ChevronButtonProps } from './ChevronButton'
 

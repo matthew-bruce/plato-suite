@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronButton, FormField } from '@plato/ui/components/rmg'
+import { Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
 
 export default function DesignSystemPage() {
   return (
@@ -390,6 +390,49 @@ export default function DesignSystemPage() {
           </FieldShowcase>
           <FieldShowcase label="date">
             <FormField size="small" label="Delivery date" type="date" />
+          </FieldShowcase>
+        </div>
+
+      </Section>
+
+      {/* ── CHECKBOX ───────────────────────────────────────────────── */}
+      <Section title="Checkbox">
+
+        <ComponentSubheading>Large</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <FieldShowcase label="default">
+            <Checkbox label="Default" size="large" />
+          </FieldShowcase>
+          <FieldShowcase label="checked">
+            <Checkbox label="Checked" size="large" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <Checkbox label="Disabled" size="large" disabled />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <Checkbox label="Error" size="large" state="error" errorMessage="Error message" />
+          </FieldShowcase>
+          <FieldShowcase label="success">
+            <Checkbox label="Success" size="large" state="success" defaultChecked />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Small</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)' }}>
+          <FieldShowcase label="default">
+            <Checkbox label="Default" size="small" />
+          </FieldShowcase>
+          <FieldShowcase label="checked">
+            <Checkbox label="Checked" size="small" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <Checkbox label="Disabled" size="small" disabled />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <Checkbox label="Error" size="small" state="error" errorMessage="Error message" />
+          </FieldShowcase>
+          <FieldShowcase label="success">
+            <Checkbox label="Success" size="small" state="success" defaultChecked />
           </FieldShowcase>
         </div>
 
