@@ -1,3 +1,7 @@
+'use client'
+
+import { ChevronButton, FormField } from '@plato/ui/components/rmg'
+
 export default function DesignSystemPage() {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)' }}>
@@ -279,6 +283,118 @@ export default function DesignSystemPage() {
         </div>
       </Section>
 
+      {/* ── CHEVRON BUTTON ─────────────────────────────────────────── */}
+      <Section title="ChevronButton">
+
+        <ComponentSubheading>Large (64 × 64 px)</ComponentSubheading>
+        <div style={{ display: 'flex', gap: 'var(--rmg-spacing-08)', flexWrap: 'wrap', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <ButtonShowcase label="active · left">
+            <ChevronButton size="large" direction="left" state="active" />
+          </ButtonShowcase>
+          <ButtonShowcase label="active · right">
+            <ChevronButton size="large" direction="right" state="active" />
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled · left">
+            <ChevronButton size="large" direction="left" state="disabled" />
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled · right">
+            <ChevronButton size="large" direction="right" state="disabled" />
+          </ButtonShowcase>
+        </div>
+
+        <ComponentSubheading>Small (48 × 48 px)</ComponentSubheading>
+        <div style={{ display: 'flex', gap: 'var(--rmg-spacing-08)', flexWrap: 'wrap' }}>
+          <ButtonShowcase label="active · left">
+            <ChevronButton size="small" direction="left" state="active" />
+          </ButtonShowcase>
+          <ButtonShowcase label="active · right">
+            <ChevronButton size="small" direction="right" state="active" />
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled · left">
+            <ChevronButton size="small" direction="left" state="disabled" />
+          </ButtonShowcase>
+          <ButtonShowcase label="disabled · right">
+            <ChevronButton size="small" direction="right" state="disabled" />
+          </ButtonShowcase>
+        </div>
+
+      </Section>
+
+      {/* ── FORM FIELD ─────────────────────────────────────────────── */}
+      <Section title="FormField">
+
+        <ComponentSubheading>Large — Variants</ComponentSubheading>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-09)' }}>
+          <FieldShowcase label="default · empty">
+            <FormField size="large" label="Postcode" type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+          <FieldShowcase label="default · filled">
+            <FormField size="large" label="Postcode" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="validated">
+            <FormField size="large" label="Postcode" variant="validated" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <FormField size="large" label="Postcode" variant="error" type="text" defaultValue="SW1X" errorMessage="Enter a valid UK postcode" />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <FormField size="large" label="Postcode" variant="disabled" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="required">
+            <FormField size="large" label="Postcode" required type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Large — Types</ComponentSubheading>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-09)' }}>
+          <FieldShowcase label="text">
+            <FormField size="large" label="Postcode" type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+          <FieldShowcase label="dropdown">
+            <FormField size="large" label="Parcel type" type="dropdown" placeholder="Select parcel type" />
+          </FieldShowcase>
+          <FieldShowcase label="date">
+            <FormField size="large" label="Delivery date" type="date" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Small — Variants</ComponentSubheading>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--rmg-spacing-07)', marginBottom: 'var(--rmg-spacing-09)' }}>
+          <FieldShowcase label="default · empty">
+            <FormField size="small" label="Postcode" type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+          <FieldShowcase label="default · filled">
+            <FormField size="small" label="Postcode" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="validated">
+            <FormField size="small" label="Postcode" variant="validated" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <FormField size="small" label="Postcode" variant="error" type="text" defaultValue="SW1X" errorMessage="Enter a valid UK postcode" />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <FormField size="small" label="Postcode" variant="disabled" type="text" defaultValue="SW1A 2AA" />
+          </FieldShowcase>
+          <FieldShowcase label="required">
+            <FormField size="small" label="Postcode" required type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Small — Types</ComponentSubheading>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--rmg-spacing-07)' }}>
+          <FieldShowcase label="text">
+            <FormField size="small" label="Postcode" type="text" placeholder="e.g. EC1A 1BB" />
+          </FieldShowcase>
+          <FieldShowcase label="dropdown">
+            <FormField size="small" label="Parcel type" type="dropdown" placeholder="Select parcel type" />
+          </FieldShowcase>
+          <FieldShowcase label="date">
+            <FormField size="small" label="Delivery date" type="date" />
+          </FieldShowcase>
+        </div>
+
+      </Section>
+
       {/* ── SHADOWS ────────────────────────────────────────────────── */}
       <Section title="Shadows">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)' }}>
@@ -546,6 +662,64 @@ function TypeSample({
           {leadToken}
         </div>
       </div>
+    </div>
+  )
+}
+
+function ComponentSubheading({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontFamily: 'var(--rmg-font-body)',
+        fontSize: 'var(--rmg-text-c1)',
+        lineHeight: 'var(--rmg-leading-c1)',
+        fontWeight: 700,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase' as const,
+        color: 'var(--rmg-color-text-light)',
+        marginBottom: 'var(--rmg-spacing-05)',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function ButtonShowcase({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--rmg-spacing-03)' }}>
+      {children}
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          color: 'var(--rmg-color-text-light)',
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function FieldShowcase({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-02)' }}>
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase' as const,
+          color: 'var(--rmg-color-text-light)',
+        }}
+      >
+        {label}
+      </span>
+      {children}
     </div>
   )
 }
