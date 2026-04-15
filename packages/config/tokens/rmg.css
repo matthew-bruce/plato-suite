@@ -1,0 +1,209 @@
+/**
+ * Royal Mail Group Design System — CSS Custom Properties
+ *
+ * Source: Figma "RM-Design-System" (5DoXLKL4LncAx5JKqWGWYm)
+ * Pages extracted: Colours, Typography, Spacing, Effects, Grid
+ * Extracted: 2026-04-15
+ *
+ * All tokens are prefixed --rmg- to avoid collisions.
+ * Typography font-size and line-height variables are responsive:
+ *   base = mobile (<768px), @768px = tablet, @1200px = desktop.
+ * Line heights marked [~] are estimated from the documented ratio pattern
+ * (confirmed values come directly from Figma variable bindings).
+ */
+
+/* ============================================================
+   BASE — mobile-first defaults apply to all breakpoints
+   ============================================================ */
+:root {
+
+  /* ----------------------------------------------------------
+     COLOURS — Core brand
+     ---------------------------------------------------------- */
+  --rmg-color-red:    #DA202A; /* Royal Mail Red — primary brand */
+  --rmg-color-yellow: #FDDA24; /* Dynamic Yellow */
+  --rmg-color-white:  #FFFFFF;
+
+  /* ----------------------------------------------------------
+     COLOURS — Primary accents
+     ---------------------------------------------------------- */
+  --rmg-color-warm-red:   #B70D12;
+  --rmg-color-bright-red: #E63338;
+  --rmg-color-pink:       #F4AEBA;
+  --rmg-color-orange:     #F3920D;
+
+  /* ----------------------------------------------------------
+     COLOURS — Secondary accents / greys
+     ---------------------------------------------------------- */
+  --rmg-color-black:          #2A2A2D;
+  --rmg-color-dark-grey:      #404044;
+  --rmg-color-grey-1:         #8F9495;
+  --rmg-color-grey-2:         #D5D5D5;
+  --rmg-color-grey-3:         #EEEEEE;
+  --rmg-color-grey-4:         #F5F5F5;
+  --rmg-color-grey-300:       #D9D9D9; /* raw/grey/300 */
+  --rmg-color-brand-black:    #2A2A2A; /* brand/black — slightly warmer than --rmg-color-black */
+
+  /* ----------------------------------------------------------
+     COLOURS — Secondary accents / functional
+     ---------------------------------------------------------- */
+  --rmg-color-blue:           #0892CB; /* Positive Blue */
+  --rmg-color-green:          #62A531; /* Go Green */
+  --rmg-color-green-contrast: #008A00; /* Go Green — accessible contrast variant */
+
+  /* ----------------------------------------------------------
+     COLOURS — Tints (light-mode background fills)
+     ---------------------------------------------------------- */
+  --rmg-color-tint-yellow: #FEEB87;
+  --rmg-color-tint-orange: #FFBD80;
+  --rmg-color-tint-pink:   #F9CFD6;
+  --rmg-color-tint-green:  #C1E3C1;
+  --rmg-color-tint-red:    #F8E7E7;
+
+  /* ----------------------------------------------------------
+     COLOURS — Surface / utility
+     ---------------------------------------------------------- */
+  --rmg-color-surface-white: #FFFFFF;
+  --rmg-color-surface-light: #F1F2F5; /* Light/$light */
+
+  /* ----------------------------------------------------------
+     COLOURS — Semantic text, light mode
+     ---------------------------------------------------------- */
+  --rmg-color-text-heading: #2A2A2D;
+  --rmg-color-text-body:    #333333;
+  --rmg-color-text-light:   #666666;
+  --rmg-color-text-accent:  #DA202A;
+
+  /* ----------------------------------------------------------
+     COLOURS — Semantic text, dark mode
+     (intended for use on dark / RM-Red / Go-Green backgrounds)
+     ---------------------------------------------------------- */
+  --rmg-color-text-dark-heading: #FFFFFF;
+  --rmg-color-text-dark-accent:  #FDDA24;
+
+  /* ----------------------------------------------------------
+     TYPOGRAPHY — Font families
+     ---------------------------------------------------------- */
+  --rmg-font-display: "RM First Class", serif;
+  --rmg-font-body:    "PF DinText Std", "PF DINText Std", sans-serif;
+
+  /* ----------------------------------------------------------
+     TYPOGRAPHY — Font sizes, mobile (<768px)
+     ---------------------------------------------------------- */
+  --rmg-text-d1: 48px;
+  --rmg-text-d2: 48px;
+  --rmg-text-h1: 40px;
+  --rmg-text-h2: 34px;
+  --rmg-text-h3: 30px;
+  --rmg-text-h4: 30px;
+  --rmg-text-h5: 26px;
+  --rmg-text-h6: 26px;
+  --rmg-text-h7: 22px;
+  /* Body and caption do not change across breakpoints */
+  --rmg-text-b1: 22px;
+  --rmg-text-b2: 18px;
+  --rmg-text-b3: 16px;
+  --rmg-text-c1: 14px;
+  --rmg-text-c2: 12px;
+
+  /* ----------------------------------------------------------
+     TYPOGRAPHY — Line heights, mobile (<768px)
+     ---------------------------------------------------------- */
+  --rmg-leading-d1: 54px;  /* ~ */
+  --rmg-leading-d2: 54px;  /* ~ */
+  --rmg-leading-h1: 46px;  /* ~ */
+  --rmg-leading-h2: 40px;  /* ~ */
+  --rmg-leading-h3: 36px;  /* ~ */
+  --rmg-leading-h4: 36px;  /* ~ */
+  --rmg-leading-h5: 34px;  /* confirmed (same size as documented H6) */
+  --rmg-leading-h6: 34px;  /* confirmed */
+  --rmg-leading-h7: 28px;  /* ~ */
+  /* Body / caption line heights are fixed across all breakpoints */
+  --rmg-leading-b1: 28px;  /* confirmed */
+  --rmg-leading-b2: 24px;  /* confirmed */
+  --rmg-leading-b3: 22px;  /* confirmed */
+  --rmg-leading-c1: 18px;  /* ~ */
+  --rmg-leading-c2: 16px;  /* ~ */
+
+  /* ----------------------------------------------------------
+     SPACING — RM scale (spacing-01 … spacing-13)
+     Source: Spacing page
+     ---------------------------------------------------------- */
+  --rmg-spacing-01:   4px;
+  --rmg-spacing-02:   8px;
+  --rmg-spacing-03:  12px;
+  --rmg-spacing-04:  16px;
+  --rmg-spacing-05:  20px;
+  --rmg-spacing-06:  24px;
+  --rmg-spacing-07:  32px;
+  --rmg-spacing-08:  40px;
+  --rmg-spacing-09:  48px;
+  --rmg-spacing-10:  64px;
+  --rmg-spacing-11:  80px;
+  --rmg-spacing-12:  96px;
+  --rmg-spacing-13: 128px;
+
+  /* ----------------------------------------------------------
+     SHADOWS / ELEVATION
+     Source: Effects page
+     ---------------------------------------------------------- */
+  --rmg-shadow-card:     0 4px 56px 0 rgba(0, 0, 0, 0.08);  /* Card shadow — most common elevation */
+  --rmg-shadow-megamenu: 0 4px 16px 0 rgba(0, 0, 0, 0.20);  /* Megamenu / nav dropdown */
+  --rmg-shadow-header:   0 2px 12px 0 rgba(0, 0, 0, 0.08);  /* Main nav / header bar */
+}
+
+/* ============================================================
+   TABLET — 768px and above
+   Typography scale: 768px – 1199px column from Typography page
+   ============================================================ */
+@media (min-width: 768px) {
+  :root {
+    --rmg-text-d1: 72px;
+    --rmg-text-d2: 60px;
+    --rmg-text-h1: 48px;
+    --rmg-text-h2: 40px;
+    --rmg-text-h3: 34px;
+    --rmg-text-h4: 30px;
+    --rmg-text-h5: 30px;
+    --rmg-text-h6: 26px;
+    --rmg-text-h7: 22px;
+
+    --rmg-leading-d1: 76px;  /* ~ */
+    --rmg-leading-d2: 64px;  /* ~ */
+    --rmg-leading-h1: 54px;  /* confirmed (desktop H2 ratio) */
+    --rmg-leading-h2: 46px;  /* ~ */
+    --rmg-leading-h3: 40px;  /* ~ */
+    --rmg-leading-h4: 36px;  /* ~ */
+    --rmg-leading-h5: 36px;  /* ~ */
+    --rmg-leading-h6: 34px;  /* confirmed */
+    --rmg-leading-h7: 28px;  /* ~ */
+  }
+}
+
+/* ============================================================
+   DESKTOP — 1200px and above
+   Typography scale: 1200px+ column from Typography page
+   ============================================================ */
+@media (min-width: 1200px) {
+  :root {
+    --rmg-text-d1: 90px;
+    --rmg-text-d2: 72px;
+    --rmg-text-h1: 60px;
+    --rmg-text-h2: 48px;
+    --rmg-text-h3: 40px;
+    --rmg-text-h4: 34px;
+    --rmg-text-h5: 30px;
+    --rmg-text-h6: 26px;
+    --rmg-text-h7: 22px;
+
+    --rmg-leading-d1: 94px;  /* confirmed */
+    --rmg-leading-d2: 76px;  /* ~ */
+    --rmg-leading-h1: 64px;  /* confirmed */
+    --rmg-leading-h2: 54px;  /* confirmed */
+    --rmg-leading-h3: 46px;  /* ~ */
+    --rmg-leading-h4: 40px;  /* ~ */
+    --rmg-leading-h5: 36px;  /* ~ */
+    --rmg-leading-h6: 34px;  /* confirmed */
+    --rmg-leading-h7: 28px;  /* ~ */
+  }
+}
