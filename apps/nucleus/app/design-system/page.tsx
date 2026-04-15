@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField } from '@plato/ui/components/rmg'
 
 export default function DesignSystemPage() {
   return (
@@ -280,6 +280,21 @@ export default function DesignSystemPage() {
               </span>
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* ── BREADCRUMB ─────────────────────────────────────────────── */}
+      <Section title="Breadcrumb">
+        {/* Negative margin breaks the full-bleed bar out of the page's 32px horizontal padding */}
+        <div style={{ margin: '0 calc(-1 * var(--rmg-spacing-07))' }}>
+          <Breadcrumb
+            paddingX={32}
+            items={[
+              { label: 'Personal', href: '/' },
+              { label: 'Sending', href: '/sending' },
+              { label: 'Letters & parcels' },
+            ]}
+          />
         </div>
       </Section>
 

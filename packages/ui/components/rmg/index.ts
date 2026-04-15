@@ -1,3 +1,6 @@
+export { Breadcrumb } from './Breadcrumb'
+export type { BreadcrumbProps, BreadcrumbItem } from './Breadcrumb'
+
 export { Button } from './Button'
 export type { ButtonProps, ButtonVariant, ButtonSize, ButtonBackground } from './Button'
 
