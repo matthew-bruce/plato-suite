@@ -112,7 +112,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               defaultChecked={!isControlled ? defaultChecked : undefined}
               disabled={disabled}
               onChange={handleChange}
-              className="peer absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
+              className="sr-only peer"
               aria-invalid={isError || undefined}
             />
 
