@@ -107,17 +107,17 @@ const rmgPreset: Partial<Config> = {
          -------------------------------------------------------- */
       fontSize: {
         /* Display — RM First Class */
-        'd1': ['var(--rmg-text-d1)', { lineHeight: 'var(--rmg-leading-d1)', fontFamily: 'var(--rmg-font-display)' }],
-        'd2': ['var(--rmg-text-d2)', { lineHeight: 'var(--rmg-leading-d2)', fontFamily: 'var(--rmg-font-display)' }],
+        'd1': ['var(--rmg-text-d1)', { lineHeight: 'var(--rmg-leading-d1)' }],
+        'd2': ['var(--rmg-text-d2)', { lineHeight: 'var(--rmg-leading-d2)' }],
 
         /* Headings — RM First Class */
-        'h1': ['var(--rmg-text-h1)', { lineHeight: 'var(--rmg-leading-h1)', fontFamily: 'var(--rmg-font-display)' }],
-        'h2': ['var(--rmg-text-h2)', { lineHeight: 'var(--rmg-leading-h2)', fontFamily: 'var(--rmg-font-display)' }],
-        'h3': ['var(--rmg-text-h3)', { lineHeight: 'var(--rmg-leading-h3)', fontFamily: 'var(--rmg-font-display)' }],
-        'h4': ['var(--rmg-text-h4)', { lineHeight: 'var(--rmg-leading-h4)', fontFamily: 'var(--rmg-font-display)' }],
-        'h5': ['var(--rmg-text-h5)', { lineHeight: 'var(--rmg-leading-h5)', fontFamily: 'var(--rmg-font-display)' }],
-        'h6': ['var(--rmg-text-h6)', { lineHeight: 'var(--rmg-leading-h6)', fontFamily: 'var(--rmg-font-display)' }],
-        'h7': ['var(--rmg-text-h7)', { lineHeight: 'var(--rmg-leading-h7)', fontFamily: 'var(--rmg-font-display)' }],
+        'h1': ['var(--rmg-text-h1)', { lineHeight: 'var(--rmg-leading-h1)' }],
+        'h2': ['var(--rmg-text-h2)', { lineHeight: 'var(--rmg-leading-h2)' }],
+        'h3': ['var(--rmg-text-h3)', { lineHeight: 'var(--rmg-leading-h3)' }],
+        'h4': ['var(--rmg-text-h4)', { lineHeight: 'var(--rmg-leading-h4)' }],
+        'h5': ['var(--rmg-text-h5)', { lineHeight: 'var(--rmg-leading-h5)' }],
+        'h6': ['var(--rmg-text-h6)', { lineHeight: 'var(--rmg-leading-h6)' }],
+        'h7': ['var(--rmg-text-h7)', { lineHeight: 'var(--rmg-leading-h7)' }],
 
         /* Body — PF DinText Std (fixed across breakpoints) */
         'b1': ['var(--rmg-text-b1)', { lineHeight: 'var(--rmg-leading-b1)' }],
