@@ -15,3 +15,6 @@ export type { FormFieldProps } from './FormField'
 
 export { Notification } from './Notification'
 export type { NotificationProps, NotificationStatus, NotificationVariant } from './Notification'
+
+export { Tabs } from './Tabs'
+export type { TabsProps, TabItem, TabsSize } from './Tabs'

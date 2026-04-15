@@ -1,6 +1,42 @@
 'use client'
 
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification } from '@plato/ui/components/rmg'
+import { useState } from 'react'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Tabs } from '@plato/ui/components/rmg'
+
+function TabsDesktopDemo() {
+  const [active, setActive] = useState('tracked')
+  return (
+    <Tabs
+      size="desktop"
+      activeId={active}
+      onChange={setActive}
+      items={[
+        { id: 'tracked',    label: 'Tracked' },
+        { id: 'returns',    label: 'Returns' },
+        { id: 'intl',       label: 'International' },
+        { id: 'guaranteed', label: 'Guaranteed' },
+        { id: 'marketing',  label: 'Marketing mail' },
+      ]}
+    />
+  )
+}
+
+function TabsMobileDemo() {
+  const [active, setActive] = useState('tracked')
+  return (
+    <Tabs
+      size="mobile"
+      activeId={active}
+      onChange={setActive}
+      items={[
+        { id: 'tracked',    label: 'Tracked' },
+        { id: 'returns',    label: 'Returns' },
+        { id: 'intl',       label: 'International' },
+        { id: 'guaranteed', label: 'Guaranteed' },
+      ]}
+    />
+  )
+}
 
 export default function DesignSystemPage() {
   return (
@@ -613,6 +649,21 @@ export default function DesignSystemPage() {
           <FieldShowcase label="success">
             <Checkbox label="Success" size="small" state="success" defaultChecked />
           </FieldShowcase>
+        </div>
+
+      </Section>
+
+      {/* ── TABS ───────────────────────────────────────────────────── */}
+      <Section title="Tabs">
+
+        <ComponentSubheading>Desktop + Tablet</ComponentSubheading>
+        <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
+          <TabsDesktopDemo />
+        </div>
+
+        <ComponentSubheading>Mobile</ComponentSubheading>
+        <div style={{ maxWidth: 375 }}>
+          <TabsMobileDemo />
         </div>
 
       </Section>
