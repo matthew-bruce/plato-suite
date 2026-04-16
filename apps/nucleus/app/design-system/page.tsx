@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, NavBar, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
 
 function TabsDesktopDemo() {
   const [active, setActive] = useState('tracked')
@@ -77,6 +77,25 @@ function StepperDemo() {
         />
       </div>
     </div>
+  )
+}
+
+const NAV_DEMO_ITEMS = [
+  { label: 'Personal', href: '#' },
+  { label: 'Business', active: true },
+  { label: 'Stamps & supplies', hasDropdown: true },
+  { label: 'Help & support' },
+]
+
+function NavBarLogoPlaceholder() {
+  return (
+    <svg width="108" height="36" viewBox="0 0 108 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Logo placeholder">
+      <rect width="108" height="36" rx="4" fill="#DA202A" />
+      <rect x="8" y="7" width="28" height="22" rx="2" fill="#FFFFFF" />
+      <rect x="8" y="16" width="92" height="4" fill="#DA202A" />
+      <rect x="44" y="10" width="56" height="5" rx="2" fill="#FFFFFF" opacity="0.9" />
+      <rect x="44" y="21" width="38" height="3" rx="1.5" fill="#FFFFFF" opacity="0.55" />
+    </svg>
   )
 }
 
@@ -755,6 +774,37 @@ export default function DesignSystemPage() {
 
         <ComponentSubheading>Group — mutual exclusivity</ComponentSubheading>
         <RadioGroupDemo />
+
+      </Section>
+
+      {/* ── NAVBAR ─────────────────────────────────────────────────── */}
+      <Section title="NavBar">
+
+        <ComponentSubheading>Logged out</ComponentSubheading>
+        <div style={{ margin: '0 calc(-1 * var(--rmg-spacing-07))', marginBottom: 'var(--rmg-spacing-06)' }}>
+          <NavBar
+            logoSlot={<NavBarLogoPlaceholder />}
+            items={NAV_DEMO_ITEMS}
+            variant="logged-out"
+            onCtaClick={() => {}}
+            onAuthClick={() => {}}
+            onSearchClick={() => {}}
+            onMenuOpen={() => {}}
+          />
+        </div>
+
+        <ComponentSubheading>Logged in</ComponentSubheading>
+        <div style={{ margin: '0 calc(-1 * var(--rmg-spacing-07))' }}>
+          <NavBar
+            logoSlot={<NavBarLogoPlaceholder />}
+            items={NAV_DEMO_ITEMS}
+            variant="logged-in"
+            onCtaClick={() => {}}
+            onAuthClick={() => {}}
+            onSearchClick={() => {}}
+            onMenuOpen={() => {}}
+          />
+        </div>
 
       </Section>
 
