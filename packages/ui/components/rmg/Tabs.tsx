@@ -92,8 +92,8 @@ export function Tabs({ items, activeId, onChange, size = 'desktop' }: TabsProps)
     return (
       <>
         <style>{`.rmg-tabs-scroll::-webkit-scrollbar{display:none}`}</style>
-        {/* Outer wrapper carries the pill shape — no overflow clipping */}
-        <div style={{ backgroundColor: 'var(--rmg-color-grey-3)', borderRadius: 100 }}>
+        {/* Outer wrapper uses inset box-shadow for pill appearance — avoids creating a clip boundary */}
+        <div style={{ boxShadow: 'inset 0 0 0 100px var(--rmg-color-grey-3)' }}>
           {/* Inner scroll container has no border-radius so chips are never clipped */}
           <div
             className="rmg-tabs-scroll"
@@ -101,7 +101,7 @@ export function Tabs({ items, activeId, onChange, size = 'desktop' }: TabsProps)
               display: 'flex',
               gap: 0,
               padding: 6,
-              paddingRight: 6,
+              paddingRight: '6px',
               overflowX: 'scroll',
               msOverflowStyle: 'none',
               scrollbarWidth: 'none',
