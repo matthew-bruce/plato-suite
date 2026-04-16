@@ -16,6 +16,9 @@ export type { FormFieldProps } from './FormField'
 export { Notification } from './Notification'
 export type { NotificationProps, NotificationStatus, NotificationVariant } from './Notification'
 
+export { Radio } from './Radio'
+export type { RadioProps, RadioSize, RadioState } from './Radio'
+
 export { Stepper } from './Stepper'
 export type { StepperProps, StepItem } from './Stepper'
 

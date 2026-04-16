@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Stepper, Tabs } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
 
 function TabsDesktopDemo() {
   const [active, setActive] = useState('tracked')
@@ -76,6 +76,17 @@ function StepperDemo() {
           paddingX={32}
         />
       </div>
+    </div>
+  )
+}
+
+function RadioGroupDemo() {
+  const [selected, setSelected] = useState('tracked')
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-01)' }}>
+      <Radio label="Tracked" size="large" name="demo-group" value="tracked" checked={selected === 'tracked'} onChange={setSelected} />
+      <Radio label="Express" size="large" name="demo-group" value="express" checked={selected === 'express'} onChange={setSelected} />
+      <Radio label="Standard" size="large" name="demo-group" value="standard" checked={selected === 'standard'} onChange={setSelected} />
     </div>
   )
 }
@@ -692,6 +703,58 @@ export default function DesignSystemPage() {
             <Checkbox label="Success" size="small" state="success" defaultChecked />
           </FieldShowcase>
         </div>
+
+      </Section>
+
+      {/* ── RADIO ──────────────────────────────────────────────────── */}
+      <Section title="Radio">
+
+        <ComponentSubheading>Large</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <FieldShowcase label="default">
+            <Radio label="Default" size="large" />
+          </FieldShowcase>
+          <FieldShowcase label="selected">
+            <Radio label="Selected" size="large" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <Radio label="Disabled" size="large" state="disabled" />
+          </FieldShowcase>
+          <FieldShowcase label="disabled · selected">
+            <Radio label="Disabled" size="large" state="disabled" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <Radio label="Error" size="large" state="error" errorMessage="Error message" />
+          </FieldShowcase>
+          <FieldShowcase label="success">
+            <Radio label="Success" size="large" state="success" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Small</ComponentSubheading>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-08)', marginBottom: 'var(--rmg-spacing-08)' }}>
+          <FieldShowcase label="default">
+            <Radio label="Default" size="small" />
+          </FieldShowcase>
+          <FieldShowcase label="selected">
+            <Radio label="Selected" size="small" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <Radio label="Disabled" size="small" state="disabled" />
+          </FieldShowcase>
+          <FieldShowcase label="disabled · selected">
+            <Radio label="Disabled" size="small" state="disabled" defaultChecked />
+          </FieldShowcase>
+          <FieldShowcase label="error">
+            <Radio label="Error" size="small" state="error" errorMessage="Error message" />
+          </FieldShowcase>
+          <FieldShowcase label="success">
+            <Radio label="Success" size="small" state="success" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>Group — mutual exclusivity</ComponentSubheading>
+        <RadioGroupDemo />
 
       </Section>
 
