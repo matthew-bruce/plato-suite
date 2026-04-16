@@ -69,44 +69,50 @@ export function Tabs({ items, activeId, onChange, size = 'desktop' }: TabsProps)
     }
   }
 
-  const track = (
-    <div style={trackStyle}>
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="tab"
-          aria-selected={item.id === activeId}
-          style={getChipStyle(item.id)}
-          onClick={() => onChange(item.id)}
-          onMouseEnter={() => setHoveredId(item.id)}
-          onMouseLeave={() => setHoveredId(null)}
-          onFocus={() => setFocusedId(item.id)}
-          onBlur={() => setFocusedId(null)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
-  )
+  // Shared chip buttons — used in both desktop and mobile layouts
+  const chips = items.map((item) => (
+    <button
+      key={item.id}
+      type="button"
+      role="tab"
+      aria-selected={item.id === activeId}
+      style={getChipStyle(item.id)}
+      onClick={() => onChange(item.id)}
+      onMouseDown={(e) => e.preventDefault()}
+      onMouseEnter={() => setHoveredId(item.id)}
+      onMouseLeave={() => setHoveredId(null)}
+      onFocus={() => setFocusedId(item.id)}
+      onBlur={() => setFocusedId(null)}
+    >
+      {item.label}
+    </button>
+  ))
 
   if (size === 'mobile') {
     return (
       <>
         <style>{`.rmg-tabs-scroll::-webkit-scrollbar{display:none}`}</style>
-        <div
-          className="rmg-tabs-scroll"
-          style={{
-            overflowX: 'scroll',
-            msOverflowStyle: 'none',
-            scrollbarWidth: 'none',
-          } as React.CSSProperties}
-        >
-          {track}
+        {/* Outer wrapper carries the pill shape — no overflow clipping */}
+        <div style={{ backgroundColor: 'var(--rmg-color-grey-3)', borderRadius: 100 }}>
+          {/* Inner scroll container has no border-radius so chips are never clipped */}
+          <div
+            className="rmg-tabs-scroll"
+            style={{
+              display: 'flex',
+              gap: 0,
+              padding: 6,
+              paddingRight: 6,
+              overflowX: 'scroll',
+              msOverflowStyle: 'none',
+              scrollbarWidth: 'none',
+            } as React.CSSProperties}
+          >
+            {chips}
+          </div>
         </div>
       </>
     )
   }
 
-  return track
+  return <div style={trackStyle}>{chips}</div>
 }
