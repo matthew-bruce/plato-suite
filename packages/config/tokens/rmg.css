@@ -86,7 +86,7 @@
   /* ----------------------------------------------------------
      TYPOGRAPHY — Font families
      ---------------------------------------------------------- */
-  --rmg-font-display: "RM First Class", serif;
+  --rmg-font-display: "RM First Class", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --rmg-font-body:    "PF DinText Std", "PF DINText Std", sans-serif;
 
   /* ----------------------------------------------------------
