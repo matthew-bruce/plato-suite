@@ -7,9 +7,10 @@ export const dynamic = 'force-dynamic'
 export default async function PlatformDetailPage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
-  const platform = await getPlatformBySlug(params.slug)
+  const { slug } = await params
+  const platform = await getPlatformBySlug(slug)
   if (!platform) notFound()
   return <PlatformDetailView platform={platform} />
 }
