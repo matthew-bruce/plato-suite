@@ -56,6 +56,20 @@ export default function RootLayout({
             >
               Design System
             </Link>
+
+            <Link
+              href="/platforms"
+              style={{
+                color: 'var(--rmg-color-white)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-b3)',
+                lineHeight: 'var(--rmg-leading-b3)',
+                textDecoration: 'none',
+                opacity: 0.9,
+              }}
+            >
+              Platforms
+            </Link>
           </nav>
         </header>
 
