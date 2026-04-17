@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import Link from 'next/link'
 import type { PlatformRow } from '@/lib/supabase/platforms'
 
 type Props = {
@@ -97,12 +99,21 @@ export function PlatformsView({ platforms }: Props) {
 }
 
 function PlatformCard({ platform }: { platform: PlatformRow }) {
+  const [hovered, setHovered] = useState(false)
   return (
+    <Link
+      href={`/platforms/${platform.platform_slug}`}
+      style={{ textDecoration: 'none', display: 'block' }}
+    >
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         backgroundColor: 'var(--rmg-color-surface-white)',
         borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
+        boxShadow: hovered ? 'var(--rmg-shadow-megamenu)' : 'var(--rmg-shadow-card)',
+        transition: 'box-shadow 150ms ease',
+        cursor: 'pointer',
         padding: 'var(--rmg-spacing-07)',
         display: 'flex',
         flexDirection: 'column',
@@ -161,5 +172,6 @@ function PlatformCard({ platform }: { platform: PlatformRow }) {
         </p>
       )}
     </div>
+    </Link>
   )
 }
