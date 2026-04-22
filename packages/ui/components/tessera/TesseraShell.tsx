@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import {
   LayoutGrid,
   BookOpen,
+  ClipboardList,
+  Layers,
   Users,
   Star,
   Calendar,
@@ -37,6 +39,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     items: [
       { label: 'Dashboard', icon: LayoutGrid, href: '/' },
       { label: 'Domains', icon: BookOpen, href: '/domains' },
+      { label: 'Sessions', icon: ClipboardList, href: '/sessions' },
+      { label: 'App Groups', icon: Layers, href: '/groups' },
       { label: 'People', icon: Users, href: '/people' },
     ],
   },
