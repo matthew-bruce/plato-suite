@@ -59,7 +59,7 @@ export default async function DomainDetailPage({
   const { slug } = await params
 
   const { data: domain } = await supabase
-    .from('kt_domains')
+    .from('tessera_domains')
     .select('*')
     .eq('slug', slug)
     .maybeSingle()
@@ -71,17 +71,17 @@ export default async function DomainDetailPage({
   const [trackRes, ragRes, parkerMappingRes, allDomainsRes] = await Promise.all(
     [
       supabase
-        .from('kt_domain_track_content')
+        .from('tessera_domain_track_content')
         .select('id, track, field_type, content')
         .eq('domain_id', domainTyped.id)
         .order('track'),
-      supabase.from('kt_rag_scores').select('*').eq('domain_id', domainTyped.id),
+      supabase.from('tessera_rag_scores').select('*').eq('domain_id', domainTyped.id),
       supabase
-        .from('kt_domain_parker_mapping')
-        .select('kt_parker_questions(number, question)')
+        .from('tessera_domain_parker_mapping')
+        .select('tessera_parker_questions(number, question)')
         .eq('domain_id', domainTyped.id),
       supabase
-        .from('kt_domains')
+        .from('tessera_domains')
         .select('id, name, slug, display_order')
         .order('display_order'),
     ],
@@ -91,7 +91,7 @@ export default async function DomainDetailPage({
   const ragScores = (ragRes.data ?? []) as RagScore[]
 
   type ParkerJoinRow = {
-    kt_parker_questions:
+    tessera_parker_questions:
       | ParkerQuestion
       | ParkerQuestion[]
       | null
@@ -99,7 +99,7 @@ export default async function DomainDetailPage({
   const parkerQuestions: ParkerQuestion[] = ((parkerMappingRes.data ??
     []) as ParkerJoinRow[])
     .flatMap((row) => {
-      const q = row.kt_parker_questions
+      const q = row.tessera_parker_questions
       if (!q) return []
       return Array.isArray(q) ? q : [q]
     })

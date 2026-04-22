@@ -31,9 +31,9 @@ const TRIP_END = new Date('2026-05-01T23:59:59Z')
 
 export default async function Home() {
   const [domainsRes, ragRes, itineraryRes] = await Promise.all([
-    supabase.from('kt_domains').select('*').order('display_order'),
-    supabase.from('kt_rag_scores').select('domain_id, dimension, score'),
-    supabase.from('kt_itinerary_days').select('*').order('date'),
+    supabase.from('tessera_domains').select('*').order('display_order'),
+    supabase.from('tessera_rag_scores').select('domain_id, dimension, score'),
+    supabase.from('tessera_itinerary_days').select('*').order('date'),
   ])
 
   const domains = (domainsRes.data ?? []) as Domain[]
