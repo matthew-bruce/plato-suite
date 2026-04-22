@@ -13,7 +13,7 @@ type KtSession = {
   planned_date: string | null
   duration_hrs: number | null
   app_group_id: string | null
-  tessera_app_groups: { group_number: number; group_name: string } | null
+  tessera_app_groups: { group_number: number; group_name: string }[]
 }
 
 type AppGroup = {
@@ -101,7 +101,7 @@ export default async function SessionsPage({
   let sessions = allSessions
   if (groupFilter) {
     const gn = parseInt(groupFilter, 10)
-    sessions = sessions.filter((s) => s.tessera_app_groups?.group_number === gn)
+    sessions = sessions.filter((s) => s.tessera_app_groups[0]?.group_number === gn)
   }
   if (teamFilter === 'SERVICE' || teamFilter === 'SHARED') {
     sessions = sessions.filter((s) => s.team === teamFilter)
@@ -315,7 +315,7 @@ export default async function SessionsPage({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {sessions.map((session) => {
             const lead = leadMap.get(session.id) ?? null
-            const group = session.tessera_app_groups
+            const group = session.tessera_app_groups[0] ?? null
             const statusStyle =
               STATUS_STYLE[session.status] ?? STATUS_STYLE.SCHEDULED
             const borderColor = TEAM_COLOR[session.team] ?? 'var(--rmg-color-grey-3)'
