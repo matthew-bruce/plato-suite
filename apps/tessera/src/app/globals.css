@@ -4,7 +4,17 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
+:root {
+  --tessera-tcs-blue: #1565C0;
+  --tessera-cg-red: #E8382A;
+  --tessera-happy-blue: #4A9EFF;
+  --tessera-nh-amber: #F5A623;
+  --tessera-scoped-purple: #9B59B6;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
   font-family: var(--rmg-font-body);
   color: var(--rmg-color-text-body);
   background-color: var(--rmg-color-surface-light);
@@ -12,4 +22,8 @@ html {
 
 *, *::before, *::after {
   box-sizing: border-box;
+}
+
+a {
+  color: inherit;
 }
