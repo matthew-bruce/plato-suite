@@ -57,3 +57,17 @@ FROM (VALUES
   ('north-highland', 'Grant Bramley',    'Agile Coach',            'onshore', 'United Kingdom', 36)
 ) AS p(supplier_slug, rname, jtitle, rloc, rcountry, sorder)
 JOIN suppliers s ON s.supplier_slug = p.supplier_slug AND s.deleted_at IS NULL;
+
+-- ============================================================
+-- PATCH: Applied 22 Apr 2025 — factory team reconciliation
+-- ============================================================
+
+-- Corrections to original seed
+UPDATE resources SET resource_location = 'onshore', resource_country = 'United Kingdom'
+  WHERE resource_name = 'Amol Tate';
+UPDATE resources SET resource_name = 'Poornachandran Ramakrishnan'
+  WHERE resource_name = 'Ramakrisnan Poornachandran';
+
+-- New supplier: Lean Tree
+INSERT INTO suppliers (supplier_name, supplier_abbreviation, supplier_slug, supplier_colour, sort_order)
+VALUES ('Lean Tree', 'LT', 'lean-tree', '#607D8B', 8) ON CONFLICT DO NOTHING;
