@@ -204,6 +204,7 @@ function FieldRenderer({
         <div>
           <FieldBody
             item={item}
+            track={track}
             parkerQuestions={parkerQuestions}
           />
         </div>
@@ -235,14 +236,16 @@ function labelFor(fieldType: FieldType, track: 'A' | 'B'): string {
 
 function FieldBody({
   item,
+  track,
   parkerQuestions,
 }: {
   item: TrackContent
+  track: 'A' | 'B'
   parkerQuestions: ParkerQuestion[]
 }) {
   switch (item.field_type) {
     case 'smes':
-      return <SmesChips content={item.content} />
+      return <SmesChips content={item.content} track={track} />
     case 'extract_topics':
       return <PlainParagraph content={item.content} />
     case 'opening_question':
@@ -392,7 +395,7 @@ function CalloutField({ item }: { item: TrackContent }) {
   }
 }
 
-function SmesChips({ content }: { content: string }) {
+function SmesChips({ content, track }: { content: string; track: 'A' | 'B' }) {
   const names = content
     .split(',')
     .map((s) => s.trim())
@@ -406,7 +409,7 @@ function SmesChips({ content }: { content: string }) {
       }}
     >
       {names.map((name, i) => {
-        const { bg, fg } = supplierChipColours(name)
+        const { bg, fg } = supplierChipColours(name, track)
         return (
           <span
             key={`${name}-${i}`}
@@ -430,27 +433,28 @@ function SmesChips({ content }: { content: string }) {
   )
 }
 
-function supplierChipColours(name: string): { bg: string; fg: string } {
-  const n = name.toUpperCase()
-  if (/\bCG\b|\bCAPGEMINI\b/.test(n)) {
-    return { bg: 'var(--rmg-color-tint-red)', fg: 'var(--rmg-color-red)' }
+const RMG_NAMES = ['Justin Fox', 'Leopold Kwok', 'Justin', 'Leopold']
+const HT_NAMES = ['Jakub', 'Jan', 'Emil', 'Mateusz', 'Maciej']
+const NH_NAMES = ['Najam', 'James Taylor', 'Grant']
+
+function supplierChipColours(
+  name: string,
+  track: 'A' | 'B',
+): { bg: string; fg: string } {
+  const n = name.toLowerCase()
+  if (RMG_NAMES.some((s) => n.includes(s.toLowerCase()))) {
+    return { bg: 'var(--rmg-color-tint-green)', fg: 'var(--rmg-color-green-contrast)' }
   }
-  if (/\bRMG\b|\bROYAL MAIL\b/.test(n)) {
-    return {
-      bg: 'var(--rmg-color-tint-green)',
-      fg: 'var(--rmg-color-green-contrast)',
-    }
-  }
-  if (/\bHT\b|HAPPY TEAM/.test(n)) {
+  if (HT_NAMES.some((s) => n.includes(s.toLowerCase()))) {
     return { bg: 'rgba(74, 158, 255, 0.14)', fg: 'var(--tessera-happy-blue)' }
   }
-  if (/\bNH\b|NORTH HIGHLAND/.test(n)) {
+  if (NH_NAMES.some((s) => n.includes(s.toLowerCase()))) {
     return { bg: 'rgba(245, 166, 35, 0.14)', fg: 'var(--tessera-nh-amber)' }
   }
-  if (/\bTCS\b|\bTBC\b|TATA/.test(n)) {
+  if (track === 'B') {
     return { bg: 'rgba(155, 89, 182, 0.10)', fg: 'var(--tessera-scoped-purple)' }
   }
-  return { bg: 'rgba(155, 89, 182, 0.10)', fg: 'var(--tessera-scoped-purple)' }
+  return { bg: 'var(--rmg-color-tint-red)', fg: 'var(--rmg-color-red)' }
 }
 
 function PlainParagraph({ content }: { content: string }) {
