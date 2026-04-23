@@ -153,9 +153,9 @@ export default async function Home() {
       >
         <div
           style={{
-            maxWidth: 1280,
-            margin: '0 auto',
+            width: '100%',
             padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+            boxSizing: 'border-box',
           }}
         >
           {/* ── Header ── */}

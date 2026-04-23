@@ -47,8 +47,9 @@ export default async function DomainsPage() {
     <TesseraShell activeRoute="/domains">
       <div
         style={{
-          maxWidth: 1280,
+          width: '100%',
           padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          boxSizing: 'border-box',
         }}
       >
         <HeaderRow

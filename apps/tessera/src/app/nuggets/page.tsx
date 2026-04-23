@@ -24,8 +24,9 @@ export default async function NuggetsPage() {
     <TesseraShell activeRoute="/nuggets">
       <div
         style={{
-          maxWidth: 1280,
+          width: '100%',
           padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          boxSizing: 'border-box',
         }}
       >
         <div style={{ marginBottom: 'var(--rmg-spacing-07)' }}>
