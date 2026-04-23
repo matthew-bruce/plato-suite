@@ -40,7 +40,7 @@ export type SessionRef = {
 
 export type LeadRow = {
   resource_id: string
-  tessera_kt_sessions: SessionRef | SessionRef[] | null
+  tessera_kt_sessions: SessionRef | null
 }
 
 export default async function PeoplePage() {
