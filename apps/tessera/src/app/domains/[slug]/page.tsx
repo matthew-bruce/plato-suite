@@ -3,12 +3,17 @@ import { notFound } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { TesseraShell } from '@plato/ui/components/tessera'
 import { supabase } from '@/lib/supabase'
-import { RiskPill, type RiskLevel } from '@/components/RiskPill'
+import { type RiskLevel } from '@/components/RiskPill'
 import {
   DomainTrackPanel,
   type TrackContent,
   type ParkerQuestion,
 } from '@/components/DomainTrackPanel'
+import {
+  RISK_COLOURS,
+  buildSupplierMap,
+  type SupplierColourMap,
+} from '@plato/ui/tokens'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +56,11 @@ const DIMENSIONS: Array<{
 
 const BASELINE_EVIDENCE = 'Initial baseline — not yet assessed.'
 
+type SupplierRow = {
+  supplier_abbreviation: string
+  supplier_colour: string
+}
+
 export default async function DomainDetailPage({
   params,
 }: {
@@ -68,8 +78,8 @@ export default async function DomainDetailPage({
 
   const domainTyped = domain as Domain
 
-  const [trackRes, ragRes, parkerMappingRes, allDomainsRes, resourcesRes] = await Promise.all(
-    [
+  const [trackRes, ragRes, parkerMappingRes, allDomainsRes, resourcesRes, suppliersRes] =
+    await Promise.all([
       supabase
         .from('tessera_domain_track_content')
         .select('id, track, field_type, content')
@@ -87,8 +97,14 @@ export default async function DomainDetailPage({
       supabase
         .from('resources')
         .select('resource_name, suppliers(supplier_abbreviation)'),
-    ],
-  )
+      // Section 21: if this returns 0 rows silently, check RLS:
+      // SELECT tablename, policyname FROM pg_policies WHERE tablename = 'suppliers';
+      // Fix: CREATE POLICY "Open read" ON suppliers FOR SELECT USING (true);
+      supabase
+        .from('suppliers')
+        .select('supplier_abbreviation, supplier_colour')
+        .order('sort_order'),
+    ])
 
   const trackContent = (trackRes.data ?? []) as TrackContent[]
 
@@ -98,6 +114,7 @@ export default async function DomainDetailPage({
   }
   const allResources = (resourcesRes.data ?? []) as ResourceRow[]
 
+  // Maps SME display name → supplier abbreviation (for chip colour lookup)
   const smeSupplierMap: Record<string, string> = {}
   for (const item of trackContent) {
     if (item.field_type !== 'smes') continue
@@ -116,13 +133,17 @@ export default async function DomainDetailPage({
       }
     }
   }
+
+  // DB-loaded supplier colour map (abbreviation → hex). Falls back to token
+  // fallbacks in getSupplierColour() if the suppliers table returns no rows.
+  const supplierMap: SupplierColourMap = buildSupplierMap(
+    (suppliersRes.data ?? []) as SupplierRow[],
+  )
+
   const ragScores = (ragRes.data ?? []) as RagScore[]
 
   type ParkerJoinRow = {
-    tessera_parker_questions:
-      | ParkerQuestion
-      | ParkerQuestion[]
-      | null
+    tessera_parker_questions: ParkerQuestion | ParkerQuestion[] | null
   }
   const parkerQuestions: ParkerQuestion[] = ((parkerMappingRes.data ??
     []) as ParkerJoinRow[])
@@ -150,148 +171,195 @@ export default async function DomainDetailPage({
   const trackA = trackContent.filter((t) => t.track === 'A')
   const trackB = trackContent.filter((t) => t.track === 'B')
 
+  const riskColour =
+    domainTyped.risk_level != null ? RISK_COLOURS[domainTyped.risk_level] : null
+
   return (
     <TesseraShell activeRoute="/domains">
+      <style>{`
+        .ds-track-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: var(--rmg-spacing-06);
+          margin-top: var(--rmg-spacing-08);
+        }
+        @media (max-width: 768px) {
+          .ds-track-grid { grid-template-columns: 1fr; }
+        }
+      `}</style>
+
+      {/* Page shell — Section 7 */}
       <div
         style={{
-          maxWidth: 1280,
-          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          backgroundColor: 'var(--rmg-color-surface-light)',
+          minHeight: '100vh',
         }}
       >
-        <Link
-          href="/"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--rmg-spacing-02)',
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 'var(--rmg-text-c1)',
-            color: 'var(--rmg-color-text-light)',
-            textDecoration: 'none',
-            marginBottom: 'var(--rmg-spacing-05)',
-          }}
-        >
-          ← All domains
-        </Link>
-
         <div
           style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: 'var(--rmg-spacing-05)',
-            flexWrap: 'wrap',
+            maxWidth: 1280,
+            margin: '0 auto',
+            padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
           }}
         >
-          <div style={{ minWidth: 0, flex: 1 }}>
+          {/* Back link */}
+          <Link
+            href="/domains"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--rmg-spacing-02)',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-c1)',
+              color: 'var(--rmg-color-text-light)',
+              textDecoration: 'none',
+              marginBottom: 'var(--rmg-spacing-05)',
+            }}
+          >
+            ← All domains
+          </Link>
+
+          {/* Page header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 'var(--rmg-spacing-05)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
+              {/* Title row: h1 + Section 3B risk badge */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--rmg-spacing-04)',
+                  flexWrap: 'wrap',
+                  marginBottom: 'var(--rmg-spacing-02)',
+                }}
+              >
+                <h1
+                  style={{
+                    fontFamily: 'var(--rmg-font-display)',
+                    fontSize: '2rem',
+                    fontWeight: 700,
+                    letterSpacing: '-0.03em',
+                    lineHeight: 1.1,
+                    color: 'var(--rmg-color-text-heading)',
+                    margin: 0,
+                  }}
+                >
+                  {domainTyped.name}
+                </h1>
+                {/* Section 3B: solid fill, white text, radius-xs */}
+                {riskColour != null && domainTyped.risk_level != null && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '2px 8px',
+                      backgroundColor: riskColour,
+                      color: 'var(--rmg-color-white)',
+                      borderRadius: 'var(--rmg-radius-xs)',
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {domainTyped.risk_level}
+                  </span>
+                )}
+              </div>
+
+              {/* Subtitle */}
+              {domainTyped.subtitle && (
+                <p
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 14,
+                    color: 'var(--rmg-color-text-light)',
+                    margin: 0,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {domainTyped.subtitle}
+                </p>
+              )}
+            </div>
+
+            {/* Domain position + nav arrows */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 'var(--rmg-spacing-04)',
-                flexWrap: 'wrap',
+                gap: 'var(--rmg-spacing-03)',
               }}
             >
-              <h1
+              <span
                 style={{
-                  fontFamily: 'var(--rmg-font-display)',
-                  fontSize: 'var(--rmg-text-h2)',
-                  lineHeight: 'var(--rmg-leading-h2)',
-                  color: 'var(--rmg-color-text-heading)',
-                  margin: 0,
-                }}
-              >
-                {domainTyped.name}
-              </h1>
-              {domainTyped.risk_level && <RiskPill risk={domainTyped.risk_level} />}
-            </div>
-            {domainTyped.subtitle && (
-              <p
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 'var(--rmg-text-b3)',
-                  lineHeight: 'var(--rmg-leading-b3)',
+                  fontFamily: 'monospace',
+                  fontSize: 'var(--rmg-text-c1)',
                   color: 'var(--rmg-color-text-light)',
-                  margin: 0,
-                  marginTop: 'var(--rmg-spacing-02)',
                 }}
               >
-                {domainTyped.subtitle}
-              </p>
-            )}
+                Domain {domainTyped.display_order} / {allDomains.length}
+              </span>
+              <NavArrow
+                direction="prev"
+                href={prevDomain ? `/domains/${prevDomain.slug}` : null}
+              />
+              <NavArrow
+                direction="next"
+                href={nextDomain ? `/domains/${nextDomain.slug}` : null}
+              />
+            </div>
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--rmg-spacing-03)',
-            }}
-          >
-            <span
+          {/* Description */}
+          {domainTyped.description && (
+            <p
               style={{
-                fontFamily: 'monospace',
-                fontSize: 'var(--rmg-text-c1)',
-                color: 'var(--rmg-color-text-light)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-b3)',
+                lineHeight: 'var(--rmg-leading-b3)',
+                color: 'var(--rmg-color-text-body)',
+                margin: 0,
+                marginTop: 'var(--rmg-spacing-05)',
+                maxWidth: 800,
               }}
             >
-              Domain {domainTyped.display_order} / {allDomains.length}
-            </span>
-            <NavArrow
-              direction="prev"
-              href={prevDomain ? `/domains/${prevDomain.slug}` : null}
+              {domainTyped.description}
+            </p>
+          )}
+
+          {/* Two-column track layout (Section 13) */}
+          <div className="ds-track-grid">
+            <DomainTrackPanel
+              track="A"
+              trackContent={trackA}
+              parkerQuestions={parkerQuestions}
+              smeSupplierMap={smeSupplierMap}
+              supplierMap={supplierMap}
             />
-            <NavArrow
-              direction="next"
-              href={nextDomain ? `/domains/${nextDomain.slug}` : null}
+            <DomainTrackPanel
+              track="B"
+              trackContent={trackB}
+              parkerQuestions={parkerQuestions}
+              smeSupplierMap={smeSupplierMap}
+              supplierMap={supplierMap}
             />
           </div>
+
+          <ReadinessScorecard ragScores={ragScores} />
+
+          <DomainFooterNav prevDomain={prevDomain} nextDomain={nextDomain} />
         </div>
-
-        {domainTyped.description && (
-          <p
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-b3)',
-              lineHeight: 'var(--rmg-leading-b3)',
-              color: 'var(--rmg-color-text-body)',
-              margin: 0,
-              marginTop: 'var(--rmg-spacing-05)',
-              maxWidth: 800,
-            }}
-          >
-            {domainTyped.description}
-          </p>
-        )}
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 'var(--rmg-spacing-06)',
-            marginTop: 'var(--rmg-spacing-08)',
-          }}
-        >
-          <DomainTrackPanel
-            track="A"
-            trackContent={trackA}
-            parkerQuestions={parkerQuestions}
-            smeSupplierMap={smeSupplierMap}
-          />
-          <DomainTrackPanel
-            track="B"
-            trackContent={trackB}
-            parkerQuestions={parkerQuestions}
-            smeSupplierMap={smeSupplierMap}
-          />
-        </div>
-
-        <ReadinessScorecard ragScores={ragScores} />
-
-        <DomainFooterNav
-          prevDomain={prevDomain}
-          nextDomain={nextDomain}
-        />
       </div>
     </TesseraShell>
   )
@@ -380,9 +448,9 @@ function ReadinessScorecard({ ragScores }: { ragScores: RagScore[] }) {
                 style={{
                   fontFamily: 'var(--rmg-font-body)',
                   fontSize: 'var(--rmg-text-c2)',
-                  color: 'var(--rmg-color-text-light)',
+                  color: 'var(--rmg-color-grey-1)',
                   textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
+                  letterSpacing: '0.07em',
                   fontWeight: 700,
                   marginBottom: 'var(--rmg-spacing-02)',
                 }}
