@@ -31,7 +31,7 @@ export type AppGroupRef = {
 }
 
 export type SessionRef = {
-  id: string
+  session_id: string
   session_name: string
   focus_area: string | null
   tessera_app_groups: AppGroupRef | AppGroupRef[] | null
@@ -54,7 +54,7 @@ export default async function PeoplePage() {
     supabase
       .from('tessera_kt_session_resources')
       .select(
-        'resource_id, tessera_kt_sessions(id, session_name, focus_area, tessera_app_groups(group_number, group_name), duration_hrs)',
+        'resource_id, tessera_kt_sessions(session_id, session_name, focus_area, tessera_app_groups(group_number, group_name), duration_hrs)',
       )
       .eq('role', 'LEAD'),
   ])
