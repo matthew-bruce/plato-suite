@@ -301,6 +301,185 @@ function ResourceRow({
   )
 }
 
+interface SectionProps {
+  resources: Resource[]
+  collapsedSections: Set<string>
+  onToggle: (key: string) => void
+  selectedResourceId: string | null
+  onSelect: (id: string | null) => void
+  leadSessionMap: Map<string, SessionRef[]>
+}
+
+function ByRoleSection({
+  resources,
+  collapsedSections,
+  onToggle,
+  selectedResourceId,
+  onSelect,
+  leadSessionMap,
+}: SectionProps) {
+  const groups = useMemo(() => {
+    const map = new Map<string, Resource[]>()
+    for (const r of resources) {
+      const key = r.resource_job_title ?? 'No Role'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(r)
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [resources])
+
+  return (
+    <>
+      {groups.map(([role, members]) => {
+        const isCollapsed = collapsedSections.has(role)
+        return (
+          <div key={role}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onToggle(role)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(role) }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--rmg-spacing-03)',
+                padding: 'var(--rmg-spacing-02) var(--rmg-spacing-05)',
+                cursor: 'pointer',
+                borderBottom: '1px solid var(--rmg-color-grey-3)',
+                backgroundColor: 'var(--rmg-color-surface-light)',
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-c2)',
+                  fontWeight: 700,
+                  color: 'var(--rmg-color-text-body)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {role}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-text-light)',
+                  marginLeft: 'auto',
+                }}
+              >
+                {members.length}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--rmg-color-text-light)' }}>
+                {isCollapsed ? '▸' : '▾'}
+              </span>
+            </div>
+            {!isCollapsed &&
+              members.map((r) => (
+                <ResourceRow
+                  key={r.resource_id}
+                  resource={r}
+                  viewMode="by-role"
+                  selectedResourceId={selectedResourceId}
+                  onSelect={onSelect}
+                  leadSessionMap={leadSessionMap}
+                />
+              ))}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+function BySupplierSection({
+  resources,
+  collapsedSections,
+  onToggle,
+  selectedResourceId,
+  onSelect,
+  leadSessionMap,
+}: SectionProps) {
+  const groups = useMemo(() => {
+    const map = new Map<string, Resource[]>()
+    for (const r of resources) {
+      const s = getSupplier(r.suppliers)
+      const key = s?.supplier_abbreviation ?? 'Unknown'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(r)
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [resources])
+
+  return (
+    <>
+      {groups.map(([abbr, members]) => {
+        const isCollapsed = collapsedSections.has(abbr)
+        const colour = SUPPLIER_COLOURS[abbr] ?? '#8F9495'
+        return (
+          <div key={abbr} style={{ borderLeft: `4px solid ${colour}` }}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onToggle(abbr)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(abbr) }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--rmg-spacing-03)',
+                padding: 'var(--rmg-spacing-02) var(--rmg-spacing-05)',
+                cursor: 'pointer',
+                borderBottom: '1px solid var(--rmg-color-grey-3)',
+                backgroundColor: `${colour}0A`,
+              }}
+            >
+              <span
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: 'var(--rmg-radius-xl)',
+                  border: `1px solid ${colour}`,
+                  backgroundColor: `${colour}26`,
+                  color: colour,
+                  fontFamily: 'monospace',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                }}
+              >
+                {abbr}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-text-light)',
+                  marginLeft: 'auto',
+                }}
+              >
+                {members.length}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--rmg-color-text-light)' }}>
+                {isCollapsed ? '▸' : '▾'}
+              </span>
+            </div>
+            {!isCollapsed &&
+              members.map((r) => (
+                <ResourceRow
+                  key={r.resource_id}
+                  resource={r}
+                  viewMode="by-supplier"
+                  selectedResourceId={selectedResourceId}
+                  onSelect={onSelect}
+                  leadSessionMap={leadSessionMap}
+                />
+              ))}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
   // ── State ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -314,6 +493,9 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
+  )
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    new Set(),
   )
 
   // ── Lead session map: resource_id → SessionRef[] ───────────────────
@@ -407,6 +589,14 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     sortColumn,
     sortDirection,
   ])
+
+  function toggleSection(key: string) {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
 
   function handleSort(col: SortColumn) {
     if (sortColumn === col) {
@@ -631,16 +821,37 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
             sortDirection={sortDirection}
             onSort={handleSort}
           />
-          {filteredResources.map((r) => (
-            <ResourceRow
-              key={r.resource_id}
-              resource={r}
-              viewMode={viewMode}
+          {viewMode === 'list' &&
+            filteredResources.map((r) => (
+              <ResourceRow
+                key={r.resource_id}
+                resource={r}
+                viewMode="list"
+                selectedResourceId={selectedResourceId}
+                onSelect={setSelectedResourceId}
+                leadSessionMap={leadSessionMap}
+              />
+            ))}
+          {viewMode === 'by-role' && (
+            <ByRoleSection
+              resources={filteredResources}
+              collapsedSections={collapsedSections}
+              onToggle={toggleSection}
               selectedResourceId={selectedResourceId}
               onSelect={setSelectedResourceId}
               leadSessionMap={leadSessionMap}
             />
-          ))}
+          )}
+          {viewMode === 'by-supplier' && (
+            <BySupplierSection
+              resources={filteredResources}
+              collapsedSections={collapsedSections}
+              onToggle={toggleSection}
+              selectedResourceId={selectedResourceId}
+              onSelect={setSelectedResourceId}
+              leadSessionMap={leadSessionMap}
+            />
+          )}
           {filteredResources.length === 0 && (
             <div
               style={{
