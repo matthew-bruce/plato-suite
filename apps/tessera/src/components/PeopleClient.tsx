@@ -50,6 +50,257 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
+// ── Grid templates per view mode ───────────────────────────────────
+const GRID: Record<ViewMode, string> = {
+  list:          '1fr 160px 80px 100px 52px 52px',
+  'by-role':     '1fr 80px 100px 52px 52px',
+  'by-supplier': '1fr 160px 100px 52px 52px',
+}
+
+function TableHeader({
+  viewMode,
+  sortColumn,
+  sortDirection,
+  onSort,
+}: {
+  viewMode: ViewMode
+  sortColumn: SortColumn
+  sortDirection: SortDirection
+  onSort: (col: SortColumn) => void
+}) {
+  const colLabel: React.CSSProperties = {
+    fontFamily: 'var(--rmg-font-body)',
+    fontSize: 'var(--rmg-text-c2)',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: 'var(--rmg-color-text-light)',
+    whiteSpace: 'nowrap',
+  }
+
+  function SortBtn({ label, col }: { label: string; col: SortColumn }) {
+    const active = sortColumn === col
+    return (
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        style={{
+          ...colLabel,
+          color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-light)',
+          cursor: 'pointer',
+          border: 'none',
+          background: 'none',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+        }}
+      >
+        {label}
+        {active ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+      </button>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: GRID[viewMode],
+        gap: 'var(--rmg-spacing-04)',
+        padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
+        borderBottom: '1px solid var(--rmg-color-grey-3)',
+        alignItems: 'center',
+      }}
+    >
+      <SortBtn label="Name" col="resource_name" />
+      {viewMode !== 'by-role' && <SortBtn label="Role" col="resource_job_title" />}
+      {viewMode !== 'by-supplier' && <span style={colLabel}>Supplier</span>}
+      <span style={colLabel}>Location</span>
+      <SortBtn label="Exp" col="resource_years_experience" />
+      <span style={colLabel}>KT</span>
+    </div>
+  )
+}
+
+function ResourceRow({
+  resource,
+  viewMode,
+  selectedResourceId,
+  onSelect,
+  leadSessionMap,
+}: {
+  resource: Resource
+  viewMode: ViewMode
+  selectedResourceId: string | null
+  onSelect: (id: string | null) => void
+  leadSessionMap: Map<string, SessionRef[]>
+}) {
+  const supplier = getSupplier(resource.suppliers)
+  const colour = supplier
+    ? (SUPPLIER_COLOURS[supplier.supplier_abbreviation] ?? '#8F9495')
+    : '#8F9495'
+  const sessionCount = leadSessionMap.get(resource.resource_id)?.length ?? 0
+  const isSelected = selectedResourceId === resource.resource_id
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(isSelected ? null : resource.resource_id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ')
+          onSelect(isSelected ? null : resource.resource_id)
+      }}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: GRID[viewMode],
+        gap: 'var(--rmg-spacing-04)',
+        padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
+        alignItems: 'center',
+        cursor: 'pointer',
+        backgroundColor: isSelected ? '#DA202A04' : 'transparent',
+        borderLeft: isSelected ? '2px solid #DA202A' : '2px solid transparent',
+        borderBottom: '1px solid var(--rmg-color-grey-3)',
+      }}
+    >
+      {/* Name + avatar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-03)', minWidth: 0 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            backgroundColor: `${colour}26`,
+            color: colour,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: '11px',
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          {getInitials(resource.resource_name)}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-b3)',
+              color: 'var(--rmg-color-text-body)',
+              fontWeight: isSelected ? 700 : 400,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {resource.resource_name}
+          </div>
+          {resource.resource_function && (
+            <div
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c2)',
+                color: 'var(--rmg-color-text-light)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {resource.resource_function}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Role — list + by-supplier views */}
+      {viewMode !== 'by-role' && (
+        <span
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            color: 'var(--rmg-color-text-body)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {resource.resource_job_title ?? '—'}
+        </span>
+      )}
+
+      {/* Supplier badge — list + by-role views */}
+      {viewMode !== 'by-supplier' && (
+        supplier ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              alignSelf: 'center',
+              padding: '2px 8px',
+              borderRadius: 'var(--rmg-radius-xl)',
+              border: `1px solid ${colour}`,
+              backgroundColor: `${colour}26`,
+              color: colour,
+              fontFamily: 'monospace',
+              fontSize: '10px',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {supplier.supplier_abbreviation}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--rmg-color-text-light)', fontSize: 'var(--rmg-text-c2)' }}>—</span>
+        )
+      )}
+
+      {/* Location */}
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          color: 'var(--rmg-color-text-light)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {resource.resource_location ?? '—'}
+      </span>
+
+      {/* Experience */}
+      <span
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 'var(--rmg-text-c2)',
+          color: 'var(--rmg-color-text-body)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {resource.resource_years_experience != null
+          ? `${resource.resource_years_experience}y`
+          : '—'}
+      </span>
+
+      {/* KT session count */}
+      <span
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 'var(--rmg-text-c2)',
+          color: sessionCount > 0 ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-light)',
+          fontWeight: sessionCount > 0 ? 700 : 400,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {sessionCount > 0 ? String(sessionCount) : '—'}
+      </span>
+    </div>
+  )
+}
+
 export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
   // ── State ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -157,14 +408,17 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     sortDirection,
   ])
 
-  // Referenced by table/detail chunks not yet written
+  function handleSort(col: SortColumn) {
+    if (sortColumn === col) {
+      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(col)
+      setSortDirection(col === 'resource_years_experience' ? 'desc' : 'asc')
+    }
+  }
+
+  // Referenced by detail-panel chunk not yet written
   void setSelectedStreams
-  void setSortColumn
-  void setSortDirection
-  void selectedResourceId
-  void setSelectedResourceId
-  void leadSessionMap
-  void getInitials
   void STREAM_COLOURS
 
   // ── Style helpers ──────────────────────────────────────────────────
@@ -358,8 +612,82 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
         </div>
       </div>
 
-      {/* Table + detail panel — coming next */}
-      <div>Table coming next…</div>
+      {/* Table + detail panel */}
+      <div style={{ display: 'flex', gap: 'var(--rmg-spacing-05)', alignItems: 'flex-start' }}>
+        {/* Table */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            borderRadius: 'var(--rmg-radius-m)',
+            boxShadow: 'var(--rmg-shadow-card)',
+            overflow: 'hidden',
+          }}
+        >
+          <TableHeader
+            viewMode={viewMode}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+          />
+          {filteredResources.map((r) => (
+            <ResourceRow
+              key={r.resource_id}
+              resource={r}
+              viewMode={viewMode}
+              selectedResourceId={selectedResourceId}
+              onSelect={setSelectedResourceId}
+              leadSessionMap={leadSessionMap}
+            />
+          ))}
+          {filteredResources.length === 0 && (
+            <div
+              style={{
+                padding: 'var(--rmg-spacing-07)',
+                textAlign: 'center',
+                color: 'var(--rmg-color-text-light)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-b3)',
+              }}
+            >
+              No results match the current filters.
+            </div>
+          )}
+        </div>
+
+        {/* Detail panel — coming next */}
+        <div
+          style={{
+            width: 220,
+            flexShrink: 0,
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            borderRadius: 'var(--rmg-radius-m)',
+            boxShadow: 'var(--rmg-shadow-card)',
+            position: 'sticky',
+            top: 'var(--rmg-spacing-07)',
+            padding: 'var(--rmg-spacing-06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 120,
+          }}
+        >
+          <p
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-c2)',
+              color: 'var(--rmg-color-text-light)',
+              textAlign: 'center',
+              margin: 0,
+            }}
+          >
+            {selectedResourceId
+              ? 'Detail panel coming next'
+              : 'Select a person\nto see details'}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
