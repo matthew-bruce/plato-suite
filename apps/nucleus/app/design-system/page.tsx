@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, NavBar, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Icon, NavBar, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
+import type { IconName } from '@plato/ui/components/rmg'
 
 function TabsDesktopDemo() {
   const [active, setActive] = useState('tracked')
@@ -886,6 +887,127 @@ export default function DesignSystemPage() {
             </div>
           ))}
         </div>
+      </Section>
+
+      {/* ── ICONS ──────────────────────────────────────────────────── */}
+      <Section title="Icons">
+
+        {(
+          [
+            { label: 'Directional', names: ['chevron-right', 'chevron-left', 'chevron-up', 'chevron-down', 'chevron-right-sm', 'chevron-left-sm', 'chevron-up-sm', 'chevron-down-sm', 'arrow-right'] },
+            { label: 'UI Actions',  names: ['close', 'edit', 'check'] },
+            { label: 'Informational', names: ['info', 'location'] },
+          ] as Array<{ label: string; names: IconName[] }>
+        ).map(({ label, names }) => (
+          <div key={label}>
+            <div
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c1)',
+                lineHeight: 'var(--rmg-leading-c1)',
+                color: 'var(--rmg-color-text-light)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 'var(--rmg-spacing-04)',
+              }}
+            >
+              {label}
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 'var(--rmg-spacing-03)',
+                marginBottom: 'var(--rmg-spacing-07)',
+              }}
+            >
+              {names.map((name) => (
+                <div
+                  key={name}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 'var(--rmg-spacing-02)',
+                    padding: 'var(--rmg-spacing-04) var(--rmg-spacing-03)',
+                    background: 'var(--rmg-color-grey-4)',
+                    borderRadius: 'var(--rmg-radius-s)',
+                    width: '96px',
+                  }}
+                >
+                  <Icon name={name} size={20} color="var(--rmg-color-red)" />
+                  <span
+                    style={{
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 'var(--rmg-text-c2)',
+                      lineHeight: 'var(--rmg-leading-c2)',
+                      color: 'var(--rmg-color-text-light)',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {/* Colour context */}
+        <div>
+          <div
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-c1)',
+              lineHeight: 'var(--rmg-leading-c1)',
+              color: 'var(--rmg-color-text-light)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 'var(--rmg-spacing-04)',
+            }}
+          >
+            Colour context — icons use currentColor
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--rmg-spacing-03)' }}>
+            {(
+              [
+                { color: 'var(--rmg-color-red)',            label: 'red' },
+                { color: 'var(--rmg-color-grey-1)',         label: 'grey-1' },
+                { color: 'var(--rmg-color-black)',          label: 'black' },
+                { color: 'var(--rmg-color-green-contrast)', label: 'green-contrast' },
+                { color: 'var(--rmg-color-blue)',           label: 'blue' },
+              ] as Array<{ color: string; label: string }>
+            ).map(({ color, label }) => (
+              <div
+                key={label}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 'var(--rmg-spacing-02)',
+                  padding: 'var(--rmg-spacing-04) var(--rmg-spacing-03)',
+                  background: 'var(--rmg-color-grey-4)',
+                  borderRadius: 'var(--rmg-radius-s)',
+                  width: '80px',
+                }}
+              >
+                <Icon name="arrow-right" size={20} color={color} />
+                <span
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 'var(--rmg-text-c2)',
+                    lineHeight: 'var(--rmg-leading-c2)',
+                    color: 'var(--rmg-color-text-light)',
+                    textAlign: 'center',
+                  }}
+                >
+                  {label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
       </Section>
 
     </div>
