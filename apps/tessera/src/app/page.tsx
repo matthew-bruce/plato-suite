@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { TesseraShell } from '@plato/ui/components/tessera'
 import { supabase } from '@/lib/supabase'
-import { RiskPill } from '@/components/RiskPill'
+import { RISK_COLOURS } from '@plato/ui/tokens'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,8 +38,6 @@ type RagScore = {
   domain_id: string
   score: 'RED' | 'AMBER' | 'GREEN'
 }
-
-const RAG_ORDER = { RED: 3, AMBER: 2, GREEN: 1 } as const
 
 export default async function Home() {
   const today = new Date()
@@ -108,338 +106,381 @@ export default async function Home() {
     (INDIA_DEPARTURE.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
   )
 
-  const ragByDomain = new Map<string, 'RED' | 'AMBER' | 'GREEN'>()
+  // Count GREEN rag scores per domain (readiness out of 6 sub-areas)
+  const readinessByDomain = new Map<string, number>()
   for (const score of ragScores) {
-    const current = ragByDomain.get(score.domain_id)
-    if (!current || RAG_ORDER[score.score] > RAG_ORDER[current]) {
-      ragByDomain.set(score.domain_id, score.score)
+    if (score.score === 'GREEN') {
+      readinessByDomain.set(
+        score.domain_id,
+        (readinessByDomain.get(score.domain_id) ?? 0) + 1,
+      )
     }
   }
 
   return (
     <TesseraShell activeRoute="/">
+      <style>{`
+        .ds-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: var(--rmg-spacing-05);
+          margin-bottom: var(--rmg-spacing-08);
+        }
+        .ds-domain-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: var(--rmg-spacing-04);
+          margin-top: var(--rmg-spacing-04);
+          margin-bottom: var(--rmg-spacing-08);
+        }
+        @media (max-width: 768px) {
+          .ds-stat-grid   { grid-template-columns: repeat(2, 1fr); }
+          .ds-domain-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 375px) {
+          .ds-stat-grid   { grid-template-columns: 1fr; }
+          .ds-domain-grid { grid-template-columns: 1fr; }
+        }
+        .ds-domain-card:hover { opacity: 0.92; }
+      `}</style>
+
+      {/* Page shell — surface-light + PLATO watermark */}
       <div
         style={{
-          maxWidth: 1280,
-          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          minHeight: '100vh',
+          backgroundColor: 'var(--rmg-color-surface-light)',
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='240'%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='104' font-weight='700' fill='%232A2A2D' opacity='0.03' letter-spacing='0.12em'%3EPLATO%3C/text%3E%3C/svg%3E\")",
+          backgroundRepeat: 'repeat',
         }}
       >
-        {/* Header */}
-        <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
-          <h1
+        <div
+          style={{
+            maxWidth: 1280,
+            margin: '0 auto',
+            padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          }}
+        >
+          {/* ── Header ── */}
+          <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
+            {/* Eyebrow */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: 'var(--rmg-spacing-02)',
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--rmg-color-green-contrast)',
+                  flexShrink: 0,
+                  display: 'inline-block',
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.07em',
+                  color: 'var(--rmg-color-grey-1)',
+                }}
+              >
+                Pre-departure state (current)
+              </span>
+            </div>
+
+            {/* Title row */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 'var(--rmg-spacing-05)',
+                flexWrap: 'wrap',
+                marginBottom: 'var(--rmg-spacing-02)',
+              }}
+            >
+              <h1
+                style={{
+                  fontFamily: 'var(--rmg-font-display)',
+                  fontSize: '2rem',
+                  fontWeight: 700,
+                  color: 'var(--rmg-color-text-heading)',
+                  letterSpacing: '-0.03em',
+                  margin: 0,
+                  lineHeight: 1.2,
+                }}
+              >
+                KT Programme Dashboard
+              </h1>
+              <CountdownChip daysToIndia={daysToIndia} />
+            </div>
+
+            {/* Subtitle */}
+            <p
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 14,
+                color: 'var(--rmg-color-text-light)',
+                margin: 0,
+                lineHeight: 1.5,
+              }}
+            >
+              eBusiness Platform · CG → TCS transition · 1 Apr → 3 Jul 2026
+            </p>
+          </div>
+
+          {/* ── Stat cards ── */}
+          <div className="ds-stat-grid">
+            <StatCard
+              label="Sessions Completed"
+              number={String(completedCount)}
+              subLabel="of 125 planned"
+            />
+            <StatCard
+              label="Hours Delivered"
+              number={String(Math.round(hoursDelivered))}
+              subLabel="of 322 planned"
+            />
+            <StatCard
+              label="KT Timeline"
+              number={`${Math.round(timelinePct)}%`}
+              subLabel="1 Apr → 3 Jul 2026"
+            />
+            <BrandMomentCard daysToIndia={daysToIndia} />
+          </div>
+
+          {/* ── Domain Readiness ── */}
+          <SectionHeader
+            title="Domain Readiness"
+            linkHref="/domains"
+            linkLabel="View all domains →"
+          />
+          <div className="ds-domain-grid">
+            {domains.map((d) => (
+              <DomainCard
+                key={d.id}
+                domain={d}
+                readinessCount={readinessByDomain.get(d.id) ?? 0}
+              />
+            ))}
+          </div>
+
+          {/* ── App Group Progress ── */}
+          <SectionHeader
+            title="Application Group Progress"
+            linkHref="/sessions"
+            linkLabel="View all sessions →"
+          />
+          <div
             style={{
-              fontFamily: 'var(--rmg-font-display)',
-              fontSize: 'var(--rmg-text-h2)',
-              lineHeight: 'var(--rmg-leading-h2)',
-              color: 'var(--rmg-color-text-heading)',
-              margin: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--rmg-spacing-03)',
+              marginTop: 'var(--rmg-spacing-04)',
             }}
           >
-            KT Programme Dashboard
-          </h1>
-          <p
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-b3)',
-              lineHeight: 'var(--rmg-leading-b3)',
-              color: 'var(--rmg-color-text-light)',
-              margin: 0,
-              marginTop: 'var(--rmg-spacing-02)',
-            }}
-          >
-            eBusiness Platform — CG → TCS transition · 1 Apr → 3 Jul 2026
-          </p>
-        </div>
-
-        {/* Stats row */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 'var(--rmg-spacing-05)',
-            marginBottom: 'var(--rmg-spacing-08)',
-          }}
-        >
-          <StatCard
-            label="Sessions"
-            value={`${completedCount} of 125 completed`}
-            barPct={(completedCount / 125) * 100}
-            barColor="var(--rmg-color-green-contrast)"
-          />
-          <StatCard
-            label="Hours"
-            value={`${Math.round(hoursDelivered)} of 322 hrs delivered`}
-            barPct={(hoursDelivered / 322) * 100}
-            barColor="var(--rmg-color-blue)"
-          />
-          <TimelineCard pct={timelinePct} />
-          <CountdownCard daysToIndia={daysToIndia} upcomingCount={upcomingCount} />
-        </div>
-
-        {/* Domain Readiness */}
-        <SectionHeader
-          title="Domain Readiness"
-          linkHref="/domains"
-          linkLabel="View all domains →"
-        />
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 'var(--rmg-spacing-04)',
-            marginTop: 'var(--rmg-spacing-04)',
-            marginBottom: 'var(--rmg-spacing-08)',
-          }}
-        >
-          {domains.map((d) => (
-            <DomainCompactCard
-              key={d.id}
-              domain={d}
-              worstRag={ragByDomain.get(d.id) ?? null}
-            />
-          ))}
-        </div>
-
-        {/* App Group Progress */}
-        <SectionHeader
-          title="Application Group Progress"
-          linkHref="/sessions"
-          linkLabel="View all sessions →"
-        />
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--rmg-spacing-03)',
-            marginTop: 'var(--rmg-spacing-04)',
-          }}
-        >
-          {appGroups.map((g) => (
-            <AppGroupRow
-              key={g.id}
-              group={g}
-              completedCount={completedByGroup.get(g.id) ?? 0}
-            />
-          ))}
+            {appGroups.map((g) => (
+              <AppGroupRow
+                key={g.id}
+                group={g}
+                completedCount={completedByGroup.get(g.id) ?? 0}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </TesseraShell>
   )
 }
 
-function StatCard({
-  label,
-  value,
-  barPct,
-  barColor,
-}: {
-  label: string
-  value: string
-  barPct: number
-  barColor: string
-}) {
-  return (
-    <div
-      style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        padding: 'var(--rmg-spacing-05)',
-      }}
-    >
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          fontWeight: 700,
-          marginBottom: 'var(--rmg-spacing-02)',
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-b2)',
-          color: 'var(--rmg-color-text-body)',
-          fontWeight: 600,
-          marginBottom: 'var(--rmg-spacing-03)',
-          lineHeight: 'var(--rmg-leading-b2)',
-        }}
-      >
-        {value}
-      </div>
-      <div
-        style={{
-          height: 4,
-          backgroundColor: 'var(--rmg-color-grey-3)',
-          borderRadius: 2,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            width: `${Math.min(100, barPct)}%`,
-            height: '100%',
-            backgroundColor: barColor,
-          }}
-        />
-      </div>
-    </div>
-  )
-}
+// ── Countdown chip (header, Section 8) ────────────────────────────────────────
 
-function TimelineCard({ pct }: { pct: number }) {
-  return (
-    <div
-      style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        padding: 'var(--rmg-spacing-05)',
-      }}
-    >
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          fontWeight: 700,
-          marginBottom: 'var(--rmg-spacing-02)',
-        }}
-      >
-        Timeline
-      </div>
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-b2)',
-          color: 'var(--rmg-color-text-body)',
-          fontWeight: 600,
-          marginBottom: 'var(--rmg-spacing-03)',
-          lineHeight: 'var(--rmg-leading-b2)',
-        }}
-      >
-        KT Window
-      </div>
-      <div style={{ position: 'relative', paddingBottom: 'var(--rmg-spacing-03)' }}>
-        <div
-          style={{
-            height: 4,
-            backgroundColor: 'var(--rmg-color-grey-3)',
-            borderRadius: 2,
-          }}
-        >
-          <div
-            style={{
-              width: `${pct}%`,
-              height: '100%',
-              backgroundColor: 'var(--rmg-color-blue)',
-              borderRadius: 2,
-            }}
-          />
-        </div>
-        <div
-          style={{
-            position: 'absolute',
-            left: `${pct}%`,
-            top: -3,
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            backgroundColor: 'var(--rmg-color-blue)',
-            transform: 'translateX(-50%)',
-            border: '2px solid var(--rmg-color-surface-white)',
-          }}
-        />
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontFamily: 'monospace',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
-        }}
-      >
-        <span>1 Apr</span>
-        <span>3 Jul</span>
-      </div>
-    </div>
-  )
-}
-
-function CountdownCard({
-  daysToIndia,
-  upcomingCount,
-}: {
-  daysToIndia: number
-  upcomingCount: number
-}) {
+function CountdownChip({ daysToIndia }: { daysToIndia: number }) {
   const label =
     daysToIndia > 0
-      ? `${daysToIndia} day${daysToIndia === 1 ? '' : 's'} to India`
+      ? `${daysToIndia} DAY${daysToIndia === 1 ? '' : 'S'} TO DEPARTURE`
       : daysToIndia === 0
-        ? 'Departs today'
-        : 'India trip in progress'
+        ? 'DEPARTS TODAY'
+        : 'IN INDIA'
 
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '8px 20px',
+        backgroundColor: 'var(--rmg-color-red)',
+        color: 'var(--rmg-color-yellow)',
+        borderRadius: 'var(--rmg-radius-m)',
+        fontFamily: 'var(--rmg-font-body)',
+        fontSize: 12,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '0.07em',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+// ── Standard stat card (Section 10) ───────────────────────────────────────────
+
+function StatCard({
+  label,
+  number,
+  subLabel,
+}: {
+  label: string
+  number: string
+  subLabel: string
+}) {
   return (
     <div
       style={{
         backgroundColor: 'var(--rmg-color-surface-white)',
         borderRadius: 'var(--rmg-radius-m)',
         boxShadow: 'var(--rmg-shadow-card)',
-        padding: 'var(--rmg-spacing-05)',
+        padding: '20px 24px',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
+          fontSize: 11,
+          fontWeight: 700,
           textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          fontWeight: 700,
-          marginBottom: 'var(--rmg-spacing-03)',
-        }}
-      >
-        Countdown
-      </div>
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          padding: `var(--rmg-spacing-02) var(--rmg-spacing-04)`,
-          backgroundColor: 'rgba(8, 146, 203, 0.12)',
-          color: 'var(--rmg-color-blue)',
-          borderRadius: 'var(--rmg-radius-xl)',
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c1)',
-          lineHeight: 'var(--rmg-leading-c1)',
-          fontWeight: 700,
-          whiteSpace: 'nowrap',
+          letterSpacing: '0.07em',
+          color: 'var(--rmg-color-grey-1)',
+          marginBottom: 8,
         }}
       >
         {label}
-      </span>
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: '1.75rem',
+          fontWeight: 700,
+          color: 'var(--rmg-color-text-heading)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1,
+          marginBottom: 4,
+        }}
+      >
+        {number}
+      </div>
       <div
         style={{
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
-          marginTop: 'var(--rmg-spacing-03)',
+          fontSize: 12,
+          color: 'var(--rmg-color-grey-1)',
+          marginBottom: 16,
         }}
       >
-        {upcomingCount} session{upcomingCount === 1 ? '' : 's'} this week
+        {subLabel}
       </div>
+      {/* Bottom accent bar — grey-3 default (no coloured accent unless data warrants) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          backgroundColor: 'var(--rmg-color-grey-3)',
+        }}
+      />
     </div>
   )
 }
+
+// ── Brand-moment departure card (Section 10) ──────────────────────────────────
+
+function BrandMomentCard({ daysToIndia }: { daysToIndia: number }) {
+  const number =
+    daysToIndia > 0 ? String(daysToIndia) : daysToIndia === 0 ? '0' : '✓'
+  const label =
+    daysToIndia > 0
+      ? `Day${daysToIndia === 1 ? '' : 's'} to Departure`
+      : daysToIndia === 0
+        ? 'Departs Today'
+        : 'In India'
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--rmg-color-red)',
+        borderRadius: 'var(--rmg-radius-m)',
+        boxShadow: 'var(--rmg-shadow-card)',
+        padding: '20px 24px',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+          color: 'rgba(253,218,36,0.75)', // --rmg-color-yellow at 75% opacity
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: '1.75rem',
+          fontWeight: 700,
+          color: 'var(--rmg-color-yellow)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1,
+          marginBottom: 4,
+        }}
+      >
+        {number}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: 'rgba(255,255,255,0.8)', // white at 80% opacity
+          marginBottom: 16,
+        }}
+      >
+        Sunday 26 April · Heathrow
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          backgroundColor: 'var(--rmg-color-grey-3)',
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Section header ─────────────────────────────────────────────────────────────
 
 function SectionHeader({
   title,
@@ -485,76 +526,122 @@ function SectionHeader({
   )
 }
 
-function DomainCompactCard({
+// ── Domain card (Section 9) ────────────────────────────────────────────────────
+
+function DomainCard({
   domain,
-  worstRag,
+  readinessCount,
 }: {
   domain: Domain
-  worstRag: 'RED' | 'AMBER' | 'GREEN' | null
+  readinessCount: number
 }) {
-  const ragColor =
-    worstRag === 'RED'
-      ? 'var(--rmg-color-red)'
-      : worstRag === 'AMBER'
-        ? 'var(--rmg-color-orange)'
-        : worstRag === 'GREEN'
-          ? 'var(--rmg-color-green-contrast)'
-          : 'var(--rmg-color-grey-2)'
+  const riskColour =
+    domain.risk_level != null
+      ? RISK_COLOURS[domain.risk_level]
+      : 'var(--rmg-color-grey-2)'
+  const readinessPct = Math.min(100, (readinessCount / 6) * 100)
 
   return (
     <Link
       href={`/domains/${domain.slug}`}
-      style={{ textDecoration: 'none', color: 'inherit' }}
+      style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
     >
       <div
+        className="ds-domain-card"
         style={{
           backgroundColor: 'var(--rmg-color-surface-white)',
-          borderRadius: 'var(--rmg-radius-m)',
-          boxShadow: 'var(--rmg-shadow-card)',
-          padding: 'var(--rmg-spacing-04)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--rmg-spacing-02)',
+          borderRadius: 'var(--rmg-radius-s)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          padding: 16,
+          cursor: 'pointer',
+          borderLeft: `4px solid ${riskColour}`,
           height: '100%',
+          boxSizing: 'border-box',
         }}
       >
+        {/* Domain name */}
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 14,
+            fontWeight: 600,
+            color: 'var(--rmg-color-text-heading)',
+            marginBottom: 8,
+            lineHeight: 1.3,
+          }}
+        >
+          {domain.name}
+        </div>
+
+        {/* Badge row: risk badge left, readiness fraction right */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 'var(--rmg-spacing-02)',
+            marginBottom: 10,
+            gap: 8,
           }}
         >
+          {domain.risk_level != null ? (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '2px 8px',
+                backgroundColor: riskColour,
+                color: 'var(--rmg-color-white)',
+                borderRadius: 'var(--rmg-radius-xs)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.07em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {domain.risk_level}
+            </span>
+          ) : (
+            <span />
+          )}
           <span
             style={{
-              fontFamily: 'var(--rmg-font-display)',
-              fontSize: 'var(--rmg-text-c1)',
-              lineHeight: 'var(--rmg-leading-c1)',
-              color: 'var(--rmg-color-text-heading)',
-              fontWeight: 700,
-              minWidth: 0,
-              flex: 1,
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 11,
+              color: 'var(--rmg-color-grey-1)',
+              whiteSpace: 'nowrap',
             }}
           >
-            {domain.name}
+            {readinessCount}/6
           </span>
-          <span
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              backgroundColor: ragColor,
-              flexShrink: 0,
-              marginTop: 3,
-            }}
-          />
         </div>
-        {domain.risk_level && <RiskPill risk={domain.risk_level} />}
+
+        {/* Readiness progress bar */}
+        <div
+          style={{
+            height: 4,
+            backgroundColor: 'var(--rmg-color-grey-3)',
+            borderRadius: 100,
+            overflow: 'hidden',
+          }}
+        >
+          {readinessPct > 0 && (
+            <div
+              style={{
+                width: `${readinessPct}%`,
+                height: '100%',
+                backgroundColor: riskColour,
+              }}
+            />
+          )}
+        </div>
       </div>
     </Link>
   )
 }
+
+// ── App group row ──────────────────────────────────────────────────────────────
 
 function AppGroupRow({
   group,
@@ -649,7 +736,9 @@ function AppGroupRow({
           textAlign: 'right',
         }}
       >
-        {group.total_planned_hours != null ? `${group.total_planned_hours} hrs` : '—'}
+        {group.total_planned_hours != null
+          ? `${group.total_planned_hours} hrs`
+          : '—'}
       </span>
     </div>
   )
