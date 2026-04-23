@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import type {
   Resource,
   SupplierInfo,
-  LeadRow,
   SessionRef,
 } from '@/app/people/page'
 
@@ -37,7 +36,7 @@ type SortDirection = 'asc' | 'desc'
 
 interface PeopleClientProps {
   resources: Resource[]
-  leadRows: LeadRow[]
+  leadSessionsByResource: Record<string, SessionRef[]>
 }
 
 function getSupplier(s: Resource['suppliers']): SupplierInfo | null {
@@ -131,19 +130,19 @@ function ResourceRow({
   viewMode,
   selectedResourceId,
   onSelect,
-  leadSessionMap,
+  leadSessionsByResource,
 }: {
   resource: Resource
   viewMode: ViewMode
   selectedResourceId: string | null
   onSelect: (id: string | null) => void
-  leadSessionMap: Map<string, SessionRef[]>
+  leadSessionsByResource: Record<string, SessionRef[]>
 }) {
   const supplier = getSupplier(resource.suppliers)
   const colour = supplier
     ? (SUPPLIER_COLOURS[supplier.supplier_abbreviation] ?? '#8F9495')
     : '#8F9495'
-  const sessionCount = leadSessionMap.get(resource.resource_id)?.length ?? 0
+  const sessionCount = (leadSessionsByResource[resource.resource_id] ?? []).length
   const isSelected = selectedResourceId === resource.resource_id
 
   return (
@@ -310,7 +309,7 @@ interface SectionProps {
   onToggle: (key: string) => void
   selectedResourceId: string | null
   onSelect: (id: string | null) => void
-  leadSessionMap: Map<string, SessionRef[]>
+  leadSessionsByResource: Record<string, SessionRef[]>
 }
 
 function ByRoleSection({
@@ -319,7 +318,7 @@ function ByRoleSection({
   onToggle,
   selectedResourceId,
   onSelect,
-  leadSessionMap,
+  leadSessionsByResource,
 }: SectionProps) {
   const groups = useMemo(() => {
     const map = new Map<string, Resource[]>()
@@ -386,7 +385,7 @@ function ByRoleSection({
                   viewMode="by-role"
                   selectedResourceId={selectedResourceId}
                   onSelect={onSelect}
-                  leadSessionMap={leadSessionMap}
+                  leadSessionsByResource={leadSessionsByResource}
                 />
               ))}
           </div>
@@ -402,7 +401,7 @@ function BySupplierSection({
   onToggle,
   selectedResourceId,
   onSelect,
-  leadSessionMap,
+  leadSessionsByResource,
 }: SectionProps) {
   const groups = useMemo(() => {
     const map = new Map<string, Resource[]>()
@@ -473,7 +472,7 @@ function BySupplierSection({
                   viewMode="by-supplier"
                   selectedResourceId={selectedResourceId}
                   onSelect={onSelect}
-                  leadSessionMap={leadSessionMap}
+                  leadSessionsByResource={leadSessionsByResource}
                 />
               ))}
           </div>
@@ -633,44 +632,28 @@ function PersonDetail({
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {sessions.map((s) => {
-              const ag = s.tessera_app_groups
-              const group = Array.isArray(ag) ? (ag[0] ?? null) : ag
-              return (
+            {sessions.map((s) => (
+              <div
+                key={s.id}
+                style={{
+                  padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+                  borderRadius: 'var(--rmg-radius-s)',
+                  backgroundColor: 'var(--rmg-color-surface-light)',
+                  borderLeft: '2px solid var(--rmg-color-red)',
+                }}
+              >
                 <div
-                  key={s.id}
                   style={{
-                    padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
-                    borderRadius: 'var(--rmg-radius-s)',
-                    backgroundColor: 'var(--rmg-color-surface-light)',
-                    borderLeft: '2px solid var(--rmg-color-red)',
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 'var(--rmg-text-c2)',
+                    fontWeight: 600,
+                    color: 'var(--rmg-color-text-body)',
                   }}
                 >
-                  <div
-                    style={{
-                      fontFamily: 'var(--rmg-font-body)',
-                      fontSize: 'var(--rmg-text-c2)',
-                      fontWeight: 600,
-                      color: 'var(--rmg-color-text-body)',
-                    }}
-                  >
-                    {s.session_name}
-                  </div>
-                  {group && (
-                    <div
-                      style={{
-                        fontFamily: 'monospace',
-                        fontSize: '10px',
-                        color: 'var(--rmg-color-text-light)',
-                        marginTop: 1,
-                      }}
-                    >
-                      G{group.group_number}
-                    </div>
-                  )}
+                  {s.session_name}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -678,7 +661,7 @@ function PersonDetail({
   )
 }
 
-export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
+export function PeopleClient({ resources, leadSessionsByResource }: PeopleClientProps) {
   // ── State ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
@@ -695,22 +678,6 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
     new Set(),
   )
-
-  // ── Lead session map: resource_id → SessionRef[] ───────────────────
-  const leadSessionMap = useMemo(() => {
-    const map = new Map<string, SessionRef[]>()
-    for (const row of leadRows) {
-      if (!row.tessera_kt_sessions) continue
-      const sessions = Array.isArray(row.tessera_kt_sessions)
-        ? row.tessera_kt_sessions
-        : [row.tessera_kt_sessions]
-      map.set(row.resource_id, [
-        ...(map.get(row.resource_id) ?? []),
-        ...sessions,
-      ])
-    }
-    return map
-  }, [leadRows])
 
   // ── Derived option lists for filter bar ───────────────────────────
   const allSupplierAbbrs = useMemo(() => {
@@ -1083,7 +1050,7 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
                 viewMode="list"
                 selectedResourceId={selectedResourceId}
                 onSelect={setSelectedResourceId}
-                leadSessionMap={leadSessionMap}
+                leadSessionsByResource={leadSessionsByResource}
               />
             ))}
           {viewMode === 'by-role' && (
@@ -1093,7 +1060,7 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
               onToggle={toggleSection}
               selectedResourceId={selectedResourceId}
               onSelect={setSelectedResourceId}
-              leadSessionMap={leadSessionMap}
+              leadSessionsByResource={leadSessionsByResource}
             />
           )}
           {viewMode === 'by-supplier' && (
@@ -1103,7 +1070,7 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
               onToggle={toggleSection}
               selectedResourceId={selectedResourceId}
               onSelect={setSelectedResourceId}
-              leadSessionMap={leadSessionMap}
+              leadSessionsByResource={leadSessionsByResource}
             />
           )}
           {filteredResources.length === 0 && (
@@ -1139,7 +1106,7 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
               resource={
                 resources.find((r) => r.resource_id === selectedResourceId)!
               }
-              sessions={leadSessionMap.get(selectedResourceId) ?? []}
+              sessions={leadSessionsByResource[selectedResourceId] ?? []}
             />
           ) : (
             <div

@@ -25,96 +25,52 @@ export type Resource = {
   suppliers: SupplierInfo | SupplierInfo[] | null
 }
 
-export type AppGroupRef = {
-  group_number: number
-  group_name: string
-}
-
 export type SessionRef = {
   id: string
   session_name: string
   focus_area: string | null
-  tessera_app_groups: AppGroupRef | AppGroupRef[] | null
   duration_hrs: number | null
 }
 
-export type LeadRow = {
-  resource_id: string
-  tessera_kt_sessions: SessionRef | null
-}
-
 export default async function PeoplePage() {
-  // Step 1: resources + junction rows in parallel
-  const [resourcesRes, junctionRes] = await Promise.all([
-    supabase
-      .from('resources')
-      .select(
-        'resource_id, resource_salutation, resource_name, resource_job_title, resource_function, resource_location, resource_country, resource_years_experience, resource_experience_as_of, resource_primary_tech_stack, resource_secondary_tech_stack, suppliers(supplier_name, supplier_abbreviation, supplier_colour)',
-      )
-      .order('resource_name'),
-    supabase
-      .from('tessera_kt_session_resources')
-      .select('resource_id, session_id')
-      .eq('role', 'LEAD'),
-  ])
+  const { data: resourcesData, error: resourcesError } = await supabase
+    .from('resources')
+    .select(
+      'resource_id, resource_salutation, resource_name, resource_job_title, resource_function, resource_location, resource_country, resource_years_experience, resource_experience_as_of, resource_primary_tech_stack, resource_secondary_tech_stack, suppliers(supplier_name, supplier_abbreviation, supplier_colour)',
+    )
+    .order('resource_name')
 
-  if (resourcesRes.error) {
-    console.error('[PeoplePage] resources error:', resourcesRes.error)
-  }
-  if (junctionRes.error) {
-    console.error('[PeoplePage] junction error:', junctionRes.error)
+  if (resourcesError) {
+    console.error('[PeoplePage] resources error:', resourcesError)
   }
 
-  const resources = (resourcesRes.data ?? []) as Resource[]
+  const resources = (resourcesData ?? []) as Resource[]
 
-  // Step 2: fetch session details for the collected IDs
-  const junctionRows = (junctionRes.data ?? []) as Array<{
-    resource_id: string
-    session_id: string
-  }>
+  // Step 1: get session IDs where each resource is a LEAD
+  const { data: leadLinks } = await supabase
+    .from('tessera_kt_session_resources')
+    .select('resource_id, session_id')
+    .eq('role', 'LEAD')
 
-  const sessionIds = [...new Set(junctionRows.map((r) => r.session_id))]
+  // Step 2: get the session details for those IDs
+  const sessionIds = [...new Set((leadLinks ?? []).map((l) => l.session_id))]
 
-  type RawSession = {
-    id: string
-    session_name: string
-    focus_area: string | null
-    duration_hrs: number | null
-    tessera_app_groups: AppGroupRef | AppGroupRef[] | null
-  }
+  const { data: sessionRows } = sessionIds.length > 0
+    ? await supabase
+        .from('tessera_kt_sessions')
+        .select('id, session_name, focus_area, duration_hrs')
+        .in('id', sessionIds)
+    : { data: [] as SessionRef[] }
 
-  let rawSessions: RawSession[] = []
-  if (sessionIds.length > 0) {
-    const { data: sessData, error: sessError } = await supabase
-      .from('tessera_kt_sessions')
-      .select('id, session_name, focus_area, duration_hrs, tessera_app_groups(group_number, group_name)')
-      .in('id', sessionIds)
-    if (sessError) {
-      console.error('[PeoplePage] sessions error:', sessError)
+  // Step 3: build a map from resource_id -> session[]
+  const sessionMap = new Map<string, SessionRef[]>()
+  for (const link of leadLinks ?? []) {
+    const session = (sessionRows ?? []).find((s) => s.id === link.session_id)
+    if (session) {
+      const existing = sessionMap.get(link.resource_id) ?? []
+      sessionMap.set(link.resource_id, [...existing, session as SessionRef])
     }
-    rawSessions = (sessData ?? []) as RawSession[]
   }
-
-  // Step 3: build LeadRow[] — one row per junction entry, keyed by resource_id
-  const sessionMap = new Map<string, SessionRef>(
-    rawSessions.map((s) => [
-      s.id,
-      {
-        id: s.id,
-        session_name: s.session_name,
-        focus_area: s.focus_area,
-        tessera_app_groups: s.tessera_app_groups,
-        duration_hrs: s.duration_hrs,
-      },
-    ]),
-  )
-
-  const leadRows: LeadRow[] = junctionRows
-    .map((jr) => ({
-      resource_id: jr.resource_id,
-      tessera_kt_sessions: sessionMap.get(jr.session_id) ?? null,
-    }))
-    .filter((row): row is LeadRow => row.tessera_kt_sessions !== null)
 
   return (
     <TesseraShell activeRoute="/people">
@@ -148,7 +104,10 @@ export default async function PeoplePage() {
             All resources across the eBusiness transition programme
           </p>
         </div>
-        <PeopleClient resources={resources} leadRows={leadRows} />
+        <PeopleClient
+          resources={resources}
+          leadSessionsByResource={Object.fromEntries(sessionMap)}
+        />
       </div>
     </TesseraShell>
   )
