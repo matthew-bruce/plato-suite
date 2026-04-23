@@ -2,83 +2,80 @@
 
 import { useState, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
-import {
-  TRACK_COLOURS,
-  STATUS_COLOURS,
-  getSupplierColour,
-  type SupplierColourMap,
-} from '@plato/ui/tokens'
+import { TRACK_COLOURS, STATUS_COLOURS } from '@plato/ui/tokens'
+import { highlightMatch } from '@/lib/highlightMatch'
 
-export type ClientSession = {
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type FlatSession = {
   id: string
   session_name: string
-  focus_area: string | null
   track: 'A' | 'B' | null
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED' | 'IN_PROGRESS'
-  planned_date: string | null
+  is_playback: boolean
+  status: string
   duration_hrs: number | null
-  app_group_id: string | null
+  group_number: number | null
+  group_name: string | null
+  lead_name: string | null
+  group_sort_order: number | null
+  session_sort_order: number | null
 }
 
-export type ClientAppGroup = {
-  id: string
-  group_number: number
-  group_name: string
-  category: string | null
-  supplier_abbreviation: string | null
-  total_planned_sessions: number
-  total_planned_hours: number | null
-}
-
-type TrackFilter = 'A' | 'B' | null
+type SortKey = 'session' | 'group' | 'duration'
+type SortDir = 'asc' | 'desc'
 type StatusFilter = 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | null
+type TypeFilter = 'all' | 'kt' | 'playback'
 
-const STATUS_LABEL: Record<string, string> = {
-  SCHEDULED: 'Scheduled',
-  COMPLETED: 'Completed',
-  CANCELLED: 'Cancelled',
-  RESCHEDULED: 'Rescheduled',
-  IN_PROGRESS: 'In Progress',
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function resolveStatusColour(s: string): string {
+  if (s === 'RESCHEDULED') return STATUS_COLOURS.IN_PROGRESS
+  const key = s as keyof typeof STATUS_COLOURS
+  return STATUS_COLOURS[key] ?? STATUS_COLOURS.SCHEDULED
 }
 
-function statusColour(status: string): string {
-  if (status === 'COMPLETED') return STATUS_COLOURS.COMPLETED
-  if (status === 'CANCELLED') return STATUS_COLOURS.CANCELLED
-  if (status === 'IN_PROGRESS' || status === 'RESCHEDULED') return STATUS_COLOURS.IN_PROGRESS
-  return STATUS_COLOURS.SCHEDULED
+function resolveStatusLabel(s: string): string {
+  const labels: Record<string, string> = {
+    SCHEDULED: 'Scheduled',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled',
+    IN_PROGRESS: 'In Progress',
+    RESCHEDULED: 'Rescheduled',
+  }
+  return labels[s] ?? s
 }
 
-export function SessionsClient({
-  sessions,
-  appGroups,
-  supplierMap,
-  leadMap,
-}: {
-  sessions: ClientSession[]
-  appGroups: ClientAppGroup[]
-  supplierMap: SupplierColourMap
-  leadMap: Record<string, string>
-}) {
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function SessionsClient({ sessions }: { sessions: FlatSession[] }) {
   const [search, setSearch] = useState('')
-  const [trackFilter, setTrackFilter] = useState<TrackFilter>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(null)
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [sortKey, setSortKey] = useState<SortKey | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set())
 
-  const filteredSessions = useMemo(() => {
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const filtered = useMemo(() => {
     let result = sessions
+
     if (search.trim()) {
       const q = search.toLowerCase()
       result = result.filter(
         (s) =>
           s.session_name.toLowerCase().includes(q) ||
-          (s.focus_area?.toLowerCase().includes(q) ?? false),
+          (s.group_name?.toLowerCase().includes(q) ?? false),
       )
     }
-    if (trackFilter !== null) {
-      result = result.filter((s) => s.track === trackFilter)
-    }
+
     if (statusFilter !== null) {
       if (statusFilter === 'IN_PROGRESS') {
         result = result.filter(
@@ -88,106 +85,139 @@ export function SessionsClient({
         result = result.filter((s) => s.status === statusFilter)
       }
     }
-    return result
-  }, [sessions, search, trackFilter, statusFilter])
 
-  // Group filtered sessions by app_group_id
-  const sessionsByGroup = useMemo(() => {
-    const map = new Map<string, ClientSession[]>()
-    for (const s of filteredSessions) {
-      const key = s.app_group_id ?? '__ungrouped__'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(s)
+    if (typeFilter === 'kt') result = result.filter((s) => !s.is_playback)
+    if (typeFilter === 'playback') result = result.filter((s) => s.is_playback)
+
+    const sorted = [...result]
+    if (sortKey === 'session') {
+      sorted.sort((a, b) => {
+        const cmp = a.session_name.localeCompare(b.session_name)
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    } else if (sortKey === 'group') {
+      sorted.sort((a, b) => {
+        const an = a.group_number ?? 999
+        const bn = b.group_number ?? 999
+        const cmp = an - bn
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    } else if (sortKey === 'duration') {
+      sorted.sort((a, b) => {
+        const ad = a.duration_hrs ?? 0
+        const bd = b.duration_hrs ?? 0
+        const cmp = ad - bd
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    } else {
+      sorted.sort((a, b) => {
+        const ag = a.group_sort_order ?? 999
+        const bg = b.group_sort_order ?? 999
+        if (ag !== bg) return ag - bg
+        const as_ = a.session_sort_order ?? 999
+        const bs_ = b.session_sort_order ?? 999
+        if (as_ !== bs_) return as_ - bs_
+        return a.session_name.localeCompare(b.session_name)
+      })
     }
-    return map
-  }, [filteredSessions])
+    return sorted
+  }, [sessions, search, statusFilter, typeFilter, sortKey, sortDir])
 
-  // Completed count per group from ALL sessions (for accordion header progress)
-  const completedByGroup = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const s of sessions) {
-      if (s.status === 'COMPLETED' && s.app_group_id) {
-        map.set(s.app_group_id, (map.get(s.app_group_id) ?? 0) + 1)
-      }
-    }
-    return map
-  }, [sessions])
-
-  const toggleGroup = (id: string) => {
-    setOpenGroups((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  const headerLabelStyle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.07em',
+    color: 'var(--rmg-color-grey-1)',
+    fontFamily: 'var(--rmg-font-body)',
   }
-
-  const activeGroups = appGroups.filter(
-    (g) => (sessionsByGroup.get(g.id)?.length ?? 0) > 0,
-  )
-  const ungroupedSessions = sessionsByGroup.get('__ungrouped__') ?? []
 
   return (
     <div>
       <style>{`
-        .sessions-toggle { display: none; }
+        .sessions-filter-toggle { display: none; }
         .sessions-filter-groups {
           display: flex;
           align-items: center;
           gap: 16px;
           flex-wrap: wrap;
           flex: 1;
-          min-width: 0;
         }
         @media (max-width: 768px) {
-          .sessions-toggle { display: inline-flex !important; }
+          .sessions-filter-toggle { display: inline-flex !important; }
           .sessions-filter-groups {
             display: none;
             flex-basis: 100%;
+            flex-direction: column;
+            align-items: flex-start;
             margin-top: 8px;
+            gap: 10px;
           }
           .sessions-filter-groups.is-open { display: flex; }
+          .session-col-group,
+          .session-col-lead,
+          .session-col-duration {
+            display: none !important;
+          }
         }
       `}</style>
 
-      {/* Filter bar — Section 11 */}
+      {/* ── Filter bar — Section 11 ── */}
       <div
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          padding: '10px 20px',
           backgroundColor: 'var(--rmg-color-surface-white)',
           border: '1px solid var(--rmg-color-grey-3)',
           borderRadius: 'var(--rmg-radius-m)',
-          padding: '10px 20px',
-          marginBottom: 'var(--rmg-spacing-05)',
-          display: 'flex',
+          marginBottom: 'var(--rmg-spacing-04)',
           flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 16,
         }}
       >
-        {/* Search — always visible */}
-        <input
-          type="text"
-          placeholder="Search sessions…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            flex: 1,
-            minWidth: 160,
-            border: 'none',
-            outline: 'none',
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 14,
-            color: 'var(--rmg-color-text-body)',
-            background: 'transparent',
-          }}
-        />
+        {/* Search input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 200 }}>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            style={{ color: 'var(--rmg-color-grey-1)', flexShrink: 0 }}
+          >
+            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+            <path
+              d="M10 10L13.5 13.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search sessions…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              flex: 1,
+              border: 'none',
+              outline: 'none',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 14,
+              color: 'var(--rmg-color-text-body)',
+              background: 'transparent',
+            }}
+          />
+        </div>
 
-        {/* Mobile filter toggle — CSS hides on desktop */}
+        {/* Mobile toggle */}
         <button
           type="button"
-          className="sessions-toggle"
+          className="sessions-filter-toggle"
           onClick={() => setFiltersOpen((o) => !o)}
           style={{
-            display: 'none', // overridden by CSS media query on mobile
+            display: 'none',
             alignItems: 'center',
             gap: 6,
             padding: '6px 14px',
@@ -201,81 +231,16 @@ export function SessionsClient({
             cursor: 'pointer',
           }}
         >
-          Filters
-          <ChevronDown
-            size={12}
-            style={{
-              transition: 'transform 150ms',
-              transform: filtersOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-            }}
-          />
+          Filters {filtersOpen ? '↑' : '↓'}
         </button>
 
         {/* Collapsible filter groups */}
         <div className={`sessions-filter-groups${filtersOpen ? ' is-open' : ''}`}>
-          {/* Divider */}
-          <div
-            style={{
-              width: 1,
-              height: 18,
-              backgroundColor: 'var(--rmg-color-grey-2)',
-              flexShrink: 0,
-            }}
-          />
+          <Divider />
 
-          {/* Track filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.07em',
-                color: 'var(--rmg-color-grey-1)',
-                flexShrink: 0,
-              }}
-            >
-              Track
-            </span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <FilterPill active={trackFilter === null} onClick={() => setTrackFilter(null)}>
-                All
-              </FilterPill>
-              <FilterPill active={trackFilter === 'A'} onClick={() => setTrackFilter('A')}>
-                A
-              </FilterPill>
-              <FilterPill active={trackFilter === 'B'} onClick={() => setTrackFilter('B')}>
-                B
-              </FilterPill>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div
-            style={{
-              width: 1,
-              height: 18,
-              backgroundColor: 'var(--rmg-color-grey-2)',
-              flexShrink: 0,
-            }}
-          />
-
-          {/* Status filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.07em',
-                color: 'var(--rmg-color-grey-1)',
-                flexShrink: 0,
-              }}
-            >
-              Status
-            </span>
+          {/* Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ ...headerLabelStyle, flexShrink: 0 }}>Status</span>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               <FilterPill active={statusFilter === null} onClick={() => setStatusFilter(null)}>
                 All
@@ -307,225 +272,124 @@ export function SessionsClient({
             </div>
           </div>
 
+          <Divider />
+
+          {/* Type */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ ...headerLabelStyle, flexShrink: 0 }}>Type</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <FilterPill active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>
+                All
+              </FilterPill>
+              <FilterPill active={typeFilter === 'kt'} onClick={() => setTypeFilter('kt')}>
+                KT Only
+              </FilterPill>
+              <FilterPill
+                active={typeFilter === 'playback'}
+                onClick={() => setTypeFilter('playback')}
+              >
+                Playbacks
+              </FilterPill>
+            </div>
+          </div>
+
           {/* Result count */}
           <span
             style={{
               marginLeft: 'auto',
-              fontFamily: 'monospace',
-              fontSize: 'var(--rmg-text-c2)',
-              color: 'var(--rmg-color-text-light)',
+              fontSize: 12,
+              color: 'var(--rmg-color-grey-1)',
               flexShrink: 0,
               whiteSpace: 'nowrap',
+              fontFamily: 'var(--rmg-font-body)',
             }}
           >
-            {filteredSessions.length} result{filteredSessions.length === 1 ? '' : 's'}
+            {filtered.length} result{filtered.length === 1 ? '' : 's'}
           </span>
         </div>
       </div>
 
-      {/* Empty state */}
-      {filteredSessions.length === 0 ? (
-        <div
-          style={{
-            textAlign: 'center',
-            color: 'var(--rmg-color-grey-1)',
-            fontSize: 14,
-            fontFamily: 'var(--rmg-font-body)',
-            padding: 'var(--rmg-spacing-10) 0',
-          }}
-        >
-          No sessions match the current filters.
-        </div>
+      {/* ── Table ── */}
+      {filtered.length === 0 ? (
+        <EmptyState hasQuery={search.trim().length > 0} />
       ) : (
         <div
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--rmg-spacing-03)',
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            borderRadius: 'var(--rmg-radius-m)',
+            boxShadow: 'var(--rmg-shadow-card)',
+            overflow: 'hidden',
           }}
         >
-          {/* App group accordions */}
-          {activeGroups.map((group) => {
-            const groupSessions = sessionsByGroup.get(group.id) ?? []
-            const isOpen = openGroups.has(group.id)
-            const supplierCol = getSupplierColour(
-              group.supplier_abbreviation ?? '',
-              supplierMap,
-            )
-            const completedCount = completedByGroup.get(group.id) ?? 0
-
-            return (
-              <div
-                key={group.id}
-                style={{
-                  backgroundColor: 'var(--rmg-color-surface-white)',
-                  borderRadius: 'var(--rmg-radius-m)',
-                  boxShadow: 'var(--rmg-shadow-card)',
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Accordion header — Section 14 */}
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 14,
-                    padding: '14px 20px',
-                    width: '100%',
-                    cursor: 'pointer',
-                    background: 'none',
-                    border: 'none',
-                    borderLeft: `4px solid ${supplierCol}`,
-                    textAlign: 'left',
-                  }}
-                >
-                  {/* Group ID chip */}
-                  <div
-                    style={{
-                      fontFamily: 'var(--rmg-font-body)',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: 'var(--rmg-color-grey-1)',
-                      backgroundColor: 'var(--rmg-color-grey-4)',
-                      borderRadius: 'var(--rmg-radius-xs)',
-                      padding: '2px 7px',
-                      flexShrink: 0,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    G{group.group_number}
-                  </div>
-
-                  {/* Group name + subtitle */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontFamily: 'var(--rmg-font-body)',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        color: 'var(--rmg-color-text-heading)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {group.group_name}
-                    </div>
-                    {group.category && (
-                      <div
-                        style={{
-                          fontFamily: 'var(--rmg-font-body)',
-                          fontSize: 12,
-                          color: 'var(--rmg-color-text-light)',
-                          marginTop: 2,
-                        }}
-                      >
-                        {group.category}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Summary stats */}
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div
-                      style={{
-                        fontFamily: 'var(--rmg-font-body)',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        color: 'var(--rmg-color-text-heading)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {completedCount}/{group.total_planned_sessions} sessions
-                    </div>
-                    {group.total_planned_hours != null && (
-                      <div
-                        style={{
-                          fontFamily: 'var(--rmg-font-body)',
-                          fontSize: 12,
-                          color: 'var(--rmg-color-text-light)',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {group.total_planned_hours} hrs
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Chevron */}
-                  <ChevronDown
-                    size={16}
-                    style={{
-                      flexShrink: 0,
-                      color: 'var(--rmg-color-grey-1)',
-                      transition: 'transform 150ms',
-                      transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
-                    }}
-                  />
-                </button>
-
-                {/* Session rows */}
-                {isOpen && (
-                  <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
-                    {groupSessions.map((session, idx) => (
-                      <SessionRow
-                        key={session.id}
-                        session={session}
-                        leadName={leadMap[session.id] ?? null}
-                        groupName={group.group_name}
-                        isLast={idx === groupSessions.length - 1}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {/* Ungrouped sessions (fallback) */}
-          {ungroupedSessions.length > 0 && (
-            <div
-              style={{
-                backgroundColor: 'var(--rmg-color-surface-white)',
-                borderRadius: 'var(--rmg-radius-m)',
-                boxShadow: 'var(--rmg-shadow-card)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  padding: '14px 20px',
-                  borderLeft: '4px solid var(--rmg-color-grey-2)',
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  color: 'var(--rmg-color-text-heading)',
-                }}
-              >
-                Ungrouped
-              </div>
-              <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
-                {ungroupedSessions.map((session, idx) => (
-                  <SessionRow
-                    key={session.id}
-                    session={session}
-                    leadName={leadMap[session.id] ?? null}
-                    groupName={null}
-                    isLast={idx === ungroupedSessions.length - 1}
-                  />
-                ))}
-              </div>
+          {/* Header row */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '3px 1fr 200px 140px 60px 110px',
+              alignItems: 'center',
+              backgroundColor: 'var(--rmg-color-grey-4)',
+              borderBottom: '1px solid var(--rmg-color-grey-3)',
+            }}
+          >
+            <div />
+            <div style={{ padding: '10px 0 10px 16px' }}>
+              <SortButton
+                label="Session"
+                sortKey="session"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={handleSort}
+                labelStyle={headerLabelStyle}
+              />
             </div>
-          )}
+            <div className="session-col-group" style={{ padding: '10px 16px' }}>
+              <SortButton
+                label="Group"
+                sortKey="group"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={handleSort}
+                labelStyle={headerLabelStyle}
+              />
+            </div>
+            <div
+              className="session-col-lead"
+              style={{ padding: '10px 16px', ...headerLabelStyle }}
+            >
+              Lead
+            </div>
+            <div
+              className="session-col-duration"
+              style={{ padding: '10px 8px', display: 'flex', justifyContent: 'flex-end' }}
+            >
+              <SortButton
+                label="Dur."
+                sortKey="duration"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={handleSort}
+                labelStyle={headerLabelStyle}
+              />
+            </div>
+            <div style={{ padding: '10px 20px 10px 12px', ...headerLabelStyle }}>Status</div>
+          </div>
+
+          {/* Session rows */}
+          {filtered.map((session, idx) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              query={search.trim()}
+              isLast={idx === filtered.length - 1}
+            />
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-// ── Filter pill (Section 3D) ──────────────────────────────────────────────────
+// ── Filter pill — Section 3D ──────────────────────────────────────────────────
 
 function FilterPill({
   active,
@@ -546,7 +410,7 @@ function FilterPill({
         padding: '3px 10px',
         borderRadius: 'var(--rmg-radius-xl)',
         fontFamily: 'var(--rmg-font-body)',
-        fontSize: 'var(--rmg-text-c2)',
+        fontSize: 12,
         fontWeight: active ? 600 : 400,
         border: active
           ? '1.5px solid var(--rmg-color-red)'
@@ -562,71 +426,105 @@ function FilterPill({
   )
 }
 
-// ── Session row (Section 14) ──────────────────────────────────────────────────
+// ── Sort button ───────────────────────────────────────────────────────────────
+
+function SortButton({
+  label,
+  sortKey: key,
+  currentKey,
+  currentDir,
+  onSort,
+  labelStyle,
+}: {
+  label: string
+  sortKey: SortKey
+  currentKey: SortKey | null
+  currentDir: SortDir
+  onSort: (k: SortKey) => void
+  labelStyle: React.CSSProperties
+}) {
+  const isActive = currentKey === key
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(key)}
+      style={{
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        color: isActive ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-1)',
+        ...labelStyle,
+      }}
+    >
+      {label}
+      {isActive && <span>{currentDir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
+}
+
+// ── Session row ───────────────────────────────────────────────────────────────
 
 function SessionRow({
   session,
-  leadName,
-  groupName,
+  query,
   isLast,
 }: {
-  session: ClientSession
-  leadName: string | null
-  groupName: string | null
+  session: FlatSession
+  query: string
   isLast: boolean
 }) {
-  const trackCol =
-    session.track != null ? TRACK_COLOURS[session.track] : null
-  const statusBg = statusColour(session.status)
-  const statusText = STATUS_LABEL[session.status] ?? session.status
+  const [hovered, setHovered] = useState(false)
+  const trackColour =
+    session.track != null ? TRACK_COLOURS[session.track] : 'transparent'
+  const badgeBg = resolveStatusColour(session.status)
+  const badgeText = resolveStatusLabel(session.status)
 
-  const subtitle = [
-    groupName,
-    session.duration_hrs != null ? `${session.duration_hrs} hrs` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const nameNode: ReactNode = highlightMatch(session.session_name, query)
+  const groupNode: ReactNode | null = session.group_name
+    ? highlightMatch(session.group_name, query)
+    : null
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        padding: '14px 20px',
+        display: 'grid',
+        gridTemplateColumns: '3px 1fr 200px 140px 60px 110px',
+        alignItems: 'stretch',
         borderBottom: isLast ? 'none' : '1px solid var(--rmg-color-grey-3)',
+        backgroundColor: hovered ? 'var(--rmg-color-grey-4)' : 'transparent',
         cursor: 'pointer',
       }}
     >
-      {/* Track indicator bar — 3px wide, full row height, Section 14 */}
-      {trackCol !== null && (
-        <div
-          style={{
-            width: 3,
-            alignSelf: 'stretch',
-            borderRadius: 100,
-            backgroundColor: trackCol,
-            flexShrink: 0,
-          }}
-        />
-      )}
+      {/* Col 1: Track colour bar */}
+      <div style={{ backgroundColor: trackColour, borderRadius: 100 }} />
 
-      {/* Session info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Col 2: Session title + group subtitle */}
+      <div
+        style={{
+          padding: '14px 0 14px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+        }}
+      >
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 14,
             fontWeight: 600,
             color: 'var(--rmg-color-text-heading)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            lineHeight: 1.3,
           }}
         >
-          {session.session_name}
+          {nameNode}
         </div>
-        {subtitle && (
+        {groupNode !== null && (
           <div
             style={{
               fontFamily: 'var(--rmg-font-body)',
@@ -635,60 +533,184 @@ function SessionRow({
               marginTop: 2,
             }}
           >
-            {subtitle}
+            {groupNode}
           </div>
         )}
       </div>
 
-      {/* Lead name — plain text, Section 3F */}
-      {leadName !== null && (
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 12,
-            color: 'var(--rmg-color-grey-1)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {leadName}
-        </span>
-      )}
-
-      {/* Duration — plain text, Section 3F */}
-      {session.duration_hrs != null && (
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--rmg-color-text-body)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {session.duration_hrs}h
-        </span>
-      )}
-
-      {/* Status badge — Section 3C: solid fill, STATUS_COLOURS, white text */}
-      <span
+      {/* Col 3: Group chip + name */}
+      <div
+        className="session-col-group"
         style={{
-          display: 'inline-flex',
+          padding: '14px 16px',
+          display: 'flex',
           alignItems: 'center',
-          padding: '2px 8px',
-          backgroundColor: statusBg,
-          color: 'var(--rmg-color-white)',
-          borderRadius: 'var(--rmg-radius-xl)',
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 11,
-          fontWeight: 600,
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
+          gap: 8,
+          overflow: 'hidden',
         }}
       >
-        {statusText}
-      </span>
+        {session.group_number !== null && (
+          <span
+            style={{
+              backgroundColor: 'var(--rmg-color-grey-4)',
+              color: 'var(--rmg-color-grey-1)',
+              borderRadius: 'var(--rmg-radius-xs)',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '2px 7px',
+              flexShrink: 0,
+              fontFamily: 'var(--rmg-font-body)',
+            }}
+          >
+            G{session.group_number}
+          </span>
+        )}
+        {session.group_name && (
+          <span
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              color: 'var(--rmg-color-text-light)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {session.group_name}
+          </span>
+        )}
+      </div>
+
+      {/* Col 4: Lead — plain text, Section 3F */}
+      <div
+        className="session-col-lead"
+        style={{
+          padding: '14px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: 'var(--rmg-color-grey-1)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {session.lead_name}
+      </div>
+
+      {/* Col 5: Duration — plain text, Section 3F */}
+      <div
+        className="session-col-duration"
+        style={{
+          padding: '14px 8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--rmg-color-text-body)',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {session.duration_hrs != null ? `${session.duration_hrs} hrs` : '—'}
+      </div>
+
+      {/* Col 6: Status badge — Section 3C solid fill */}
+      <div
+        style={{
+          padding: '14px 20px 14px 12px',
+          display: 'flex',
+          alignItems: 'center',
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '2px 10px',
+            backgroundColor: badgeBg,
+            color: '#ffffff',
+            borderRadius: 'var(--rmg-radius-xl)',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 11,
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {badgeText}
+        </span>
+      </div>
     </div>
+  )
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+function EmptyState({ hasQuery }: { hasQuery: boolean }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        marginTop: 60,
+        gap: 12,
+      }}
+    >
+      <svg
+        width="32"
+        height="32"
+        viewBox="0 0 32 32"
+        fill="none"
+        aria-hidden="true"
+        style={{ color: 'var(--rmg-color-grey-2)' }}
+      >
+        <circle cx="13" cy="13" r="9" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M20 20L28 28"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 14,
+          color: 'var(--rmg-color-grey-1)',
+          textAlign: 'center',
+        }}
+      >
+        No sessions match the current filters
+      </div>
+      {hasQuery && (
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 12,
+            color: 'var(--rmg-color-grey-2)',
+          }}
+        >
+          Try a different search term
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Divider ───────────────────────────────────────────────────────────────────
+
+function Divider() {
+  return (
+    <div
+      style={{
+        width: 1,
+        height: 18,
+        backgroundColor: 'var(--rmg-color-grey-2)',
+        flexShrink: 0,
+      }}
+    />
   )
 }

@@ -1,33 +1,26 @@
 import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
-import { buildSupplierMap, type SupplierColourMap } from '@plato/ui/tokens'
-import {
-  SessionsClient,
-  type ClientSession,
-  type ClientAppGroup,
-} from '@/components/SessionsClient'
+import { buildSupplierMap } from '@plato/ui/tokens'
+import { SessionsClient, type FlatSession } from '@/components/SessionsClient'
 
 export const dynamic = 'force-dynamic'
 
-type KtSession = {
+type DbSession = {
   id: string
   session_name: string
-  focus_area: string | null
   track: 'A' | 'B' | null
-  status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'RESCHEDULED'
-  planned_date: string | null
+  is_playback: boolean
+  status: string
   duration_hrs: number | null
   app_group_id: string | null
+  sort_order: number | null
 }
 
-type AppGroup = {
+type DbAppGroup = {
   id: string
   group_number: number
   group_name: string
-  category: string | null
-  supplier_abbreviation: string | null
-  total_planned_sessions: number
-  total_planned_hours: number | null
+  sort_order: number
 }
 
 type SupplierRow = {
@@ -35,20 +28,20 @@ type SupplierRow = {
   supplier_colour: string
 }
 
+type LeadRow = {
+  session_id: string
+  resources: { resource_name: string } | { resource_name: string }[] | null
+}
+
 export default async function SessionsPage() {
   const [sessionsRes, appGroupsRes, leadRes, suppliersRes] = await Promise.all([
     supabase
       .from('tessera_kt_sessions')
-      .select(
-        'id, session_name, focus_area, track, status, planned_date, duration_hrs, app_group_id',
-      )
-      .order('planned_date', { ascending: true }),
+      .select('id, session_name, track, is_playback, status, duration_hrs, app_group_id, sort_order'),
     supabase
       .from('tessera_app_groups')
-      .select(
-        'id, group_number, group_name, category, supplier_abbreviation, total_planned_sessions, total_planned_hours',
-      )
-      .order('group_number'),
+      .select('id, group_number, group_name, sort_order')
+      .order('sort_order'),
     supabase
       .from('tessera_kt_session_resources')
       .select('session_id, resources(resource_name)')
@@ -59,16 +52,13 @@ export default async function SessionsPage() {
       .order('sort_order'),
   ])
 
-  const allSessions = (sessionsRes.data ?? []) as KtSession[]
-  const appGroups = (appGroupsRes.data ?? []) as AppGroup[]
-  const supplierMap: SupplierColourMap = buildSupplierMap(
-    (suppliersRes.data ?? []) as SupplierRow[],
-  )
+  const allSessions = (sessionsRes.data ?? []) as DbSession[]
+  const appGroups = (appGroupsRes.data ?? []) as DbAppGroup[]
 
-  type LeadRow = {
-    session_id: string
-    resources: { resource_name: string } | { resource_name: string }[] | null
-  }
+  // Build supplier map (available for future use; not used in current flat-list UI)
+  buildSupplierMap((suppliersRes.data ?? []) as SupplierRow[])
+
+  // Build lead name lookup
   const leadMap: Record<string, string> = {}
   for (const row of (leadRes.data ?? []) as LeadRow[]) {
     const r = row.resources
@@ -77,29 +67,32 @@ export default async function SessionsPage() {
     if (name) leadMap[row.session_id] = name
   }
 
-  const totalSessions = allSessions.length
-  const totalGroups = appGroups.length
+  // Build group lookup: app_group_id → group metadata
+  const groupMap = new Map(appGroups.map((g) => [g.id, g]))
 
-  const clientSessions: ClientSession[] = allSessions.map((s) => ({
-    id: s.id,
-    session_name: s.session_name,
-    focus_area: s.focus_area,
-    track: s.track,
-    status: s.status,
-    planned_date: s.planned_date,
-    duration_hrs: s.duration_hrs,
-    app_group_id: s.app_group_id,
-  }))
+  // Flatten sessions with joined group + lead data
+  const flatSessions: FlatSession[] = allSessions.map((s) => {
+    const group = s.app_group_id != null ? groupMap.get(s.app_group_id) : undefined
+    return {
+      id: s.id,
+      session_name: s.session_name,
+      track: s.track,
+      is_playback: s.is_playback,
+      status: s.status,
+      duration_hrs: s.duration_hrs,
+      group_number: group?.group_number ?? null,
+      group_name: group?.group_name ?? null,
+      lead_name: leadMap[s.id] ?? null,
+      group_sort_order: group?.sort_order ?? null,
+      session_sort_order: s.sort_order,
+    }
+  })
 
-  const clientAppGroups: ClientAppGroup[] = appGroups.map((g) => ({
-    id: g.id,
-    group_number: g.group_number,
-    group_name: g.group_name,
-    category: g.category,
-    supplier_abbreviation: g.supplier_abbreviation,
-    total_planned_sessions: g.total_planned_sessions,
-    total_planned_hours: g.total_planned_hours,
-  }))
+  const rawHours = allSessions.reduce(
+    (sum, s) => sum + (Number(s.duration_hrs) || 0),
+    0,
+  )
+  const totalHours = Number.isInteger(rawHours) ? rawHours : rawHours.toFixed(1)
 
   return (
     <TesseraShell activeRoute="/sessions">
@@ -117,7 +110,7 @@ export default async function SessionsPage() {
           }}
         >
           {/* Page header */}
-          <div style={{ marginBottom: 'var(--rmg-spacing-06)' }}>
+          <div style={{ marginBottom: 'var(--rmg-spacing-05)' }}>
             <h1
               style={{
                 fontFamily: 'var(--rmg-font-display)',
@@ -129,7 +122,7 @@ export default async function SessionsPage() {
                 margin: 0,
               }}
             >
-              Sessions
+              KT Sessions
             </h1>
             <p
               style={{
@@ -137,19 +130,15 @@ export default async function SessionsPage() {
                 fontSize: 14,
                 color: 'var(--rmg-color-text-light)',
                 margin: 0,
-                marginTop: 'var(--rmg-spacing-02)',
+                marginTop: 6,
               }}
             >
-              {totalSessions} sessions planned across {totalGroups} application groups
+              {allSessions.length} sessions · {totalHours} hrs planned · 1 Apr → 3 Jul
+              2026
             </p>
           </div>
 
-          <SessionsClient
-            sessions={clientSessions}
-            appGroups={clientAppGroups}
-            supplierMap={supplierMap}
-            leadMap={leadMap}
-          />
+          <SessionsClient sessions={flatSessions} />
         </div>
       </div>
     </TesseraShell>
