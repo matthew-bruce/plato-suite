@@ -6,13 +6,19 @@ export const dynamic = 'force-dynamic'
 const TRIP_START = new Date('2026-04-26T00:00:00Z')
 const TRIP_END   = new Date('2026-05-01T23:59:59Z')
 
-// Supplier / track colours
-const DELIVERY_COLOUR = '#E8382A' // RMG red — Matt + Jonny
-const SERVICE_COLOUR  = '#1565C0' // TCS blue — Clare + Mandy
+// Stream colours (by team role, not supplier)
+const STREAM_COLOURS = {
+  BUILD:   '#F3920D',  // --rmg-color-orange — Matt + Jonny (Build/Factory)
+  SERVICE: '#F4AEBA',  // --rmg-color-pink   — Clare + Mandy
+} as const
 
+const getStreamColour = (team: string) =>
+  team === 'DELIVERY' ? STREAM_COLOURS.BUILD : STREAM_COLOURS.SERVICE
+
+// Supplier identity colours — independent of stream
 const SUPPLIER_BADGE: Record<string, { bg: string; fg: string }> = {
-  CG:  { bg: 'rgba(232, 56,  42,  0.12)', fg: DELIVERY_COLOUR },
-  TCS: { bg: 'rgba(21,  101, 192, 0.12)', fg: SERVICE_COLOUR  },
+  CG:  { bg: 'rgba(232, 56,  42,  0.12)', fg: '#E8382A' },
+  TCS: { bg: 'rgba(21,  101, 192, 0.12)', fg: '#1565C0' },
 }
 
 type ItineraryDay = {
@@ -134,8 +140,8 @@ export default async function ItineraryPage() {
             marginBottom: 'var(--rmg-spacing-07)',
           }}
         >
-          <LegendSwatch colour={DELIVERY_COLOUR} label="Delivery — Matt + Jonny" />
-          <LegendSwatch colour={SERVICE_COLOUR}  label="Service — Clare + Mandy" />
+          <LegendSwatch colour={STREAM_COLOURS.BUILD}   label="Delivery — Matt + Jonny" />
+          <LegendSwatch colour={STREAM_COLOURS.SERVICE} label="Service — Clare + Mandy" />
         </div>
 
         {/* Day cards */}
@@ -422,8 +428,7 @@ function SessionRow({
   session: ItinerarySession
   isLast: boolean
 }) {
-  const borderColour =
-    session.team === 'DELIVERY' ? DELIVERY_COLOUR : SERVICE_COLOUR
+  const borderColour = getStreamColour(session.team)
   const badge = SUPPLIER_BADGE[session.supplier_host] ?? SUPPLIER_BADGE.TCS
   const teamLabel = session.team === 'DELIVERY' ? 'Delivery' : 'Service'
 
@@ -525,13 +530,13 @@ function AddressBlock() {
         supplier="CG"
         name="Capgemini Noida"
         lines={['Plot No. 1, Sector 16A', 'Noida, Uttar Pradesh 201 301', 'India']}
-        colour={DELIVERY_COLOUR}
+        colour={SUPPLIER_BADGE.CG.fg}
       />
       <AddressCard
         supplier="TCS"
         name="TCS Gurgaon"
         lines={['12/4, Sector 44', 'Gurugram, Haryana 122 003', 'India']}
-        colour={SERVICE_COLOUR}
+        colour={SUPPLIER_BADGE.TCS.fg}
       />
     </div>
   )
