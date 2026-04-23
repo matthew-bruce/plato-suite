@@ -144,14 +144,11 @@ export default async function Home() {
         .ds-domain-card:hover { opacity: 0.92; }
       `}</style>
 
-      {/* Page shell — surface-light + PLATO watermark */}
+      {/* Page shell — surface-light */}
       <div
         style={{
           minHeight: '100vh',
           backgroundColor: 'var(--rmg-color-surface-light)',
-          backgroundImage:
-            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='240'%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='104' font-weight='700' fill='%232A2A2D' opacity='0.03' letter-spacing='0.12em'%3EPLATO%3C/text%3E%3C/svg%3E\")",
-          backgroundRepeat: 'repeat',
         }}
       >
         <div
