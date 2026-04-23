@@ -44,7 +44,8 @@ export type LeadRow = {
 }
 
 export default async function PeoplePage() {
-  const [resourcesRes, leadRes] = await Promise.all([
+  // Step 1: resources + junction rows in parallel
+  const [resourcesRes, junctionRes] = await Promise.all([
     supabase
       .from('resources')
       .select(
@@ -53,21 +54,67 @@ export default async function PeoplePage() {
       .order('resource_name'),
     supabase
       .from('tessera_kt_session_resources')
-      .select(
-        'resource_id, tessera_kt_sessions(id, session_name, focus_area, tessera_app_groups(group_number, group_name), duration_hrs)',
-      )
+      .select('resource_id, session_id')
       .eq('role', 'LEAD'),
   ])
 
-  const resources = (resourcesRes.data ?? []) as Resource[]
-  const leadRows = (leadRes.data ?? []) as LeadRow[]
-
   if (resourcesRes.error) {
-    console.error('[PeoplePage] resources query error:', resourcesRes.error)
+    console.error('[PeoplePage] resources error:', resourcesRes.error)
   }
-  if (leadRes.error) {
-    console.error('[PeoplePage] leadRows query error:', leadRes.error)
+  if (junctionRes.error) {
+    console.error('[PeoplePage] junction error:', junctionRes.error)
   }
+
+  const resources = (resourcesRes.data ?? []) as Resource[]
+
+  // Step 2: fetch session details for the collected IDs
+  const junctionRows = (junctionRes.data ?? []) as Array<{
+    resource_id: string
+    session_id: string
+  }>
+
+  const sessionIds = [...new Set(junctionRows.map((r) => r.session_id))]
+
+  type RawSession = {
+    id: string
+    session_name: string
+    focus_area: string | null
+    duration_hrs: number | null
+    tessera_app_groups: AppGroupRef | AppGroupRef[] | null
+  }
+
+  let rawSessions: RawSession[] = []
+  if (sessionIds.length > 0) {
+    const { data: sessData, error: sessError } = await supabase
+      .from('tessera_kt_sessions')
+      .select('id, session_name, focus_area, duration_hrs, tessera_app_groups(group_number, group_name)')
+      .in('id', sessionIds)
+    if (sessError) {
+      console.error('[PeoplePage] sessions error:', sessError)
+    }
+    rawSessions = (sessData ?? []) as RawSession[]
+  }
+
+  // Step 3: build LeadRow[] — one row per junction entry, keyed by resource_id
+  const sessionMap = new Map<string, SessionRef>(
+    rawSessions.map((s) => [
+      s.id,
+      {
+        id: s.id,
+        session_name: s.session_name,
+        focus_area: s.focus_area,
+        tessera_app_groups: s.tessera_app_groups,
+        duration_hrs: s.duration_hrs,
+      },
+    ]),
+  )
+
+  const leadRows: LeadRow[] = junctionRows
+    .map((jr) => ({
+      resource_id: jr.resource_id,
+      tessera_kt_sessions: sessionMap.get(jr.session_id) ?? null,
+    }))
+    .filter((row): row is LeadRow => row.tessera_kt_sessions !== null)
 
   return (
     <TesseraShell activeRoute="/people">
