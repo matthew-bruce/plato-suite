@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { TesseraShell } from '@plato/ui/components/tessera'
+import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import type { RiskLevel } from '@/components/RiskPill'
 

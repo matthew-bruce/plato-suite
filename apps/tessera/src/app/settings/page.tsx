@@ -1,4 +1,4 @@
-import { TesseraShell } from '@plato/ui/components/tessera'
+import { TesseraShell } from '@/components/TesseraShell'
 
 // Blue badge colours specified in design brief (no --rmg-* token exists)
 const BLUE_BADGE_BG = '#E6F1FB'

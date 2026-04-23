@@ -1,4 +1,4 @@
-import { TesseraShell } from '@plato/ui/components/tessera'
+import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
