@@ -58,18 +58,43 @@ function tagColour(tag: string): string {
   return TAG_COLOURS[tag] ?? DEFAULT_TAG_COLOUR
 }
 
-function hexToRgba(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+function isHex(colour: string): boolean {
+  return colour.startsWith('#')
 }
 
-function tagChipBg(colour: string): string {
-  // Hex values can be converted; CSS var colours get a fallback opacity wrapper
-  if (colour.startsWith('#')) return hexToRgba(colour, 0.15)
-  // For CSS variables we wrap in color-mix if supported, else rely on opacity
-  return colour
+// Filter bar pill colours: hex gets a full border+bg treatment; CSS vars get a
+// left-border on a neutral grey background (CSS vars can't be used with rgba()).
+function pillColourStyles(colour: string, isActive: boolean): React.CSSProperties {
+  if (isHex(colour)) {
+    return {
+      border: `1px solid ${colour}`,
+      color: isActive ? '#ffffff' : colour,
+      backgroundColor: isActive ? colour : 'transparent',
+    }
+  }
+  return {
+    border: 'none',
+    borderLeft: `3px solid ${colour}`,
+    color: 'var(--rmg-color-text-body)',
+    backgroundColor: isActive ? '#E8E8E8' : '#F5F5F5',
+  }
+}
+
+// Card chip colours: hex appends '26' for 15% opacity; CSS vars get a left border.
+function chipColourStyles(colour: string): React.CSSProperties {
+  if (isHex(colour)) {
+    return {
+      backgroundColor: `${colour}26`,
+      color: colour,
+      border: 'none',
+    }
+  }
+  return {
+    backgroundColor: '#F5F5F5',
+    border: 'none',
+    borderLeft: `3px solid ${colour}`,
+    color: 'var(--rmg-color-text-body)',
+  }
 }
 
 export function NuggetsClient({ nuggets }: { nuggets: Nugget[] }) {
@@ -101,7 +126,6 @@ export function NuggetsClient({ nuggets }: { nuggets: Nugget[] }) {
     fontFamily: 'var(--rmg-font-body)',
     fontSize: 'var(--rmg-text-c2)',
     cursor: 'pointer',
-    border: 'none',
     whiteSpace: 'nowrap',
   }
 
@@ -120,6 +144,7 @@ export function NuggetsClient({ nuggets }: { nuggets: Nugget[] }) {
           onClick={() => setActiveTag(null)}
           style={{
             ...pillBase,
+            border: 'none',
             fontWeight: activeTag === null ? 700 : 400,
             color: activeTag === null ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
             backgroundColor: activeTag === null ? 'var(--rmg-color-tint-red)' : 'var(--rmg-color-grey-3)',
@@ -137,12 +162,7 @@ export function NuggetsClient({ nuggets }: { nuggets: Nugget[] }) {
               style={{
                 ...pillBase,
                 fontWeight: isActive ? 700 : 400,
-                color: isActive ? colour : 'var(--rmg-color-text-body)',
-                backgroundColor: isActive
-                  ? tagChipBg(colour)
-                  : 'var(--rmg-color-grey-3)',
-                outline: isActive ? `2px solid ${colour}` : 'none',
-                outlineOffset: -2,
+                ...pillColourStyles(colour, isActive),
               }}
             >
               {tag} ({tagCounts.get(tag)})
@@ -251,11 +271,9 @@ function NuggetCard({
                     fontFamily: 'var(--rmg-font-body)',
                     fontSize: 'var(--rmg-text-c2)',
                     fontWeight: 600,
-                    color: colour,
-                    backgroundColor: tagChipBg(colour),
-                    border: 'none',
                     cursor: 'pointer',
                     whiteSpace: 'nowrap',
+                    ...chipColourStyles(colour),
                   }}
                 >
                   {tag}
