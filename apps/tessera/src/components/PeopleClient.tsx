@@ -480,6 +480,201 @@ function BySupplierSection({
   )
 }
 
+function PersonDetail({
+  resource,
+  sessions,
+}: {
+  resource: Resource
+  sessions: SessionRef[]
+}) {
+  const supplier = getSupplier(resource.suppliers)
+  const colour = supplier
+    ? (SUPPLIER_COLOURS[supplier.supplier_abbreviation] ?? '#8F9495')
+    : '#8F9495'
+
+  return (
+    <div style={{ padding: 'var(--rmg-spacing-05)' }}>
+      {/* Avatar */}
+      <div
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          backgroundColor: `${colour}26`,
+          color: colour,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: '16px',
+          fontWeight: 700,
+          marginBottom: 'var(--rmg-spacing-03)',
+        }}
+      >
+        {getInitials(resource.resource_name)}
+      </div>
+
+      {/* Name */}
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: 'var(--rmg-text-h5)',
+          lineHeight: 'var(--rmg-leading-h5)',
+          fontWeight: 700,
+          color: 'var(--rmg-color-text-heading)',
+          marginBottom: 2,
+        }}
+      >
+        {resource.resource_name}
+      </div>
+
+      {/* Job title */}
+      {resource.resource_job_title && (
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            color: 'var(--rmg-color-text-light)',
+            marginBottom: 'var(--rmg-spacing-03)',
+          }}
+        >
+          {resource.resource_job_title}
+        </div>
+      )}
+
+      {/* Supplier badge */}
+      {supplier && (
+        <div style={{ marginBottom: 'var(--rmg-spacing-03)' }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px 8px',
+              borderRadius: 'var(--rmg-radius-xl)',
+              border: `1px solid ${colour}`,
+              backgroundColor: `${colour}26`,
+              color: colour,
+              fontFamily: 'monospace',
+              fontSize: '10px',
+              fontWeight: 700,
+            }}
+          >
+            {supplier.supplier_abbreviation}
+          </span>
+        </div>
+      )}
+
+      {/* Location */}
+      {resource.resource_location && (
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            color: 'var(--rmg-color-text-light)',
+            marginBottom: 2,
+          }}
+        >
+          {resource.resource_location}
+          {resource.resource_country ? `, ${resource.resource_country}` : ''}
+        </div>
+      )}
+
+      {/* Experience */}
+      {resource.resource_years_experience != null && (
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            color: 'var(--rmg-color-text-light)',
+            marginBottom: 'var(--rmg-spacing-04)',
+          }}
+        >
+          {resource.resource_years_experience} yrs experience
+        </div>
+      )}
+
+      {/* Divider */}
+      <div
+        style={{
+          height: 1,
+          backgroundColor: 'var(--rmg-color-grey-3)',
+          margin: 'var(--rmg-spacing-04) 0',
+        }}
+      />
+
+      {/* KT Sessions */}
+      <div>
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            color: 'var(--rmg-color-text-light)',
+            marginBottom: 'var(--rmg-spacing-03)',
+          }}
+        >
+          KT Sessions ({sessions.length})
+        </div>
+        {sessions.length === 0 ? (
+          <p
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-c2)',
+              color: 'var(--rmg-color-text-light)',
+              margin: 0,
+            }}
+          >
+            No sessions as lead.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {sessions.map((s) => {
+              const ag = s.tessera_app_groups
+              const group = Array.isArray(ag) ? (ag[0] ?? null) : ag
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+                    borderRadius: 'var(--rmg-radius-s)',
+                    backgroundColor: 'var(--rmg-color-surface-light)',
+                    borderLeft: '2px solid var(--rmg-color-red)',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 'var(--rmg-text-c2)',
+                      fontWeight: 600,
+                      color: 'var(--rmg-color-text-body)',
+                    }}
+                  >
+                    {s.session_name}
+                  </div>
+                  {group && (
+                    <div
+                      style={{
+                        fontFamily: 'monospace',
+                        fontSize: '10px',
+                        color: 'var(--rmg-color-text-light)',
+                        marginTop: 1,
+                      }}
+                    >
+                      G{group.group_number}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
   // ── State ──────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState<string>('')
@@ -867,7 +1062,7 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
           )}
         </div>
 
-        {/* Detail panel — coming next */}
+        {/* Detail panel */}
         <div
           style={{
             width: 220,
@@ -877,26 +1072,39 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
             boxShadow: 'var(--rmg-shadow-card)',
             position: 'sticky',
             top: 'var(--rmg-spacing-07)',
-            padding: 'var(--rmg-spacing-06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: 120,
+            overflow: 'hidden',
           }}
         >
-          <p
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-c2)',
-              color: 'var(--rmg-color-text-light)',
-              textAlign: 'center',
-              margin: 0,
-            }}
-          >
-            {selectedResourceId
-              ? 'Detail panel coming next'
-              : 'Select a person\nto see details'}
-          </p>
+          {selectedResourceId ? (
+            <PersonDetail
+              resource={
+                resources.find((r) => r.resource_id === selectedResourceId)!
+              }
+              sessions={leadSessionMap.get(selectedResourceId) ?? []}
+            />
+          ) : (
+            <div
+              style={{
+                padding: 'var(--rmg-spacing-06)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: 120,
+              }}
+            >
+              <p
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-text-light)',
+                  textAlign: 'center',
+                  margin: 0,
+                }}
+              >
+                Select a person to see details
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
