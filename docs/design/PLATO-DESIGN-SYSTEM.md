@@ -385,8 +385,6 @@ Every Plato app page uses this wrapper pattern:
 // Page wrapper — surface-light bg + PLATO watermark
 <div style={{
   backgroundColor: 'var(--rmg-color-surface-light)',
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='80'%3E%3Ctext x='10' y='50' font-family='Arial' font-size='13' font-weight='700' fill='%232A2A2D' opacity='0.04' transform='rotate(-12 100 40)' letter-spacing='3'%3EPLATO%3C/text%3E%3C/svg%3E")`,
-  backgroundRepeat: 'repeat',
   minHeight: '100vh',
 }}>
 ```
