@@ -81,6 +81,23 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     return map
   }, [leadRows])
 
+  // ── Derived option lists for filter bar ───────────────────────────
+  const allSupplierAbbrs = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const r of resources) {
+      const s = getSupplier(r.suppliers)
+      if (s && !seen.has(s.supplier_abbreviation))
+        seen.set(s.supplier_abbreviation, s.supplier_name)
+    }
+    return [...seen.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [resources])
+
+  const allLocations = useMemo(() => {
+    const seen = new Set<string>()
+    for (const r of resources) if (r.resource_location) seen.add(r.resource_location)
+    return [...seen].sort()
+  }, [resources])
+
   // ── Derived filter/sort: filteredResources ────────────────────────
   const filteredResources = useMemo(() => {
     let result = resources
@@ -140,23 +157,209 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     sortDirection,
   ])
 
-  // Suppress unused-var warnings for state setters and helpers that
-  // will be wired up when the JSX is added.
-  void setSearchQuery
-  void setSelectedSuppliers
+  // Referenced by table/detail chunks not yet written
   void setSelectedStreams
-  void setSelectedLocation
-  void setViewMode
   void setSortColumn
   void setSortDirection
-  void setSelectedResourceId
-  void filteredResources
-  void leadSessionMap
   void selectedResourceId
-  void viewMode
-  void SUPPLIER_COLOURS
-  void STREAM_COLOURS
+  void setSelectedResourceId
+  void leadSessionMap
   void getInitials
+  void STREAM_COLOURS
 
-  return <div>PeopleClient — skeleton ready</div>
+  // ── Style helpers ──────────────────────────────────────────────────
+  function filterPill(active: boolean): React.CSSProperties {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '3px 10px',
+      borderRadius: 'var(--rmg-radius-xl)',
+      fontFamily: 'var(--rmg-font-body)',
+      fontSize: 'var(--rmg-text-c2)',
+      fontWeight: active ? 700 : 400,
+      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+      backgroundColor: active
+        ? 'var(--rmg-color-tint-red)'
+        : 'var(--rmg-color-grey-3)',
+      cursor: 'pointer',
+      border: 'none',
+      whiteSpace: 'nowrap' as const,
+    }
+  }
+
+  function viewTab(active: boolean): React.CSSProperties {
+    return {
+      padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+      borderRadius: 'var(--rmg-radius-s)',
+      fontFamily: 'var(--rmg-font-body)',
+      fontSize: 'var(--rmg-text-c2)',
+      fontWeight: active ? 700 : 400,
+      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+      backgroundColor: active ? 'var(--rmg-color-tint-red)' : 'transparent',
+      cursor: 'pointer',
+      border: 'none',
+      whiteSpace: 'nowrap' as const,
+    }
+  }
+
+  const labelStyle: React.CSSProperties = {
+    fontFamily: 'var(--rmg-font-body)',
+    fontSize: 'var(--rmg-text-c2)',
+    color: 'var(--rmg-color-text-light)',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    flexShrink: 0,
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)' }}>
+      {/* Filter bar */}
+      <div
+        style={{
+          backgroundColor: 'var(--rmg-color-surface-white)',
+          borderRadius: 'var(--rmg-radius-m)',
+          boxShadow: 'var(--rmg-shadow-card)',
+          padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 'var(--rmg-spacing-04)',
+          alignItems: 'center',
+        }}
+      >
+        {/* Search */}
+        <input
+          type="search"
+          placeholder="Search by name, role, or function…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            flex: '1 1 200px',
+            minWidth: 160,
+            padding: '6px var(--rmg-spacing-03)',
+            borderRadius: 'var(--rmg-radius-s)',
+            border: '1px solid var(--rmg-color-grey-3)',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-b3)',
+            color: 'var(--rmg-color-text-body)',
+            background: 'var(--rmg-color-surface-light)',
+            outline: 'none',
+          }}
+        />
+
+        {/* Supplier pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
+          <span style={labelStyle}>Supplier</span>
+          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setSelectedSuppliers([])}
+              style={filterPill(selectedSuppliers.length === 0)}
+            >
+              All
+            </button>
+            {allSupplierAbbrs.map(([abbr]) => {
+              const colour = SUPPLIER_COLOURS[abbr] ?? '#8F9495'
+              const isActive = selectedSuppliers.includes(abbr)
+              return (
+                <button
+                  key={abbr}
+                  type="button"
+                  onClick={() =>
+                    setSelectedSuppliers((prev) =>
+                      prev.includes(abbr)
+                        ? prev.filter((s) => s !== abbr)
+                        : [...prev, abbr],
+                    )
+                  }
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '3px 10px',
+                    borderRadius: 'var(--rmg-radius-xl)',
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 'var(--rmg-text-c2)',
+                    fontWeight: isActive ? 700 : 400,
+                    color: isActive ? '#ffffff' : colour,
+                    backgroundColor: isActive ? colour : `${colour}1A`,
+                    border: `1px solid ${colour}`,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {abbr}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Location pills */}
+        {allLocations.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
+            <span style={labelStyle}>Location</span>
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedLocation(null)}
+                style={filterPill(!selectedLocation)}
+              >
+                All
+              </button>
+              {allLocations.map((loc) => (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() =>
+                    setSelectedLocation(loc === selectedLocation ? null : loc)
+                  }
+                  style={filterPill(selectedLocation === loc)}
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Count + view mode toggle */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-03)' }}>
+          <span
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 'var(--rmg-text-c2)',
+              color: 'var(--rmg-color-text-light)',
+              flexShrink: 0,
+            }}
+          >
+            {filteredResources.length} result{filteredResources.length === 1 ? '' : 's'}
+          </span>
+          <div
+            style={{
+              display: 'flex',
+              gap: 2,
+              backgroundColor: 'var(--rmg-color-surface-light)',
+              borderRadius: 'var(--rmg-radius-s)',
+              padding: 2,
+            }}
+          >
+            {(['list', 'by-role', 'by-supplier'] as ViewMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setViewMode(m)}
+                style={viewTab(viewMode === m)}
+              >
+                {m === 'list' ? 'List' : m === 'by-role' ? 'By Role' : 'By Supplier'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Table + detail panel — coming next */}
+      <div>Table coming next…</div>
+    </div>
+  )
 }
