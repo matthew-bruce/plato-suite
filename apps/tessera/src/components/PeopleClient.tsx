@@ -1,43 +1,18 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import type {
-  Resource,
-  SupplierInfo,
-  SessionRef,
-} from '@/app/people/page'
-
-// ── Supplier brand colours (sourced from suppliers table) ──────────
-const SUPPLIER_COLOURS: Record<string, string> = {
-  CG: '#003C82', // Capgemini cobalt
-  TCS: '#9B0A6E', // TCS magenta
-  RMG: '#E2001A', // Royal Mail red
-  HT: '#FF8C00', // Happy Team orange
-  NH: '#1A2B5B', // North Highland navy
-  EPAM: '#3D3D3D', // EPAM charcoal
-}
-
-// ── resource_function stream colours ──────────────────────────────
-const STREAM_COLOURS: Record<string, string> = {
-  FACTORY:    '#003C82',
-  SERVICE:    '#9B0A6E',
-  PROGRAMME:  '#E2001A',
-  COMMERCIAL: '#F3920D',
-  MIGRATION:  '#3ABFB8',
-  CLOUD_OPS:  '#1976F2',
-}
-
-type ViewMode = 'list' | 'by-role' | 'by-supplier'
-type SortColumn =
-  | 'resource_name'
-  | 'resource_years_experience'
-  | 'resource_job_title'
-type SortDirection = 'asc' | 'desc'
+import type { Resource, SessionRef, SupplierInfo } from '@/app/people/page'
+import { getSupplierColour, buildSupplierMap, TRACK_COLOURS } from '@plato/ui/tokens'
+import { highlightMatch } from '@/lib/highlightMatch'
 
 interface PeopleClientProps {
   resources: Resource[]
   leadSessionsByResource: Record<string, SessionRef[]>
+  suppliers: SupplierInfo[]
 }
+
+type SortKey = 'name' | 'role' | 'exp' | 'sessions' | null
+type SortDir = 'asc' | 'desc'
 
 function getSupplier(s: Resource['suppliers']): SupplierInfo | null {
   if (!s) return null
@@ -46,104 +21,96 @@ function getSupplier(s: Resource['suppliers']): SupplierInfo | null {
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-  }
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
   return name.slice(0, 2).toUpperCase()
 }
 
-// ── Grid templates per view mode ───────────────────────────────────
-const GRID: Record<ViewMode, string> = {
-  list:          '1fr 160px 80px 100px 52px 52px',
-  'by-role':     '1fr 80px 100px 52px 52px',
-  'by-supplier': '1fr 160px 100px 52px 52px',
-}
-
-function TableHeader({
-  viewMode,
-  sortColumn,
-  sortDirection,
-  onSort,
-}: {
-  viewMode: ViewMode
-  sortColumn: SortColumn
-  sortDirection: SortDirection
-  onSort: (col: SortColumn) => void
-}) {
-  const colLabel: React.CSSProperties = {
+function filterPill(active: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '3px 10px',
+    borderRadius: 'var(--rmg-radius-xl)',
     fontFamily: 'var(--rmg-font-body)',
     fontSize: 'var(--rmg-text-c2)',
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    color: 'var(--rmg-color-text-light)',
-    whiteSpace: 'nowrap',
+    fontWeight: active ? 700 : 400,
+    color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+    backgroundColor: active ? 'var(--rmg-color-tint-red)' : 'transparent',
+    border: active
+      ? '1px solid var(--rmg-color-red)'
+      : '1px solid var(--rmg-color-grey-3)',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
   }
+}
 
-  function SortBtn({ label, col }: { label: string; col: SortColumn }) {
-    const active = sortColumn === col
-    return (
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        style={{
-          ...colLabel,
-          color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-light)',
-          cursor: 'pointer',
-          border: 'none',
-          background: 'none',
-          padding: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-        }}
-      >
-        {label}
-        {active ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
-      </button>
-    )
-  }
+const GRID_COLS = '1fr 150px 80px 50px 36px'
 
+const labelStyle: React.CSSProperties = {
+  fontFamily: 'var(--rmg-font-body)',
+  fontSize: 'var(--rmg-text-c2)',
+  color: 'var(--rmg-color-text-light)',
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  flexShrink: 0,
+}
+
+function SortButton({
+  label,
+  sortKey: key,
+  activeSortKey,
+  sortDir,
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  activeSortKey: SortKey
+  sortDir: SortDir
+  onSort: (k: SortKey) => void
+}) {
+  const active = activeSortKey === key
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => onSort(key)}
       style={{
-        display: 'grid',
-        gridTemplateColumns: GRID[viewMode],
-        gap: 'var(--rmg-spacing-04)',
-        padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
-        borderBottom: '1px solid var(--rmg-color-grey-3)',
+        ...labelStyle,
+        color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-light)',
+        cursor: 'pointer',
+        border: 'none',
+        background: 'none',
+        padding: 0,
+        display: 'flex',
         alignItems: 'center',
+        gap: 3,
       }}
     >
-      <SortBtn label="Name" col="resource_name" />
-      {viewMode !== 'by-role' && <SortBtn label="Role" col="resource_job_title" />}
-      {viewMode !== 'by-supplier' && <span style={colLabel}>Supplier</span>}
-      <span style={colLabel}>Location</span>
-      <SortBtn label="Exp" col="resource_years_experience" />
-      <span style={colLabel}>KT</span>
-    </div>
+      {label}
+      {active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+    </button>
   )
 }
 
-function ResourceRow({
+function PersonRow({
   resource,
-  viewMode,
-  selectedResourceId,
+  isSelected,
   onSelect,
-  leadSessionsByResource,
+  sessions,
+  search,
+  colourMap,
 }: {
   resource: Resource
-  viewMode: ViewMode
-  selectedResourceId: string | null
+  isSelected: boolean
   onSelect: (id: string | null) => void
-  leadSessionsByResource: Record<string, SessionRef[]>
+  sessions: SessionRef[]
+  search: string
+  colourMap: Record<string, string>
 }) {
+  const [hovered, setHovered] = useState(false)
   const supplier = getSupplier(resource.suppliers)
-  const colour = supplier
-    ? (SUPPLIER_COLOURS[supplier.supplier_abbreviation] ?? '#8F9495')
-    : '#8F9495'
-  const sessionCount = (leadSessionsByResource[resource.resource_id] ?? []).length
-  const isSelected = selectedResourceId === resource.resource_id
+  const colour = getSupplierColour(supplier?.supplier_abbreviation ?? '', colourMap)
+  const sessionCount = sessions.length
 
   return (
     <div
@@ -154,27 +121,43 @@ function ResourceRow({
         if (e.key === 'Enter' || e.key === ' ')
           onSelect(isSelected ? null : resource.resource_id)
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         display: 'grid',
-        gridTemplateColumns: GRID[viewMode],
+        gridTemplateColumns: GRID_COLS,
         gap: 'var(--rmg-spacing-04)',
         padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
         alignItems: 'center',
         cursor: 'pointer',
-        backgroundColor: isSelected ? '#DA202A04' : 'transparent',
-        borderLeft: isSelected ? '2px solid #DA202A' : '2px solid transparent',
+        backgroundColor: isSelected
+          ? 'var(--rmg-color-tint-red)'
+          : hovered
+            ? 'var(--rmg-color-surface-light)'
+            : 'transparent',
+        borderLeft: isSelected
+          ? '2px solid var(--rmg-color-red)'
+          : '2px solid transparent',
         borderBottom: '1px solid var(--rmg-color-grey-3)',
+        outline: 'none',
       }}
     >
       {/* Name + avatar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-03)', minWidth: 0 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--rmg-spacing-03)',
+          minWidth: 0,
+        }}
+      >
         <div
           style={{
             width: 28,
             height: 28,
             borderRadius: '50%',
-            backgroundColor: `${colour}26`,
-            color: colour,
+            backgroundColor: colour,
+            color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -192,88 +175,65 @@ function ResourceRow({
               fontFamily: 'var(--rmg-font-body)',
               fontSize: 'var(--rmg-text-b3)',
               color: 'var(--rmg-color-text-body)',
-              fontWeight: isSelected ? 700 : 400,
+              fontWeight: isSelected ? 600 : 400,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
             }}
           >
-            {resource.resource_name}
+            {highlightMatch(resource.resource_name, search)}
           </div>
-          {resource.resource_function && (
-            <div
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 'var(--rmg-text-c2)',
-                color: 'var(--rmg-color-text-light)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {resource.resource_function}
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Role — list + by-supplier views */}
-      {viewMode !== 'by-role' && (
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 'var(--rmg-text-c2)',
-            color: 'var(--rmg-color-text-body)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {resource.resource_job_title ?? '—'}
-        </span>
-      )}
-
-      {/* Supplier badge — list + by-role views */}
-      {viewMode !== 'by-supplier' && (
-        supplier ? (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              alignSelf: 'center',
-              padding: '2px 8px',
-              borderRadius: 'var(--rmg-radius-xl)',
-              border: `1px solid ${colour}`,
-              backgroundColor: `${colour}26`,
-              color: colour,
-              fontFamily: 'monospace',
-              fontSize: '10px',
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {supplier.supplier_abbreviation}
-          </span>
-        ) : (
-          <span style={{ color: 'var(--rmg-color-text-light)', fontSize: 'var(--rmg-text-c2)' }}>—</span>
-        )
-      )}
-
-      {/* Location */}
+      {/* Role */}
       <span
         style={{
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
+          color: 'var(--rmg-color-text-body)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
         }}
       >
-        {resource.resource_location ?? '—'}
+        {resource.resource_job_title
+          ? highlightMatch(resource.resource_job_title, search)
+          : '—'}
       </span>
 
-      {/* Experience */}
+      {/* Supplier pill */}
+      {supplier ? (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'center',
+            padding: '2px 8px',
+            borderRadius: 'var(--rmg-radius-xl)',
+            border: `1px solid ${colour}`,
+            backgroundColor: `${colour}18`,
+            color: colour,
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {supplier.supplier_abbreviation}
+        </span>
+      ) : (
+        <span
+          style={{
+            color: 'var(--rmg-color-text-light)',
+            fontSize: 'var(--rmg-text-c2)',
+          }}
+        >
+          —
+        </span>
+      )}
+
+      {/* Exp */}
       <span
         style={{
           fontFamily: 'monospace',
@@ -287,12 +247,15 @@ function ResourceRow({
           : '—'}
       </span>
 
-      {/* KT session count */}
+      {/* KT */}
       <span
         style={{
           fontFamily: 'monospace',
           fontSize: 'var(--rmg-text-c2)',
-          color: sessionCount > 0 ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-light)',
+          color:
+            sessionCount > 0
+              ? 'var(--rmg-color-red)'
+              : 'var(--rmg-color-text-light)',
           fontWeight: sessionCount > 0 ? 700 : 400,
           whiteSpace: 'nowrap',
         }}
@@ -303,207 +266,28 @@ function ResourceRow({
   )
 }
 
-interface SectionProps {
-  resources: Resource[]
-  collapsedSections: Set<string>
-  onToggle: (key: string) => void
-  selectedResourceId: string | null
-  onSelect: (id: string | null) => void
-  leadSessionsByResource: Record<string, SessionRef[]>
-}
-
-function ByRoleSection({
-  resources,
-  collapsedSections,
-  onToggle,
-  selectedResourceId,
-  onSelect,
-  leadSessionsByResource,
-}: SectionProps) {
-  const groups = useMemo(() => {
-    const map = new Map<string, Resource[]>()
-    for (const r of resources) {
-      const key = r.resource_job_title ?? 'No Role'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(r)
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [resources])
-
-  return (
-    <>
-      {groups.map(([role, members]) => {
-        const isCollapsed = collapsedSections.has(role)
-        return (
-          <div key={role}>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => onToggle(role)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(role) }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--rmg-spacing-03)',
-                padding: 'var(--rmg-spacing-02) var(--rmg-spacing-05)',
-                cursor: 'pointer',
-                borderBottom: '1px solid var(--rmg-color-grey-3)',
-                backgroundColor: 'var(--rmg-color-surface-light)',
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 'var(--rmg-text-c2)',
-                  fontWeight: 700,
-                  color: 'var(--rmg-color-text-body)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {role}
-              </span>
-              <span
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: 'var(--rmg-text-c2)',
-                  color: 'var(--rmg-color-text-light)',
-                  marginLeft: 'auto',
-                }}
-              >
-                {members.length}
-              </span>
-              <span style={{ fontSize: 10, color: 'var(--rmg-color-text-light)' }}>
-                {isCollapsed ? '▸' : '▾'}
-              </span>
-            </div>
-            {!isCollapsed &&
-              members.map((r) => (
-                <ResourceRow
-                  key={r.resource_id}
-                  resource={r}
-                  viewMode="by-role"
-                  selectedResourceId={selectedResourceId}
-                  onSelect={onSelect}
-                  leadSessionsByResource={leadSessionsByResource}
-                />
-              ))}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
-function BySupplierSection({
-  resources,
-  collapsedSections,
-  onToggle,
-  selectedResourceId,
-  onSelect,
-  leadSessionsByResource,
-}: SectionProps) {
-  const groups = useMemo(() => {
-    const map = new Map<string, Resource[]>()
-    for (const r of resources) {
-      const s = getSupplier(r.suppliers)
-      const key = s?.supplier_abbreviation ?? 'Unknown'
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(r)
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [resources])
-
-  return (
-    <>
-      {groups.map(([abbr, members]) => {
-        const isCollapsed = collapsedSections.has(abbr)
-        const colour = SUPPLIER_COLOURS[abbr] ?? '#8F9495'
-        return (
-          <div key={abbr} style={{ borderLeft: `4px solid ${colour}` }}>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => onToggle(abbr)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(abbr) }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--rmg-spacing-03)',
-                padding: 'var(--rmg-spacing-02) var(--rmg-spacing-05)',
-                cursor: 'pointer',
-                borderBottom: '1px solid var(--rmg-color-grey-3)',
-                backgroundColor: `${colour}0A`,
-              }}
-            >
-              <span
-                style={{
-                  padding: '2px 8px',
-                  borderRadius: 'var(--rmg-radius-xl)',
-                  border: `1px solid ${colour}`,
-                  backgroundColor: `${colour}26`,
-                  color: colour,
-                  fontFamily: 'monospace',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                }}
-              >
-                {abbr}
-              </span>
-              <span
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: 'var(--rmg-text-c2)',
-                  color: 'var(--rmg-color-text-light)',
-                  marginLeft: 'auto',
-                }}
-              >
-                {members.length}
-              </span>
-              <span style={{ fontSize: 10, color: 'var(--rmg-color-text-light)' }}>
-                {isCollapsed ? '▸' : '▾'}
-              </span>
-            </div>
-            {!isCollapsed &&
-              members.map((r) => (
-                <ResourceRow
-                  key={r.resource_id}
-                  resource={r}
-                  viewMode="by-supplier"
-                  selectedResourceId={selectedResourceId}
-                  onSelect={onSelect}
-                  leadSessionsByResource={leadSessionsByResource}
-                />
-              ))}
-          </div>
-        )
-      })}
-    </>
-  )
-}
-
 function PersonDetail({
   resource,
   sessions,
+  colourMap,
 }: {
   resource: Resource
   sessions: SessionRef[]
+  colourMap: Record<string, string>
 }) {
   const supplier = getSupplier(resource.suppliers)
-  const colour = supplier
-    ? (SUPPLIER_COLOURS[supplier.supplier_abbreviation] ?? '#8F9495')
-    : '#8F9495'
+  const colour = getSupplierColour(supplier?.supplier_abbreviation ?? '', colourMap)
 
   return (
-    <div style={{ padding: 'var(--rmg-spacing-05)' }}>
+    <div style={{ padding: 'var(--rmg-spacing-05)', overflowY: 'auto' }}>
       {/* Avatar */}
       <div
         style={{
           width: 44,
           height: 44,
           borderRadius: '50%',
-          backgroundColor: `${colour}26`,
-          color: colour,
+          backgroundColor: colour,
+          color: '#ffffff',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -537,7 +321,7 @@ function PersonDetail({
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 'var(--rmg-text-c2)',
             color: 'var(--rmg-color-text-light)',
-            marginBottom: 'var(--rmg-spacing-03)',
+            marginBottom: 'var(--rmg-spacing-02)',
           }}
         >
           {resource.resource_job_title}
@@ -554,7 +338,7 @@ function PersonDetail({
               padding: '2px 8px',
               borderRadius: 'var(--rmg-radius-xl)',
               border: `1px solid ${colour}`,
-              backgroundColor: `${colour}26`,
+              backgroundColor: `${colour}18`,
               color: colour,
               fontFamily: 'monospace',
               fontSize: '10px',
@@ -631,29 +415,49 @@ function PersonDetail({
             No sessions as lead.
           </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                style={{
-                  padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
-                  borderRadius: 'var(--rmg-radius-s)',
-                  backgroundColor: 'var(--rmg-color-surface-light)',
-                  borderLeft: '2px solid var(--rmg-color-red)',
-                }}
-              >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {sessions.map((s) => {
+              const trackColour = s.track
+                ? TRACK_COLOURS[s.track]
+                : 'var(--rmg-color-grey-3)'
+              return (
                 <div
+                  key={s.id}
                   style={{
-                    fontFamily: 'var(--rmg-font-body)',
-                    fontSize: 'var(--rmg-text-c2)',
-                    fontWeight: 600,
-                    color: 'var(--rmg-color-text-body)',
+                    padding: '6px var(--rmg-spacing-03)',
+                    borderRadius: 'var(--rmg-radius-s)',
+                    backgroundColor: 'var(--rmg-color-surface-light)',
+                    borderLeft: `3px solid ${trackColour}`,
                   }}
                 >
-                  {s.session_name}
+                  <div
+                    style={{
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 'var(--rmg-text-c2)',
+                      fontWeight: 600,
+                      color: 'var(--rmg-color-text-body)',
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    {s.session_name}
+                  </div>
+                  {(s.group_name || s.duration_hrs) && (
+                    <div
+                      style={{
+                        fontFamily: 'var(--rmg-font-body)',
+                        fontSize: 11,
+                        color: 'var(--rmg-color-text-light)',
+                        marginTop: 1,
+                      }}
+                    >
+                      {s.group_name ?? ''}
+                      {s.group_name && s.duration_hrs ? ` · ${s.duration_hrs}h` : ''}
+                      {!s.group_name && s.duration_hrs ? `${s.duration_hrs}h` : ''}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -661,34 +465,26 @@ function PersonDetail({
   )
 }
 
-export function PeopleClient({ resources, leadSessionsByResource }: PeopleClientProps) {
-  // ── State ──────────────────────────────────────────────────────────
-  const [searchQuery, setSearchQuery] = useState<string>('')
+export function PeopleClient({
+  resources,
+  leadSessionsByResource,
+  suppliers,
+}: PeopleClientProps) {
+  const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
-  const [selectedStreams, setSelectedStreams] = useState<string[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('list')
-  const [sortColumn, setSortColumn] = useState<SortColumn>(
-    'resource_years_experience',
-  )
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
-  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
-    null,
-  )
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    new Set(),
-  )
+  const [sortKey, setSortKey] = useState<SortKey>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // ── Derived option lists for filter bar ───────────────────────────
-  const allSupplierAbbrs = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const r of resources) {
-      const s = getSupplier(r.suppliers)
-      if (s && !seen.has(s.supplier_abbreviation))
-        seen.set(s.supplier_abbreviation, s.supplier_name)
-    }
-    return [...seen.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [resources])
+  const colourMap = useMemo(() => buildSupplierMap(suppliers), [suppliers])
+  const supplierOrder = useMemo(
+    () =>
+      Object.fromEntries(
+        suppliers.map((s, i) => [s.supplier_abbreviation, i]),
+      ),
+    [suppliers],
+  )
 
   const allLocations = useMemo(() => {
     const seen = new Set<string>()
@@ -696,29 +492,16 @@ export function PeopleClient({ resources, leadSessionsByResource }: PeopleClient
     return [...seen].sort()
   }, [resources])
 
-  const allStreams = useMemo(() => {
-    const seen = new Set<string>()
-    for (const r of resources) if (r.resource_function) seen.add(r.resource_function)
-    return [...seen].sort()
-  }, [resources])
-
-  // ── Derived filter/sort: filteredResources ────────────────────────
-  const filteredResources = useMemo(() => {
+  const filtered = useMemo(() => {
     let result = resources
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter((r) => {
-        const s = getSupplier(r.suppliers)
-        return [
-          r.resource_name,
-          r.resource_job_title,
-          r.resource_function,
-          s?.supplier_name,
-          r.resource_primary_tech_stack,
-          r.resource_secondary_tech_stack,
-        ].some((field) => field?.toLowerCase().includes(q) ?? false)
-      })
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      result = result.filter((r) =>
+        [r.resource_name, r.resource_job_title].some(
+          (f) => f?.toLowerCase().includes(q) ?? false,
+        ),
+      )
     }
 
     if (selectedSuppliers.length > 0) {
@@ -728,213 +511,181 @@ export function PeopleClient({ resources, leadSessionsByResource }: PeopleClient
       })
     }
 
-    if (selectedStreams.length > 0) {
-      result = result.filter(
-        (r) => r.resource_function != null && selectedStreams.includes(r.resource_function),
-      )
-    }
-
     if (selectedLocation) {
       result = result.filter((r) => r.resource_location === selectedLocation)
     }
 
     return [...result].sort((a, b) => {
-      if (sortColumn === 'resource_years_experience') {
+      if (sortKey === 'name') {
+        const cmp = a.resource_name.localeCompare(b.resource_name)
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      if (sortKey === 'role') {
+        const av = a.resource_job_title ?? ''
+        const bv = b.resource_job_title ?? ''
+        const cmp = av.localeCompare(bv)
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      if (sortKey === 'exp') {
         const av = a.resource_years_experience ?? -1
         const bv = b.resource_years_experience ?? -1
-        return sortDirection === 'asc' ? av - bv : bv - av
+        const cmp = av - bv
+        return sortDir === 'asc' ? cmp : -cmp
       }
-      const av =
-        (sortColumn === 'resource_name'
-          ? a.resource_name
-          : a.resource_job_title) ?? ''
-      const bv =
-        (sortColumn === 'resource_name'
-          ? b.resource_name
-          : b.resource_job_title) ?? ''
-      return sortDirection === 'asc'
-        ? av.localeCompare(bv)
-        : bv.localeCompare(av)
+      if (sortKey === 'sessions') {
+        const av = (leadSessionsByResource[a.resource_id] ?? []).length
+        const bv = (leadSessionsByResource[b.resource_id] ?? []).length
+        const cmp = av - bv
+        return sortDir === 'asc' ? cmp : -cmp
+      }
+      // Default: supplier order then alpha
+      const aAbbr = getSupplier(a.suppliers)?.supplier_abbreviation ?? ''
+      const bAbbr = getSupplier(b.suppliers)?.supplier_abbreviation ?? ''
+      const aIdx = supplierOrder[aAbbr] ?? 999
+      const bIdx = supplierOrder[bAbbr] ?? 999
+      if (aIdx !== bIdx) return aIdx - bIdx
+      return a.resource_name.localeCompare(b.resource_name)
     })
   }, [
     resources,
-    searchQuery,
+    search,
     selectedSuppliers,
-    selectedStreams,
     selectedLocation,
-    sortColumn,
-    sortDirection,
+    sortKey,
+    sortDir,
+    supplierOrder,
+    leadSessionsByResource,
   ])
 
-  function toggleSection(key: string) {
-    setCollapsedSections((prev) => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  }
-
-  function handleSort(col: SortColumn) {
-    if (sortColumn === col) {
-      setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
-      setSortColumn(col)
-      setSortDirection(col === 'resource_years_experience' ? 'desc' : 'asc')
+      setSortKey(key)
+      setSortDir(key === 'exp' || key === 'sessions' ? 'desc' : 'asc')
     }
   }
 
-  // ── Style helpers ──────────────────────────────────────────────────
-  function filterPill(active: boolean): React.CSSProperties {
-    return {
-      display: 'inline-flex',
-      alignItems: 'center',
-      padding: '3px 10px',
-      borderRadius: 'var(--rmg-radius-xl)',
-      fontFamily: 'var(--rmg-font-body)',
-      fontSize: 'var(--rmg-text-c2)',
-      fontWeight: active ? 700 : 400,
-      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-      backgroundColor: active
-        ? 'var(--rmg-color-tint-red)'
-        : 'var(--rmg-color-grey-3)',
-      cursor: 'pointer',
-      border: 'none',
-      whiteSpace: 'nowrap' as const,
-    }
-  }
+  const selectedResource = selectedId
+    ? (resources.find((r) => r.resource_id === selectedId) ?? null)
+    : null
 
-  function viewTab(active: boolean): React.CSSProperties {
-    return {
-      padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
-      borderRadius: 'var(--rmg-radius-s)',
-      fontFamily: 'var(--rmg-font-body)',
-      fontSize: 'var(--rmg-text-c2)',
-      fontWeight: active ? 700 : 400,
-      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-      backgroundColor: active ? 'var(--rmg-color-tint-red)' : 'transparent',
-      cursor: 'pointer',
-      border: 'none',
-      whiteSpace: 'nowrap' as const,
-    }
-  }
-
-  const labelStyle: React.CSSProperties = {
-    fontFamily: 'var(--rmg-font-body)',
-    fontSize: 'var(--rmg-text-c2)',
-    color: 'var(--rmg-color-text-light)',
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    flexShrink: 0,
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)' }}>
-      {/* Filter bar */}
+    <>
+      <style>{`
+        .people-layout {
+          display: grid;
+          grid-template-columns: 1fr 360px;
+          gap: 20px;
+          align-items: flex-start;
+        }
+        @media (max-width: 768px) {
+          .people-layout {
+            grid-template-columns: 1fr;
+          }
+        }
+      `}</style>
+
       <div
         style={{
-          backgroundColor: 'var(--rmg-color-surface-white)',
-          borderRadius: 'var(--rmg-radius-m)',
-          boxShadow: 'var(--rmg-shadow-card)',
-          padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
           display: 'flex',
-          flexWrap: 'wrap',
+          flexDirection: 'column',
           gap: 'var(--rmg-spacing-04)',
-          alignItems: 'center',
         }}
       >
-        {/* Search */}
-        <input
-          type="search"
-          placeholder="Search by name, role, or function…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+        {/* Filter bar */}
+        <div
           style={{
-            flex: '1 1 200px',
-            minWidth: 160,
-            padding: '6px var(--rmg-spacing-03)',
-            borderRadius: 'var(--rmg-radius-s)',
-            border: '1px solid var(--rmg-color-grey-3)',
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 'var(--rmg-text-b3)',
-            color: 'var(--rmg-color-text-body)',
-            background: 'var(--rmg-color-surface-light)',
-            outline: 'none',
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            borderRadius: 'var(--rmg-radius-m)',
+            boxShadow: 'var(--rmg-shadow-card)',
+            padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 'var(--rmg-spacing-04)',
+            alignItems: 'center',
           }}
-        />
-
-        {/* Supplier pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
-          <span style={labelStyle}>Supplier</span>
-          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedSuppliers([])}
-              style={filterPill(selectedSuppliers.length === 0)}
+        >
+          {/* Search */}
+          <div
+            style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--rmg-color-text-light)',
+                pointerEvents: 'none',
+              }}
             >
-              All
-            </button>
-            {allSupplierAbbrs.map(([abbr]) => {
-              const colour = SUPPLIER_COLOURS[abbr] ?? '#8F9495'
-              const isActive = selectedSuppliers.includes(abbr)
-              return (
-                <button
-                  key={abbr}
-                  type="button"
-                  onClick={() =>
-                    setSelectedSuppliers((prev) =>
-                      prev.includes(abbr)
-                        ? prev.filter((s) => s !== abbr)
-                        : [...prev, abbr],
-                    )
-                  }
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '3px 10px',
-                    borderRadius: 'var(--rmg-radius-xl)',
-                    fontFamily: 'var(--rmg-font-body)',
-                    fontSize: 'var(--rmg-text-c2)',
-                    fontWeight: isActive ? 700 : 400,
-                    color: isActive ? '#ffffff' : colour,
-                    backgroundColor: isActive ? colour : `${colour}1A`,
-                    border: `1px solid ${colour}`,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {abbr}
-                </button>
-              )
-            })}
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="search"
+              placeholder="Search by name or role…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '6px var(--rmg-spacing-03) 6px 28px',
+                borderRadius: 'var(--rmg-radius-s)',
+                border: '1px solid var(--rmg-color-grey-3)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-b3)',
+                color: 'var(--rmg-color-text-body)',
+                background: 'var(--rmg-color-surface-light)',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
           </div>
-        </div>
 
-        {/* Stream / function pills */}
-        {allStreams.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
-            <span style={labelStyle}>Function</span>
+          {/* Supplier pills */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--rmg-spacing-02)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={labelStyle}>Supplier</span>
             <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => setSelectedStreams([])}
-                style={filterPill(selectedStreams.length === 0)}
+                onClick={() => setSelectedSuppliers([])}
+                style={filterPill(selectedSuppliers.length === 0)}
               >
                 All
               </button>
-              {allStreams.map((fn) => {
-                const colour = STREAM_COLOURS[fn] ?? '#8F9495'
-                const isActive = selectedStreams.includes(fn)
+              {suppliers.map((s) => {
+                const colour = getSupplierColour(
+                  s.supplier_abbreviation,
+                  colourMap,
+                )
+                const isActive = selectedSuppliers.includes(
+                  s.supplier_abbreviation,
+                )
                 return (
                   <button
-                    key={fn}
+                    key={s.supplier_abbreviation}
                     type="button"
                     onClick={() =>
-                      setSelectedStreams((prev) =>
-                        prev.includes(fn)
-                          ? prev.filter((s) => s !== fn)
-                          : [...prev, fn],
+                      setSelectedSuppliers((prev) =>
+                        prev.includes(s.supplier_abbreviation)
+                          ? prev.filter((x) => x !== s.supplier_abbreviation)
+                          : [...prev, s.supplier_abbreviation],
                       )
                     }
                     style={{
@@ -946,193 +697,195 @@ export function PeopleClient({ resources, leadSessionsByResource }: PeopleClient
                       fontSize: 'var(--rmg-text-c2)',
                       fontWeight: isActive ? 700 : 400,
                       color: isActive ? '#ffffff' : colour,
-                      backgroundColor: isActive ? colour : `${colour}1A`,
+                      backgroundColor: isActive ? colour : `${colour}18`,
                       border: `1px solid ${colour}`,
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {fn}
+                    {s.supplier_abbreviation}
                   </button>
                 )
               })}
             </div>
           </div>
-        )}
 
-        {/* Location pills */}
-        {allLocations.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
-            <span style={labelStyle}>Location</span>
-            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setSelectedLocation(null)}
-                style={filterPill(!selectedLocation)}
-              >
-                All
-              </button>
-              {allLocations.map((loc) => (
+          {/* Location pills */}
+          {allLocations.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--rmg-spacing-02)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span style={labelStyle}>Location</span>
+              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                 <button
-                  key={loc}
                   type="button"
-                  onClick={() =>
-                    setSelectedLocation(loc === selectedLocation ? null : loc)
-                  }
-                  style={filterPill(selectedLocation === loc)}
+                  onClick={() => setSelectedLocation(null)}
+                  style={filterPill(!selectedLocation)}
                 >
-                  {loc}
+                  All
                 </button>
-              ))}
+                {allLocations.map((loc) => (
+                  <button
+                    key={loc}
+                    type="button"
+                    onClick={() =>
+                      setSelectedLocation(
+                        loc === selectedLocation ? null : loc,
+                      )
+                    }
+                    style={filterPill(selectedLocation === loc)}
+                  >
+                    {loc}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Count + view mode toggle */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-03)' }}>
+          {/* Result count */}
           <span
             style={{
+              marginLeft: 'auto',
               fontFamily: 'monospace',
               fontSize: 'var(--rmg-text-c2)',
               color: 'var(--rmg-color-text-light)',
               flexShrink: 0,
             }}
           >
-            {filteredResources.length} result{filteredResources.length === 1 ? '' : 's'}
+            {filtered.length} result{filtered.length === 1 ? '' : 's'}
           </span>
+        </div>
+
+        {/* Two-column layout */}
+        <div className="people-layout">
+          {/* Person list */}
           <div
             style={{
-              display: 'flex',
-              gap: 2,
-              backgroundColor: 'var(--rmg-color-surface-light)',
-              borderRadius: 'var(--rmg-radius-s)',
-              padding: 2,
+              backgroundColor: 'var(--rmg-color-surface-white)',
+              borderRadius: 'var(--rmg-radius-m)',
+              boxShadow: 'var(--rmg-shadow-card)',
+              overflow: 'hidden',
             }}
           >
-            {(['list', 'by-role', 'by-supplier'] as ViewMode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setViewMode(m)}
-                style={viewTab(viewMode === m)}
-              >
-                {m === 'list' ? 'List' : m === 'by-role' ? 'By Role' : 'By Supplier'}
-              </button>
+            {/* Table header */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: GRID_COLS,
+                gap: 'var(--rmg-spacing-04)',
+                padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
+                borderBottom: '1px solid var(--rmg-color-grey-3)',
+                alignItems: 'center',
+              }}
+            >
+              <SortButton
+                label="Name"
+                sortKey="name"
+                activeSortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <SortButton
+                label="Role"
+                sortKey="role"
+                activeSortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <span style={labelStyle}>Supplier</span>
+              <SortButton
+                label="Exp"
+                sortKey="exp"
+                activeSortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <SortButton
+                label="KT"
+                sortKey="sessions"
+                activeSortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+            </div>
+
+            {/* Rows */}
+            {filtered.map((r) => (
+              <PersonRow
+                key={r.resource_id}
+                resource={r}
+                isSelected={selectedId === r.resource_id}
+                onSelect={setSelectedId}
+                sessions={leadSessionsByResource[r.resource_id] ?? []}
+                search={search}
+                colourMap={colourMap}
+              />
             ))}
+
+            {filtered.length === 0 && (
+              <div
+                style={{
+                  padding: 'var(--rmg-spacing-07)',
+                  textAlign: 'center',
+                  color: 'var(--rmg-color-text-light)',
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-b3)',
+                }}
+              >
+                No results match the current filters.
+              </div>
+            )}
+          </div>
+
+          {/* Detail panel */}
+          <div
+            style={{
+              width: '100%',
+              backgroundColor: 'var(--rmg-color-surface-white)',
+              borderRadius: 'var(--rmg-radius-m)',
+              boxShadow: 'var(--rmg-shadow-card)',
+              position: 'sticky',
+              top: 16,
+              overflow: 'hidden',
+            }}
+          >
+            {selectedResource ? (
+              <PersonDetail
+                resource={selectedResource}
+                sessions={leadSessionsByResource[selectedId!] ?? []}
+                colourMap={colourMap}
+              />
+            ) : (
+              <div
+                style={{
+                  padding: 'var(--rmg-spacing-06)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 120,
+                }}
+              >
+                <p
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 'var(--rmg-text-c2)',
+                    color: 'var(--rmg-color-text-light)',
+                    textAlign: 'center',
+                    margin: 0,
+                  }}
+                >
+                  Select a person to see details
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Table + detail panel */}
-      <div style={{ display: 'flex', gap: 'var(--rmg-spacing-05)', alignItems: 'flex-start' }}>
-        {/* Table */}
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            backgroundColor: 'var(--rmg-color-surface-white)',
-            borderRadius: 'var(--rmg-radius-m)',
-            boxShadow: 'var(--rmg-shadow-card)',
-            overflow: 'hidden',
-          }}
-        >
-          <TableHeader
-            viewMode={viewMode}
-            sortColumn={sortColumn}
-            sortDirection={sortDirection}
-            onSort={handleSort}
-          />
-          {viewMode === 'list' &&
-            filteredResources.map((r) => (
-              <ResourceRow
-                key={r.resource_id}
-                resource={r}
-                viewMode="list"
-                selectedResourceId={selectedResourceId}
-                onSelect={setSelectedResourceId}
-                leadSessionsByResource={leadSessionsByResource}
-              />
-            ))}
-          {viewMode === 'by-role' && (
-            <ByRoleSection
-              resources={filteredResources}
-              collapsedSections={collapsedSections}
-              onToggle={toggleSection}
-              selectedResourceId={selectedResourceId}
-              onSelect={setSelectedResourceId}
-              leadSessionsByResource={leadSessionsByResource}
-            />
-          )}
-          {viewMode === 'by-supplier' && (
-            <BySupplierSection
-              resources={filteredResources}
-              collapsedSections={collapsedSections}
-              onToggle={toggleSection}
-              selectedResourceId={selectedResourceId}
-              onSelect={setSelectedResourceId}
-              leadSessionsByResource={leadSessionsByResource}
-            />
-          )}
-          {filteredResources.length === 0 && (
-            <div
-              style={{
-                padding: 'var(--rmg-spacing-07)',
-                textAlign: 'center',
-                color: 'var(--rmg-color-text-light)',
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 'var(--rmg-text-b3)',
-              }}
-            >
-              No results match the current filters.
-            </div>
-          )}
-        </div>
-
-        {/* Detail panel */}
-        <div
-          style={{
-            width: 220,
-            flexShrink: 0,
-            backgroundColor: 'var(--rmg-color-surface-white)',
-            borderRadius: 'var(--rmg-radius-m)',
-            boxShadow: 'var(--rmg-shadow-card)',
-            position: 'sticky',
-            top: 'var(--rmg-spacing-07)',
-            overflow: 'hidden',
-          }}
-        >
-          {selectedResourceId ? (
-            <PersonDetail
-              resource={
-                resources.find((r) => r.resource_id === selectedResourceId)!
-              }
-              sessions={leadSessionsByResource[selectedResourceId] ?? []}
-            />
-          ) : (
-            <div
-              style={{
-                padding: 'var(--rmg-spacing-06)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: 120,
-              }}
-            >
-              <p
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 'var(--rmg-text-c2)',
-                  color: 'var(--rmg-color-text-light)',
-                  textAlign: 'center',
-                  margin: 0,
-                }}
-              >
-                Select a person to see details
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    </>
   )
 }
