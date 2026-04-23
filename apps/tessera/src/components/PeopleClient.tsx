@@ -638,7 +638,7 @@ function PersonDetail({
               const group = Array.isArray(ag) ? (ag[0] ?? null) : ag
               return (
                 <div
-                  key={s.session_id}
+                  key={s.id}
                   style={{
                     padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
                     borderRadius: 'var(--rmg-radius-s)',
