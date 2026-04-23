@@ -18,11 +18,14 @@ const SUPPLIER_COLOURS: Record<string, string> = {
   EPAM: '#3D3D3D', // EPAM charcoal
 }
 
-// ── Itinerary stream colours (RMG Primary Accents) ─────────────────
-// Represent the two RMG teams on the India trip.
-const STREAM_COLOURS: Record<string, { bg: string; text: string }> = {
-  BUILD: { bg: '#F3920D', text: '#ffffff' }, // --rmg-color-orange — Matt + Jonny
-  SERVICE: { bg: '#F4AEBA', text: '#5A2A35' }, // --rmg-color-pink — Clare + Mandy
+// ── resource_function stream colours ──────────────────────────────
+const STREAM_COLOURS: Record<string, string> = {
+  FACTORY:    '#003C82',
+  SERVICE:    '#9B0A6E',
+  PROGRAMME:  '#E2001A',
+  COMMERCIAL: '#F3920D',
+  MIGRATION:  '#3ABFB8',
+  CLOUD_OPS:  '#1976F2',
 }
 
 type ViewMode = 'list' | 'by-role' | 'by-supplier'
@@ -726,6 +729,12 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     return [...seen].sort()
   }, [resources])
 
+  const allStreams = useMemo(() => {
+    const seen = new Set<string>()
+    for (const r of resources) if (r.resource_function) seen.add(r.resource_function)
+    return [...seen].sort()
+  }, [resources])
+
   // ── Derived filter/sort: filteredResources ────────────────────────
   const filteredResources = useMemo(() => {
     let result = resources
@@ -753,9 +762,9 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
     }
 
     if (selectedStreams.length > 0) {
-      // Stream membership is not yet stored on resources directly.
-      // Once a stream attribute exists, filter here.
-      result = result.filter(() => true)
+      result = result.filter(
+        (r) => r.resource_function != null && selectedStreams.includes(r.resource_function),
+      )
     }
 
     if (selectedLocation) {
@@ -806,10 +815,6 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
       setSortDirection(col === 'resource_years_experience' ? 'desc' : 'asc')
     }
   }
-
-  // Referenced by detail-panel chunk not yet written
-  void setSelectedStreams
-  void STREAM_COLOURS
 
   // ── Style helpers ──────────────────────────────────────────────────
   function filterPill(active: boolean): React.CSSProperties {
@@ -938,6 +943,55 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
             })}
           </div>
         </div>
+
+        {/* Stream / function pills */}
+        {allStreams.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-02)', flexWrap: 'wrap' }}>
+            <span style={labelStyle}>Function</span>
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedStreams([])}
+                style={filterPill(selectedStreams.length === 0)}
+              >
+                All
+              </button>
+              {allStreams.map((fn) => {
+                const colour = STREAM_COLOURS[fn] ?? '#8F9495'
+                const isActive = selectedStreams.includes(fn)
+                return (
+                  <button
+                    key={fn}
+                    type="button"
+                    onClick={() =>
+                      setSelectedStreams((prev) =>
+                        prev.includes(fn)
+                          ? prev.filter((s) => s !== fn)
+                          : [...prev, fn],
+                      )
+                    }
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '3px 10px',
+                      borderRadius: 'var(--rmg-radius-xl)',
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 'var(--rmg-text-c2)',
+                      fontWeight: isActive ? 700 : 400,
+                      color: isActive ? '#ffffff' : colour,
+                      backgroundColor: isActive ? colour : `${colour}1A`,
+                      border: `1px solid ${colour}`,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {fn}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Location pills */}
         {allLocations.length > 0 && (
