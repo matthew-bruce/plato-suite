@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import {
   LayoutGrid,
   BookOpen,
+  ClipboardList,
+  Layers,
   Users,
   Star,
   Calendar,
@@ -12,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import { PlatoHeader } from '../plato'
 
 interface TesseraShellProps {
   children: React.ReactNode
@@ -37,6 +40,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     items: [
       { label: 'Dashboard', icon: LayoutGrid, href: '/' },
       { label: 'Domains', icon: BookOpen, href: '/domains' },
+      { label: 'Sessions', icon: ClipboardList, href: '/sessions' },
+      { label: 'App Groups', icon: Layers, href: '/groups' },
       { label: 'People', icon: Users, href: '/people' },
     ],
   },
@@ -48,6 +53,14 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { label: "Parker's 7", icon: HelpCircle, href: '/parker' },
     ],
   },
+]
+
+const PLATO_APPS = [
+  { id: 'nucleus',   label: 'Nucleus',   url: 'https://plato-nucleus.vercel.app', enabled: true  },
+  { id: 'tessera',   label: 'Tessera',   url: 'https://plato-tessera.vercel.app', enabled: true  },
+  { id: 'dispatch',  label: 'Dispatch',  url: '#',                                 enabled: false },
+  { id: 'chronicle', label: 'Chronicle', url: '#',                                 enabled: false },
+  { id: 'roadmap',   label: 'Roadmap',   url: '#',                                 enabled: false },
 ]
 
 export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
@@ -85,7 +98,9 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      <PlatoHeader activatedApp="tessera" apps={PLATO_APPS} />
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       <aside
         style={{
           width: sidebarWidth,
@@ -258,6 +273,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
       >
         {children}
       </main>
+      </div>
     </div>
   )
 }

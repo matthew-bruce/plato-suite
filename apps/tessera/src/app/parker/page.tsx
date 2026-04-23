@@ -33,11 +33,11 @@ type MappingRow = {
 export default async function ParkerPage() {
   const [questionsRes, mappingsRes] = await Promise.all([
     supabase
-      .from('kt_parker_questions')
+      .from('tessera_parker_questions')
       .select('id, number, question')
       .order('number'),
     supabase
-      .from('kt_domain_parker_mapping')
+      .from('tessera_domain_parker_mapping')
       .select('parker_question_id, domain_id'),
   ])
 
@@ -49,7 +49,7 @@ export default async function ParkerPage() {
   let domains: DomainRef[] = []
   if (domainIds.length > 0) {
     const { data } = await supabase
-      .from('kt_domains')
+      .from('tessera_domains')
       .select('id, name, slug, risk_level')
       .in('id', domainIds)
       .order('display_order')
