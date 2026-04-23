@@ -68,7 +68,7 @@ export default async function DomainDetailPage({
 
   const domainTyped = domain as Domain
 
-  const [trackRes, ragRes, parkerMappingRes, allDomainsRes] = await Promise.all(
+  const [trackRes, ragRes, parkerMappingRes, allDomainsRes, resourcesRes] = await Promise.all(
     [
       supabase
         .from('tessera_domain_track_content')
@@ -84,10 +84,38 @@ export default async function DomainDetailPage({
         .from('tessera_domains')
         .select('id, name, slug, display_order')
         .order('display_order'),
+      supabase
+        .from('resources')
+        .select('resource_name, suppliers(supplier_abbreviation)'),
     ],
   )
 
   const trackContent = (trackRes.data ?? []) as TrackContent[]
+
+  type ResourceRow = {
+    resource_name: string
+    suppliers: { supplier_abbreviation: string } | { supplier_abbreviation: string }[] | null
+  }
+  const allResources = (resourcesRes.data ?? []) as ResourceRow[]
+
+  const smeSupplierMap: Record<string, string> = {}
+  for (const item of trackContent) {
+    if (item.field_type !== 'smes') continue
+    for (const smeName of item.content.split(',').map((s) => s.trim()).filter(Boolean)) {
+      const n = smeName.toLowerCase()
+      const match = allResources.find((r) => {
+        const rn = r.resource_name.toLowerCase()
+        return n === rn || n.includes(rn) || rn.includes(n)
+      })
+      if (match) {
+        const s = match.suppliers
+        const abbrev = Array.isArray(s)
+          ? s[0]?.supplier_abbreviation
+          : (s as { supplier_abbreviation: string } | null)?.supplier_abbreviation
+        if (abbrev) smeSupplierMap[smeName] = abbrev
+      }
+    }
+  }
   const ragScores = (ragRes.data ?? []) as RagScore[]
 
   type ParkerJoinRow = {
@@ -248,11 +276,13 @@ export default async function DomainDetailPage({
             track="A"
             trackContent={trackA}
             parkerQuestions={parkerQuestions}
+            smeSupplierMap={smeSupplierMap}
           />
           <DomainTrackPanel
             track="B"
             trackContent={trackB}
             parkerQuestions={parkerQuestions}
+            smeSupplierMap={smeSupplierMap}
           />
         </div>
 

@@ -11,6 +11,21 @@ export type TrackContent = {
   content: string
 }
 
+// ── Supplier brand colours ─────────────────────────────────────────
+const SUPPLIER_COLOURS: Record<string, string> = {
+  RMG:  '#E2001A',
+  CG:   '#003C82',
+  TCS:  '#9B0A6E',
+  HT:   '#FF8C00',
+  NH:   '#1A2B5B',
+  EPAM: '#3D3D3D',
+  TAAS: '#7C3AED',
+  LT:   '#3ABFB8',
+  HCL:  '#1976F2',
+}
+
+const SUPPLIER_FALLBACK = '#6B7280'
+
 export type ParkerQuestion = {
   number: number
   question: string
@@ -55,10 +70,12 @@ export function DomainTrackPanel({
   track,
   trackContent,
   parkerQuestions,
+  smeSupplierMap = {},
 }: {
   track: 'A' | 'B'
   trackContent: TrackContent[]
   parkerQuestions: ParkerQuestion[]
+  smeSupplierMap?: Record<string, string>
 }) {
   const sorted = [...trackContent].sort(
     (a, b) =>
@@ -136,6 +153,7 @@ export function DomainTrackPanel({
               item={item}
               track={track}
               parkerQuestions={parkerQuestions}
+              smeSupplierMap={smeSupplierMap}
             />
           ))
         )}
@@ -148,10 +166,12 @@ function FieldRenderer({
   item,
   track,
   parkerQuestions,
+  smeSupplierMap,
 }: {
   item: TrackContent
   track: 'A' | 'B'
   parkerQuestions: ParkerQuestion[]
+  smeSupplierMap: Record<string, string>
 }) {
   const [open, setOpen] = useState(true)
 
@@ -206,6 +226,7 @@ function FieldRenderer({
             item={item}
             track={track}
             parkerQuestions={parkerQuestions}
+            smeSupplierMap={smeSupplierMap}
           />
         </div>
       )}
@@ -238,14 +259,16 @@ function FieldBody({
   item,
   track,
   parkerQuestions,
+  smeSupplierMap,
 }: {
   item: TrackContent
   track: 'A' | 'B'
   parkerQuestions: ParkerQuestion[]
+  smeSupplierMap: Record<string, string>
 }) {
   switch (item.field_type) {
     case 'smes':
-      return <SmesChips content={item.content} track={track} />
+      return <SmesChips content={item.content} smeSupplierMap={smeSupplierMap} />
     case 'extract_topics':
       return <PlainParagraph content={item.content} />
     case 'opening_question':
@@ -395,7 +418,13 @@ function CalloutField({ item }: { item: TrackContent }) {
   }
 }
 
-function SmesChips({ content, track }: { content: string; track: 'A' | 'B' }) {
+function SmesChips({
+  content,
+  smeSupplierMap,
+}: {
+  content: string
+  smeSupplierMap: Record<string, string>
+}) {
   const names = content
     .split(',')
     .map((s) => s.trim())
@@ -409,7 +438,8 @@ function SmesChips({ content, track }: { content: string; track: 'A' | 'B' }) {
       }}
     >
       {names.map((name, i) => {
-        const { bg, fg } = supplierChipColours(name, track)
+        const abbrev = smeSupplierMap[name]
+        const colour = (abbrev && SUPPLIER_COLOURS[abbrev]) ?? SUPPLIER_FALLBACK
         return (
           <span
             key={`${name}-${i}`}
@@ -417,8 +447,9 @@ function SmesChips({ content, track }: { content: string; track: 'A' | 'B' }) {
               display: 'inline-flex',
               alignItems: 'center',
               padding: '2px var(--rmg-spacing-03)',
-              backgroundColor: bg,
-              color: fg,
+              backgroundColor: `${colour}26`,
+              color: colour,
+              border: `1px solid ${colour}`,
               borderRadius: 'var(--rmg-radius-xs)',
               fontFamily: 'monospace',
               fontSize: 'var(--rmg-text-c2)',
@@ -431,30 +462,6 @@ function SmesChips({ content, track }: { content: string; track: 'A' | 'B' }) {
       })}
     </div>
   )
-}
-
-const RMG_NAMES = ['Justin Fox', 'Leopold Kwok', 'Justin', 'Leopold']
-const HT_NAMES = ['Jakub', 'Jan', 'Emil', 'Mateusz', 'Maciej']
-const NH_NAMES = ['Najam', 'James Taylor', 'Grant']
-
-function supplierChipColours(
-  name: string,
-  track: 'A' | 'B',
-): { bg: string; fg: string } {
-  const n = name.toLowerCase()
-  if (RMG_NAMES.some((s) => n.includes(s.toLowerCase()))) {
-    return { bg: 'var(--rmg-color-tint-green)', fg: 'var(--rmg-color-green-contrast)' }
-  }
-  if (HT_NAMES.some((s) => n.includes(s.toLowerCase()))) {
-    return { bg: 'rgba(74, 158, 255, 0.14)', fg: 'var(--tessera-happy-blue)' }
-  }
-  if (NH_NAMES.some((s) => n.includes(s.toLowerCase()))) {
-    return { bg: 'rgba(245, 166, 35, 0.14)', fg: 'var(--tessera-nh-amber)' }
-  }
-  if (track === 'B') {
-    return { bg: 'rgba(155, 89, 182, 0.10)', fg: 'var(--tessera-scoped-purple)' }
-  }
-  return { bg: 'var(--rmg-color-tint-red)', fg: 'var(--rmg-color-red)' }
 }
 
 function PlainParagraph({ content }: { content: string }) {
