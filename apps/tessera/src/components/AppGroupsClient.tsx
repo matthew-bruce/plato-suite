@@ -230,26 +230,6 @@ export function AppGroupsClient({ groups, sessions }: AppGroupsClientProps) {
     })
   }
 
-  void expandedBeyond4
-  void toggleBeyond4
-  void highlightText
-  void getInitials
-  void supplierColour
-  void TEAM_STYLES
-  void PLAYBACK_BG
-  void PLAYBACK_FG
-  void RED_BAR_BG
-  void RED_BAR_BORDER
-  void RED_MATCH_BG
-  void RED_CARD_BORDER
-  void G12_AMBER
-  void searchStats
-  void allExpanded
-  void toggleGroup
-  void toggleExpandAll
-  void setSearchFocused
-  void searchFocused
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-05)' }}>
       {/* Tabs */}
@@ -296,12 +276,858 @@ export function AppGroupsClient({ groups, sessions }: AppGroupsClientProps) {
 
       {/* Tab content */}
       {activeTab === 'progress' ? (
-        <div>Progress tab coming next…</div>
+        <ProgressTab
+          groups={groups}
+          groupDerived={groupDerived}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          searchFocused={searchFocused}
+          setSearchFocused={setSearchFocused}
+          teamFilter={teamFilter}
+          setTeamFilter={setTeamFilter}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          expandedGroups={expandedGroups}
+          toggleGroup={toggleGroup}
+          allExpanded={allExpanded}
+          toggleExpandAll={toggleExpandAll}
+          expandedBeyond4={expandedBeyond4}
+          toggleBeyond4={toggleBeyond4}
+          searchStats={searchStats}
+        />
       ) : (
         <CalendarEmptyState />
       )}
     </div>
   )
+}
+
+// ── Progress tab ────────────────────────────────────────────────────
+
+interface ProgressTabProps {
+  groups: Group[]
+  groupDerived: Map<string, GroupDerived>
+  searchQuery: string
+  setSearchQuery: (v: string) => void
+  searchFocused: boolean
+  setSearchFocused: (v: boolean) => void
+  teamFilter: TeamFilter
+  setTeamFilter: (v: TeamFilter) => void
+  statusFilter: StatusFilter
+  setStatusFilter: (v: StatusFilter) => void
+  expandedGroups: Set<string>
+  toggleGroup: (id: string) => void
+  allExpanded: boolean
+  toggleExpandAll: () => void
+  expandedBeyond4: Set<string>
+  toggleBeyond4: (id: string) => void
+  searchStats:
+    | { totalMatches: number; groupsWithMatches: number; groupsHidden: number }
+    | null
+}
+
+function ProgressTab(p: ProgressTabProps) {
+  const searchActive = p.searchQuery.trim().length > 0
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-04)' }}>
+      {/* Controls row */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 'var(--rmg-spacing-04)',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+        }}
+      >
+        <SearchBox
+          value={p.searchQuery}
+          onChange={p.setSearchQuery}
+          focused={p.searchFocused}
+          setFocused={p.setSearchFocused}
+        />
+
+        <FilterPillGroup
+          label="Team"
+          value={p.teamFilter}
+          onChange={(v) => p.setTeamFilter(v as TeamFilter)}
+          options={[
+            { v: 'ALL', label: 'All' },
+            { v: 'SERVICE', label: 'Service' },
+            { v: 'SHARED', label: 'Shared' },
+          ]}
+        />
+
+        <FilterPillGroup
+          label="Status"
+          value={p.statusFilter}
+          onChange={(v) => p.setStatusFilter(v as StatusFilter)}
+          options={[
+            { v: 'ALL', label: 'All' },
+            { v: 'SCHEDULED', label: 'Scheduled' },
+            { v: 'COMPLETED', label: 'Completed' },
+            { v: 'CANCELLED', label: 'Cancelled' },
+          ]}
+        />
+
+        <button
+          type="button"
+          onClick={p.toggleExpandAll}
+          style={{
+            marginLeft: 'auto',
+            padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c1)',
+            lineHeight: 'var(--rmg-leading-c1)',
+            color: 'var(--rmg-color-text-body)',
+            background: 'none',
+            border: '0.5px solid var(--rmg-color-grey-2)',
+            borderRadius: 'var(--rmg-radius-s)',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            fontWeight: 500,
+          }}
+        >
+          {p.allExpanded ? 'Collapse all' : 'Expand all'}
+        </button>
+      </div>
+
+      {/* Search result bar */}
+      {searchActive && p.searchStats && (
+        <div
+          style={{
+            backgroundColor: RED_BAR_BG,
+            border: `0.5px solid ${RED_BAR_BORDER}`,
+            borderRadius: 'var(--rmg-radius-s)',
+            padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--rmg-spacing-03)',
+            flexWrap: 'wrap',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c1)',
+            lineHeight: 'var(--rmg-leading-c1)',
+          }}
+        >
+          <span style={{ color: 'var(--rmg-color-text-body)' }}>
+            Searching &ldquo;{p.searchQuery}&rdquo; — {p.searchStats.totalMatches} session
+            {p.searchStats.totalMatches === 1 ? '' : 's'} across{' '}
+            {p.searchStats.groupsWithMatches} group
+            {p.searchStats.groupsWithMatches === 1 ? '' : 's'}
+            {p.searchStats.groupsHidden > 0
+              ? ` · ${p.searchStats.groupsHidden} group${
+                  p.searchStats.groupsHidden === 1 ? '' : 's'
+                } hidden`
+              : ''}
+          </span>
+          <span
+            style={{
+              marginLeft: 'auto',
+              color: 'var(--rmg-color-grey-1)',
+              fontStyle: 'italic',
+            }}
+          >
+            Matches highlighted
+          </span>
+        </div>
+      )}
+
+      {/* Group cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-03)' }}>
+        {p.groups.map((g) => (
+          <GroupCard
+            key={g.id}
+            group={g}
+            derived={p.groupDerived.get(g.id)!}
+            expanded={p.expandedGroups.has(g.id)}
+            onToggle={() => p.toggleGroup(g.id)}
+            searchQuery={p.searchQuery}
+            beyond4Expanded={p.expandedBeyond4.has(g.id)}
+            onToggleBeyond4={() => p.toggleBeyond4(g.id)}
+          />
+        ))}
+      </div>
+
+      {/* Bottom note when groups are hidden */}
+      {searchActive && p.searchStats && p.searchStats.groupsHidden > 0 && (
+        <div
+          style={{
+            textAlign: 'center',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            color: 'var(--rmg-color-grey-1)',
+            marginTop: 'var(--rmg-spacing-03)',
+          }}
+        >
+          {p.searchStats.groupsHidden} group
+          {p.searchStats.groupsHidden === 1 ? '' : 's'} hidden · no sessions match
+          &ldquo;{p.searchQuery}&rdquo; ·{' '}
+          <button
+            type="button"
+            onClick={() => p.setSearchQuery('')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--rmg-color-red)',
+              cursor: 'pointer',
+              padding: 0,
+              fontFamily: 'inherit',
+              fontSize: 'inherit',
+              textDecoration: 'underline',
+            }}
+          >
+            clear search
+          </button>{' '}
+          to show all
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Search box ──────────────────────────────────────────────────────
+
+function SearchBox({
+  value,
+  onChange,
+  focused,
+  setFocused,
+}: {
+  value: string
+  onChange: (v: string) => void
+  focused: boolean
+  setFocused: (v: boolean) => void
+}) {
+  const active = value.trim().length > 0 || focused
+  const iconColour = value.trim().length > 0 ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-1)'
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--rmg-spacing-02)',
+        padding: 'var(--rmg-spacing-02) var(--rmg-spacing-03)',
+        border: `0.5px solid ${active ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-2)'}`,
+        borderRadius: 'var(--rmg-radius-s)',
+        minWidth: 200,
+        backgroundColor: 'var(--rmg-color-surface-white)',
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={iconColour}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="11" cy="11" r="7" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input
+        type="search"
+        placeholder="Search sessions…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          border: 'none',
+          outline: 'none',
+          background: 'none',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c1)',
+          lineHeight: 'var(--rmg-leading-c1)',
+          color: 'var(--rmg-color-text-body)',
+        }}
+      />
+      {value.trim().length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--rmg-color-grey-1)',
+            cursor: 'pointer',
+            padding: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 14,
+            lineHeight: 1,
+          }}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Filter pill group ──────────────────────────────────────────────
+
+function FilterPillGroup({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ v: string; label: string }>
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--rmg-spacing-02)',
+      }}
+    >
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: 'var(--rmg-color-text-light)',
+          flexShrink: 0,
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {options.map((opt) => {
+          const active = opt.v === value
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => onChange(opt.v)}
+              style={{
+                padding: '3px 10px',
+                borderRadius: 'var(--rmg-radius-xl)',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c2)',
+                fontWeight: active ? 700 : 400,
+                color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+                backgroundColor: active
+                  ? 'var(--rmg-color-tint-red)'
+                  : 'var(--rmg-color-grey-3)',
+                cursor: 'pointer',
+                border: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Group card ──────────────────────────────────────────────────────
+
+function GroupCard({
+  group,
+  derived,
+  expanded,
+  onToggle,
+  searchQuery,
+  beyond4Expanded,
+  onToggleBeyond4,
+}: {
+  group: Group
+  derived: GroupDerived
+  expanded: boolean
+  onToggle: () => void
+  searchQuery: string
+  beyond4Expanded: boolean
+  onToggleBeyond4: () => void
+}) {
+  const searchActive = searchQuery.trim().length > 0
+  const isG12 = group.group_number === 12
+
+  // Card border colour: G12 amber > search match red > default grey
+  const cardBorderColour = isG12
+    ? G12_AMBER.bg
+    : searchActive && derived.hasMatches
+    ? RED_CARD_BORDER
+    : 'var(--rmg-color-grey-2)'
+
+  const opacity = searchActive && derived.hasNoMatches ? 0.35 : 1
+
+  // Sessions to display
+  const sourceSessions = searchActive ? derived.searchMatches : derived.filteredSessions
+  const overflowCount = sourceSessions.length > 4 && !beyond4Expanded ? sourceSessions.length - 4 : 0
+  const visibleSessions = overflowCount > 0 ? sourceSessions.slice(0, 4) : sourceSessions
+
+  const completionPct =
+    group.total_planned_sessions > 0
+      ? Math.round((derived.completedCount / group.total_planned_sessions) * 100)
+      : 0
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--rmg-color-surface-white)',
+        border: `0.5px solid ${cardBorderColour}`,
+        borderRadius: 'var(--rmg-radius-m)',
+        opacity,
+        transition: 'opacity 150ms ease',
+      }}
+    >
+      {/* Header */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onToggle()
+        }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--rmg-spacing-03)',
+          padding: 'var(--rmg-spacing-03) var(--rmg-spacing-04)',
+          cursor: 'pointer',
+          backgroundColor: isG12 ? G12_AMBER.headerBg : 'transparent',
+          borderRadius: 'var(--rmg-radius-m)',
+        }}
+      >
+        <GroupNumberBadge n={group.group_number} isG12={isG12} />
+
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--rmg-spacing-03)', flex: 1, minWidth: 0 }}>
+          <span
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-b3)',
+              lineHeight: 'var(--rmg-leading-b3)',
+              fontWeight: 500,
+              color: 'var(--rmg-color-text-body)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {group.group_name}
+          </span>
+          {group.category && (
+            <span
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c2)',
+                lineHeight: 'var(--rmg-leading-c2)',
+                color: isG12 ? G12_AMBER.border : 'var(--rmg-color-grey-1)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {group.category}
+              {isG12 ? ' · Infrastructure workstream' : ''}
+            </span>
+          )}
+        </div>
+
+        {/* Right meta */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--rmg-spacing-04)', flexShrink: 0 }}>
+          {searchActive && derived.hasMatches ? (
+            <span
+              style={{
+                backgroundColor: RED_MATCH_BG,
+                color: RED_SOLID,
+                borderRadius: 'var(--rmg-radius-xl)',
+                fontSize: 'var(--rmg-text-c2)',
+                lineHeight: 'var(--rmg-leading-c2)',
+                padding: '2px 10px',
+                fontFamily: 'var(--rmg-font-body)',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {derived.searchMatches.length} of {derived.filteredSessions.length} match
+            </span>
+          ) : !searchActive ? (
+            <>
+              <span
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-grey-1)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {group.total_planned_sessions} session
+                {group.total_planned_sessions === 1 ? '' : 's'}
+              </span>
+              {group.total_planned_hours != null && (
+                <span
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 'var(--rmg-text-c2)',
+                    color: 'var(--rmg-color-grey-1)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {group.total_planned_hours} hrs
+                </span>
+              )}
+              <div
+                style={{
+                  width: 60,
+                  height: 4,
+                  borderRadius: 100,
+                  backgroundColor: 'var(--rmg-color-grey-3)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${completionPct}%`,
+                    height: '100%',
+                    backgroundColor: 'var(--rmg-color-red)',
+                    borderRadius: 100,
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-grey-1)',
+                  whiteSpace: 'nowrap',
+                  minWidth: 28,
+                  textAlign: 'right',
+                }}
+              >
+                {completionPct}%
+              </span>
+            </>
+          ) : null}
+
+          {/* Lead chips — always shown */}
+          <div style={{ display: 'flex', gap: -6 }}>
+            {derived.leads.map((lead, i) => (
+              <LeadChip key={lead.id} lead={lead} isG12={isG12} offset={i} />
+            ))}
+          </div>
+
+          {/* Chevron */}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 16,
+              color: 'var(--rmg-color-grey-1)',
+              fontSize: 10,
+              transition: 'transform 150ms ease',
+              transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            }}
+          >
+            ▶
+          </span>
+        </div>
+      </div>
+
+      {/* Expanded: session list */}
+      {expanded && (
+        <div
+          style={{
+            borderTop: '0.5px solid var(--rmg-color-grey-2)',
+            padding: 'var(--rmg-spacing-02) var(--rmg-spacing-04) var(--rmg-spacing-03)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--rmg-spacing-02)',
+          }}
+        >
+          {visibleSessions.length === 0 ? (
+            <div
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c2)',
+                color: 'var(--rmg-color-grey-1)',
+                textAlign: 'center',
+                padding: 'var(--rmg-spacing-03) 0',
+              }}
+            >
+              No sessions match the current filters.
+            </div>
+          ) : (
+            visibleSessions.map((s) => (
+              <SessionRow key={s.id} session={s} searchQuery={searchQuery} />
+            ))
+          )}
+
+          {overflowCount > 0 && (
+            <button
+              type="button"
+              onClick={onToggleBeyond4}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 'var(--rmg-spacing-02) 0',
+                textAlign: 'left',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 'var(--rmg-text-c2)',
+                color: 'var(--rmg-color-grey-1)',
+                cursor: 'pointer',
+              }}
+            >
+              + {overflowCount} more session{overflowCount === 1 ? '' : 's'} →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Group number badge ─────────────────────────────────────────────
+
+function GroupNumberBadge({ n, isG12 }: { n: number; isG12: boolean }) {
+  const base: React.CSSProperties = {
+    fontFamily: 'monospace',
+    fontSize: 'var(--rmg-text-c2)',
+    lineHeight: 1,
+    borderRadius: 'var(--rmg-radius-xs)',
+    padding: '2px 6px',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  }
+  if (isG12) {
+    return (
+      <span
+        style={{
+          ...base,
+          backgroundColor: G12_AMBER.bg,
+          color: G12_AMBER.fg,
+          border: `0.5px solid ${G12_AMBER.border}`,
+        }}
+      >
+        GROUP {n}
+      </span>
+    )
+  }
+  return (
+    <span
+      style={{
+        ...base,
+        backgroundColor: 'var(--rmg-color-grey-4)',
+        color: 'var(--rmg-color-text-body)',
+        border: '0.5px solid var(--rmg-color-grey-2)',
+      }}
+    >
+      GROUP {n}
+    </span>
+  )
+}
+
+// ── Lead chip (initials circle) ────────────────────────────────────
+
+function LeadChip({
+  lead,
+  isG12,
+  offset,
+}: {
+  lead: { id: string; name: string; supplier: SupplierRef | null }
+  isG12: boolean
+  offset: number
+}) {
+  const colour = supplierColour(lead.supplier)
+  const bg = isG12 ? G12_AMBER.bg : `${colour}26`
+  const text = isG12 ? G12_AMBER.fg : colour
+  const border = isG12 ? G12_AMBER.border : colour
+  return (
+    <span
+      title={lead.name}
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: '50%',
+        backgroundColor: bg,
+        color: text,
+        border: `1px solid ${border}`,
+        fontFamily: 'var(--rmg-font-body)',
+        fontSize: 9,
+        fontWeight: 700,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginLeft: offset === 0 ? 0 : -6,
+        flexShrink: 0,
+      }}
+    >
+      {getInitials(lead.name)}
+    </span>
+  )
+}
+
+// ── Session row ────────────────────────────────────────────────────
+
+function SessionRow({
+  session,
+  searchQuery,
+}: {
+  session: KtSession
+  searchQuery: string
+}) {
+  const teamStyle = TEAM_STYLES[session.team] ?? TEAM_STYLES.SHARED
+  const isCompleted = session.status === 'COMPLETED'
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--rmg-spacing-03)',
+        padding: 'var(--rmg-spacing-02) 0',
+      }}
+    >
+      {/* 3px left accent bar */}
+      <div
+        style={{
+          width: 3,
+          height: 28,
+          borderRadius: 2,
+          backgroundColor: teamStyle.text,
+          flexShrink: 0,
+        }}
+      />
+
+      {/* Name + focus area */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c1)',
+            lineHeight: 'var(--rmg-leading-c1)',
+            fontWeight: 500,
+            color: 'var(--rmg-color-text-body)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {highlightText(session.session_name, searchQuery)}
+        </div>
+        {session.focus_area && (
+          <div
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 'var(--rmg-text-c2)',
+              lineHeight: 'var(--rmg-leading-c2)',
+              color: 'var(--rmg-color-grey-1)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {highlightText(session.focus_area, searchQuery)}
+          </div>
+        )}
+      </div>
+
+      {/* Team badge */}
+      <span
+        style={{
+          backgroundColor: teamStyle.bg,
+          color: teamStyle.text,
+          borderRadius: 'var(--rmg-radius-xl)',
+          padding: '2px 8px',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        {session.team === 'SERVICE' ? 'Service' : 'Shared'}
+      </span>
+
+      {/* Playback badge */}
+      {session.is_playback && (
+        <span
+          style={{
+            backgroundColor: PLAYBACK_BG,
+            color: PLAYBACK_FG,
+            borderRadius: 'var(--rmg-radius-xl)',
+            padding: '2px 8px',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 'var(--rmg-text-c2)',
+            lineHeight: 'var(--rmg-leading-c2)',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          PLAYBACK
+        </span>
+      )}
+
+      {/* Status badge */}
+      <span
+        style={{
+          backgroundColor: isCompleted ? 'var(--rmg-color-tint-green)' : 'var(--rmg-color-grey-4)',
+          color: isCompleted ? 'var(--rmg-color-green-contrast)' : 'var(--rmg-color-grey-1)',
+          borderRadius: 'var(--rmg-radius-xl)',
+          padding: '2px 8px',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        {statusLabel(session.status)}
+      </span>
+
+      {/* Duration */}
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 'var(--rmg-text-c2)',
+          lineHeight: 'var(--rmg-leading-c2)',
+          color: 'var(--rmg-color-grey-1)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+          minWidth: 40,
+          textAlign: 'right',
+        }}
+      >
+        {session.duration_hrs != null ? `${session.duration_hrs} hrs` : '—'}
+      </span>
+    </div>
+  )
+}
+
+function statusLabel(status: KtSession['status']): string {
+  switch (status) {
+    case 'SCHEDULED':
+      return 'Scheduled'
+    case 'COMPLETED':
+      return 'Completed'
+    case 'CANCELLED':
+      return 'Cancelled'
+    case 'RESCHEDULED':
+      return 'Rescheduled'
+  }
 }
 
 function CalendarEmptyState() {
