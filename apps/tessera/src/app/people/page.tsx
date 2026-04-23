@@ -62,6 +62,13 @@ export default async function PeoplePage() {
   const resources = (resourcesRes.data ?? []) as Resource[]
   const leadRows = (leadRes.data ?? []) as LeadRow[]
 
+  if (resourcesRes.error) {
+    console.error('[PeoplePage] resources query error:', resourcesRes.error)
+  }
+  if (leadRes.error) {
+    console.error('[PeoplePage] leadRows query error:', leadRes.error)
+  }
+
   return (
     <TesseraShell activeRoute="/people">
       <div

@@ -732,12 +732,17 @@ export function PeopleClient({ resources, leadRows }: PeopleClientProps) {
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (r) =>
-          r.resource_name.toLowerCase().includes(q) ||
-          (r.resource_job_title?.toLowerCase().includes(q) ?? false) ||
-          (r.resource_function?.toLowerCase().includes(q) ?? false),
-      )
+      result = result.filter((r) => {
+        const s = getSupplier(r.suppliers)
+        return [
+          r.resource_name,
+          r.resource_job_title,
+          r.resource_function,
+          s?.supplier_name,
+          r.resource_primary_tech_stack,
+          r.resource_secondary_tech_stack,
+        ].some((field) => field?.toLowerCase().includes(q) ?? false)
+      })
     }
 
     if (selectedSuppliers.length > 0) {
