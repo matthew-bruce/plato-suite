@@ -1,4 +1,5 @@
 @import '../../../../packages/config/tokens/rmg.css';
+@import '../styles/tessera-tokens.css';
 
 @tailwind base;
 @tailwind components;

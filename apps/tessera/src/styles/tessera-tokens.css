@@ -1,0 +1,36 @@
+/**
+ * Tessera — Module-level design tokens
+ * Extends the RMG base token layer with Tessera-specific semantics.
+ * Import in apps/tessera/src/app/globals.css
+ */
+
+:root {
+  /* ── KT Tracks ── */
+  --track-a:            #e8382a;  /* CG Extraction */
+  --track-a-tint:       rgba(232, 56, 42, 0.06);
+  --track-a-border:     rgba(232, 56, 42, 0.18);
+
+  --track-b:            #4a9eff;  /* TCS Onboarding */
+  --track-b-tint:       rgba(74, 158, 255, 0.06);
+  --track-b-border:     rgba(74, 158, 255, 0.18);
+
+  /* ── Itinerary event types ── */
+  --event-all-color:    #6c4fc9;
+  --event-all-tint:     rgba(108, 79, 201, 0.06);
+  --event-all-border:   rgba(108, 79, 201, 0.15);
+
+  --event-travel-color: #8f9495;
+  --event-travel-tint:  rgba(143, 148, 149, 0.07);
+  --event-travel-border:rgba(143, 148, 149, 0.20);
+
+  --event-hotel-color:  #1a9e8c;
+  --event-hotel-tint:   rgba(26, 158, 140, 0.06);
+  --event-hotel-border: rgba(26, 158, 140, 0.20);
+
+  --event-gap-color:    #f3920d;
+  --event-gap-tint:     rgba(243, 146, 13, 0.07);
+  --event-gap-border:   rgba(243, 146, 13, 0.30);
+
+  --event-flight-tint:  rgba(42, 42, 45, 0.04);
+  --event-flight-border:rgba(42, 42, 45, 0.14);
+}
