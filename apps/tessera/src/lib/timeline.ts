@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 
 export interface TimelineResource {
+  resource_id: string
   resource_name: string
   resource_job_title: string | null
   resource_function: string | null
@@ -19,6 +20,7 @@ export async function getTimelineResources(): Promise<TimelineResource[]> {
   const { data, error } = await supabase
     .from('resources')
     .select(`
+      resource_id,
       resource_name,
       resource_job_title,
       resource_function,
@@ -49,6 +51,7 @@ export async function getTimelineResources(): Promise<TimelineResource[]> {
     .map((r) => {
       const s = Array.isArray(r.suppliers) ? r.suppliers[0] : r.suppliers
       return {
+        resource_id:          r.resource_id,
         resource_name:        r.resource_name,
         resource_job_title:   r.resource_job_title ?? null,
         resource_function:    r.resource_function ?? null,

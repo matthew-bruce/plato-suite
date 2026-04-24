@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import type { TimelineResource } from '@/lib/timeline'
 import type { DomainConfig } from '@/lib/timeline-domains'
 import {
@@ -10,22 +11,17 @@ import {
   buildPhaseGradient,
   getBarPosition,
 } from '@/lib/timeline-utils'
+import { generateExportHTML } from '@/lib/export-timeline'
 
 // ── Constants ─────────────────────────────────────────────────────────
 
-const NAME_COL  = 208
+const NAME_COL  = 280
 const ROW_H     = 26
 const DOMAIN_H  = 34
 const PHASE_H   = 26
 const MONTH_H   = 24
 const MIN_BAR_W = NAME_COL + 640  // minimum chart width before horizontal scroll
 
-const RISK_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  HIGH:   { bg: 'rgba(232,56,42,0.09)',  text: '#c0251a', border: 'rgba(232,56,42,0.28)' },
-  MEDIUM: { bg: 'rgba(243,146,13,0.09)', text: '#9a5200', border: 'rgba(243,146,13,0.28)' },
-  LOW:    { bg: 'rgba(34,197,94,0.09)',  text: '#15803d', border: 'rgba(34,197,94,0.28)'  },
-  SCOPED: { bg: 'rgba(108,79,201,0.09)', text: '#5b21b6', border: 'rgba(108,79,201,0.28)' },
-}
 
 const PHASE_GRADIENT = buildPhaseGradient()
 
@@ -42,140 +38,6 @@ interface DomainRow {
   resources: TimelineResource[]
 }
 
-// ── Export helper ─────────────────────────────────────────────────────
-
-function generateExportHtml(
-  domainRows: DomainRow[],
-  collapsedDomains: Set<number>,
-  supplierColours: Map<string, string>,
-): string {
-  const phaseGradientCss = PHASES.map((p, i) => {
-    // Convert CSS-variable colours to fallback hex for export
-    const colourMap: Record<string, string> = {
-      'var(--rmg-color-tint-green)': 'rgba(16,185,129,0.08)',
-      'var(--rmg-color-green)':      '#059669',
-      'var(--rmg-color-blue)':       '#0892CB',
-    }
-    return colourMap[p.colour] ?? p.colour
-  })
-
-  const phaseStops: string[] = []
-  let pos = 0
-  PHASES.forEach((p, i) => {
-    const c = phaseGradientCss[i]
-    phaseStops.push(`${c} ${pos}%`)
-    pos += (p.months / TOTAL_MONTHS) * 100
-    phaseStops.push(`${c} ${pos}%`)
-  })
-  const exportGradient = `linear-gradient(to right, ${phaseStops.join(', ')})`
-
-  const rows: string[] = []
-
-  for (const { domain, idx, resources } of domainRows) {
-    if (resources.length === 0) continue
-    const rs = RISK_STYLE[domain.risk] ?? RISK_STYLE.LOW
-    rows.push(`
-      <tr class="domain-row">
-        <td class="name-cell" style="background:#f8f8f8;font-weight:700;font-size:11px;">
-          ${domain.name}
-          <span style="margin-left:6px;padding:1px 5px;border-radius:3px;font-size:9px;
-            background:${rs.bg};color:${rs.text};border:1px solid ${rs.border};">${domain.risk}</span>
-          <span style="margin-left:4px;font-size:10px;color:#888;">${resources.length}</span>
-        </td>
-        <td style="background:${exportGradient};height:${DOMAIN_H}px;"></td>
-      </tr>
-    `)
-
-    if (collapsedDomains.has(idx)) continue
-
-    for (const r of resources) {
-      const { startMonth, endMonth, isOngoing } = getBarPosition(
-        r.resource_onboarded_date,
-        r.resource_rolloff_date,
-      )
-      const leftPct  = (startMonth / TOTAL_MONTHS) * 100
-      const widthPct = ((endMonth - startMonth) / TOTAL_MONTHS) * 100
-      const colour   = supplierColours.get(r.supplier_abbreviation) ?? '#999'
-
-      rows.push(`
-        <tr>
-          <td class="name-cell">
-            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;
-              background:${colour};margin-right:5px;vertical-align:middle;"></span>
-            ${r.resource_name}
-            ${r.resource_job_title ? `<span style="color:#999;font-size:10px;"> — ${r.resource_job_title}</span>` : ''}
-          </td>
-          <td style="position:relative;background:${exportGradient};height:${ROW_H}px;">
-            ${widthPct > 0 ? `
-              <div style="position:absolute;top:50%;transform:translateY(-50%);
-                left:${leftPct}%;width:${widthPct}%;height:14px;
-                background:${colour};opacity:0.85;
-                border-radius:${isOngoing ? '4px 0 0 4px' : '4px'};"></div>
-            ` : ''}
-          </td>
-        </tr>
-      `)
-    }
-  }
-
-  const monthHeaders = MONTH_YEAR_LABELS.map(
-    (m) => `<th style="font-size:10px;font-weight:${m.includes('⚑') ? 700 : 400};
-      color:${m.includes('⚑') ? '#e8382a' : '#666'};text-align:center;padding:4px 2px;
-      border-right:1px solid #eee;">${m}</th>`,
-  ).join('')
-
-  const phaseHeaders = PHASES.map(
-    (p) => `<th colspan="3" style="text-align:left;padding:4px 8px;font-size:10px;
-      font-weight:700;text-transform:uppercase;letter-spacing:0.05em;
-      color:#555;">${p.label}</th>`,
-  ).join('')
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Resource Transition Timeline — Tessera</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f5f5f5; }
-  h1   { font-size: 1.4rem; font-weight: 700; margin: 0 0 4px; color: #111; }
-  p    { font-size: 13px; color: #666; margin: 0 0 20px; }
-  .wrap { overflow-x: auto; }
-  table { border-collapse: collapse; min-width: 860px; width: 100%; background: #fff;
-          border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-  th, td { padding: 0; border-bottom: 1px solid #eee; }
-  .name-cell { width: 200px; min-width: 200px; max-width: 200px; padding: 4px 8px 4px 16px;
-               font-size: 11px; color: #333; white-space: nowrap; overflow: hidden;
-               text-overflow: ellipsis; position: sticky; left: 0; background: #fff;
-               border-right: 1px solid #e0e0e0; }
-  .domain-row .name-cell { background: #f8f8f8; }
-  thead th { position: sticky; top: 0; background: #fff; z-index: 2; }
-</style>
-</head>
-<body>
-<h1>Resource Transition Timeline</h1>
-<p>CG → TCS factory transition · April 2026 – March 2027 · Exported from Tessera</p>
-<div class="wrap">
-<table>
-<thead>
-  <tr>
-    <th class="name-cell" style="background:#f8f8f8;"></th>
-    ${phaseHeaders}
-  </tr>
-  <tr>
-    <th class="name-cell" style="font-size:10px;font-weight:700;text-transform:uppercase;
-      letter-spacing:0.08em;color:#999;background:#f8f8f8;">Resource</th>
-    ${monthHeaders}
-  </tr>
-</thead>
-<tbody>
-  ${rows.join('')}
-</tbody>
-</table>
-</div>
-</body>
-</html>`
-}
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -252,12 +114,37 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
   }
 
   function handleExport() {
-    const html = generateExportHtml(domainRows, collapsedDomains, supplierColours)
+    const domainGroups = domainRows
+      .filter((row) => row.resources.length > 0)
+      .map(({ domain, resources }) => ({
+        domain: domain.name,
+        resources: resources.map((r) => {
+          const { startMonth, endMonth, isOngoing } = getBarPosition(
+            r.resource_onboarded_date,
+            r.resource_rolloff_date,
+          )
+          return {
+            resource_name:        r.resource_name,
+            resource_job_title:   r.resource_job_title,
+            supplier_abbreviation: r.supplier_abbreviation,
+            supplier_colour:      supplierColours.get(r.supplier_abbreviation) ?? '#999',
+            startMonth,
+            endMonth,
+            isOngoing,
+          }
+        }),
+      }))
+
+    const html = generateExportHTML(domainGroups)
     const blob = new Blob([html], { type: 'text/html' })
     const url  = URL.createObjectURL(blob)
-    window.open(url, '_blank')
-    // Revoke after a tick so the new tab can read it
-    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `transition-timeline-${new Date().toISOString().split('T')[0]}.html`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   // ── Render helpers ─────────────────────────────────────────────────
@@ -344,7 +231,8 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
               flexShrink: 0,
             }}
           />
-          <span
+          <Link
+            href={`/people?resource=${resource.resource_id}`}
             title={resource.resource_job_title
               ? `${resource.resource_name} — ${resource.resource_job_title}`
               : resource.resource_name}
@@ -355,10 +243,11 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
+              textDecoration: 'none',
             }}
           >
             {resource.resource_name}
-          </span>
+          </Link>
         </div>
 
         {/* Bar area */}
@@ -407,7 +296,6 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
 
   function DomainSection({ domain, idx, resources: domainResources }: DomainRow) {
     const isCollapsed = collapsedDomains.has(idx)
-    const rs = RISK_STYLE[domain.risk] ?? RISK_STYLE.LOW
 
     return (
       <div>
@@ -467,23 +355,6 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
               }}
             >
               {domain.name}
-            </span>
-            <span
-              style={{
-                flexShrink: 0,
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 9,
-                fontWeight: 700,
-                textTransform: 'uppercase' as const,
-                letterSpacing: '0.05em',
-                padding: '1px 5px',
-                borderRadius: 3,
-                backgroundColor: rs.bg,
-                color: rs.text,
-                border: `1px solid ${rs.border}`,
-              }}
-            >
-              {domain.risk}
             </span>
             <span
               style={{
@@ -596,6 +467,46 @@ export function ResourceGantt({ resources, domainConfig }: Props) {
               </button>
             )
           })}
+
+          {/* Expand / Collapse all */}
+          <button
+            type="button"
+            onClick={() => setCollapsedDomains(new Set())}
+            style={{
+              padding: '4px 12px',
+              borderRadius: 'var(--rmg-radius-m)',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              border: '1.5px solid var(--rmg-color-grey-2)',
+              backgroundColor: 'var(--rmg-color-surface-white)',
+              color: 'var(--rmg-color-text-body)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setCollapsedDomains(new Set(domainRows.map((_, i) => i).concat([-1])))
+            }
+            style={{
+              padding: '4px 12px',
+              borderRadius: 'var(--rmg-radius-m)',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: 'pointer',
+              border: '1.5px solid var(--rmg-color-grey-2)',
+              backgroundColor: 'var(--rmg-color-surface-white)',
+              color: 'var(--rmg-color-text-body)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Collapse all
+          </button>
 
           {/* Export */}
           <button

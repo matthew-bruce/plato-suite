@@ -9,6 +9,7 @@ interface PeopleClientProps {
   resources: Resource[]
   leadSessionsByResource: Record<string, SessionRef[]>
   suppliers: SupplierInfo[]
+  initialSelectedId?: string | null
 }
 
 type SortKey = 'name' | 'role' | 'exp' | 'sessions' | null
@@ -469,13 +470,14 @@ export function PeopleClient({
   resources,
   leadSessionsByResource,
   suppliers,
+  initialSelectedId,
 }: PeopleClientProps) {
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
 
   const colourMap = useMemo(() => buildSupplierMap(suppliers), [suppliers])
   const supplierOrder = useMemo(
