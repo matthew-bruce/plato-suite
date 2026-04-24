@@ -1,16 +1,10 @@
 import Link from 'next/link'
 import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
-import type { RiskLevel } from '@/components/RiskPill'
+import { RISK_COLOURS, RISK_TINTS } from '@plato/ui/tokens'
+import type { RiskLevel } from '@plato/ui/tokens'
 
 export const dynamic = 'force-dynamic'
-
-const RISK_COLOURS: Record<RiskLevel, string> = {
-  HIGH: '#E8382A',
-  MEDIUM: '#E65100',
-  LOW: '#1B5E20',
-  SCOPED: '#6A1B9A',
-}
 
 type ParkerQuestion = {
   id: string
@@ -30,6 +24,8 @@ type MappingRow = {
   domain_id: string
 }
 
+const RISK_LEVELS: RiskLevel[] = ['HIGH', 'MEDIUM', 'LOW', 'SCOPED']
+
 export default async function ParkerPage() {
   const [questionsRes, mappingsRes] = await Promise.all([
     supabase
@@ -41,8 +37,11 @@ export default async function ParkerPage() {
       .select('parker_question_id, domain_id'),
   ])
 
+  if (questionsRes.error) console.error('[ParkerPage] questions error:', questionsRes.error)
+  if (mappingsRes.error) console.error('[ParkerPage] mappings error:', mappingsRes.error)
+
   const questions = (questionsRes.data ?? []) as ParkerQuestion[]
-  const mappings = (mappingsRes.data ?? []) as MappingRow[]
+  const mappings  = (mappingsRes.data ?? []) as MappingRow[]
 
   const domainIds = [...new Set(mappings.map((m) => m.domain_id))]
 
@@ -70,26 +69,26 @@ export default async function ParkerPage() {
     <TesseraShell activeRoute="/parker">
       <div
         style={{
-          maxWidth: 900,
-          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          backgroundColor: 'var(--rmg-color-surface-light)',
+          minHeight: '100vh',
         }}
       >
         <div
           style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: 'var(--rmg-spacing-05)',
-            flexWrap: 'wrap',
-            marginBottom: 'var(--rmg-spacing-08)',
+            width: '100%',
+            padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+            boxSizing: 'border-box',
           }}
         >
-          <div>
+          {/* Page header */}
+          <div style={{ marginBottom: 24 }}>
             <h1
               style={{
                 fontFamily: 'var(--rmg-font-display)',
-                fontSize: 'var(--rmg-text-h2)',
-                lineHeight: 'var(--rmg-leading-h2)',
+                fontSize: '2rem',
+                fontWeight: 700,
+                letterSpacing: '-0.03em',
+                lineHeight: 1.1,
                 color: 'var(--rmg-color-text-heading)',
                 margin: 0,
               }}
@@ -99,65 +98,82 @@ export default async function ParkerPage() {
             <p
               style={{
                 fontFamily: 'var(--rmg-font-body)',
-                fontSize: 'var(--rmg-text-b3)',
-                lineHeight: 'var(--rmg-leading-b3)',
+                fontSize: 14,
                 color: 'var(--rmg-color-text-light)',
                 margin: 0,
-                marginTop: 'var(--rmg-spacing-02)',
-                maxWidth: 560,
+                marginTop: 6,
               }}
             >
-              Seven questions from CG Director Robert Parker. These are not
-              rhetorical — he will follow up.
+              Seven questions every KT programme must answer
             </p>
           </div>
+
+          {/* Context note — Section 5 inline card, tint-green variant */}
+          <div
+            style={{
+              borderRadius: '0 var(--rmg-radius-s) var(--rmg-radius-s) var(--rmg-radius-s)',
+              padding: '18px 20px',
+              background: 'var(--rmg-color-tint-green)',
+              display: 'flex',
+              gap: 14,
+              alignItems: 'flex-start',
+              maxWidth: 560,
+              marginBottom: 24,
+            }}
+          >
+            <p
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 14,
+                color: 'var(--rmg-color-text-heading)',
+                lineHeight: 1.5,
+                margin: 0,
+              }}
+            >
+              These questions were posed by Robert Parker (CG Director) as the
+              acceptance criteria for a successful knowledge transfer. Each
+              domain&apos;s readiness is assessed against all seven.
+            </p>
+          </div>
+
+          {/* Risk legend */}
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--rmg-spacing-03)',
-              flexShrink: 0,
-              paddingTop: 4,
+              gap: 16,
+              flexWrap: 'wrap',
+              marginBottom: 24,
             }}
           >
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '2px var(--rmg-spacing-03)',
-                backgroundColor: 'rgba(8, 146, 203, 0.12)',
-                color: 'var(--rmg-color-blue)',
-                borderRadius: 'var(--rmg-radius-xl)',
-                fontFamily: 'monospace',
-                fontSize: '10px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Reference
-            </span>
-            <span
-              style={{
-                fontFamily: 'monospace',
-                fontSize: 'var(--rmg-text-c2)',
-                color: 'var(--rmg-color-text-light)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {questions.length} questions · {mappings.length} domains mapped
-            </span>
+            {RISK_LEVELS.map((level) => (
+              <div
+                key={level}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    background: RISK_COLOURS[level],
+                    flexShrink: 0,
+                    display: 'inline-block',
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 12,
+                    color: 'var(--rmg-color-text-light)',
+                  }}
+                >
+                  {level.charAt(0) + level.slice(1).toLowerCase()}
+                </span>
+              </div>
+            ))}
           </div>
-        </div>
 
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--rmg-spacing-05)',
-          }}
-        >
+          {/* Question cards */}
           {questions.map((q) => {
             const linked = mappingsByQuestion.get(q.id) ?? []
             const sortedLinked = [...linked].sort(
@@ -169,31 +185,6 @@ export default async function ParkerPage() {
               <QuestionCard key={q.id} question={q} domains={sortedLinked} />
             )
           })}
-        </div>
-
-        <div
-          style={{
-            marginTop: 'var(--rmg-spacing-08)',
-            backgroundColor: 'var(--rmg-color-surface-white)',
-            borderRadius: 'var(--rmg-radius-m)',
-            boxShadow: 'var(--rmg-shadow-card)',
-            borderLeft: '3px solid var(--rmg-color-grey-2)',
-            padding: 'var(--rmg-spacing-05) var(--rmg-spacing-06)',
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-c1)',
-              lineHeight: 'var(--rmg-leading-c1)',
-              color: 'var(--rmg-color-text-light)',
-            }}
-          >
-            Robert Parker (CG Director) is retained 1–2 days/week through year
-            end. He has final sign-off on KT readiness and will ask these
-            questions directly to TCS during the transition review.
-          </p>
         </div>
       </div>
     </TesseraShell>
@@ -211,119 +202,111 @@ function QuestionCard({
     <div
       id={`q${question.number}`}
       style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
+        background: 'white',
         borderRadius: 'var(--rmg-radius-m)',
         boxShadow: 'var(--rmg-shadow-card)',
-        padding: 'var(--rmg-spacing-06)',
-        scrollMarginTop: 'var(--rmg-spacing-06)',
+        padding: 24,
+        marginBottom: 16,
+        display: 'flex',
+        gap: 20,
       }}
     >
+      {/* Number badge */}
       <div
         style={{
+          width: 40,
+          height: 40,
+          borderRadius: '50%',
+          background: 'var(--rmg-color-brand-black)',
+          color: 'white',
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: 'var(--rmg-spacing-04)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: '1.1rem',
+          fontWeight: 700,
+          flexShrink: 0,
         }}
       >
+        {question.number}
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            backgroundColor: 'var(--rmg-color-text-heading)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            fontFamily: 'monospace',
-            fontSize: 'var(--rmg-text-c2)',
+            fontFamily: 'var(--rmg-font-display)',
+            fontSize: '1rem',
             fontWeight: 700,
-            color: 'var(--rmg-color-surface-white)',
-            letterSpacing: '0.02em',
+            letterSpacing: '-0.01em',
+            color: 'var(--rmg-color-text-heading)',
+            marginBottom: 12,
           }}
         >
-          P{question.number}
+          {question.question}
         </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.07em',
+            color: 'var(--rmg-color-grey-1)',
+            marginBottom: 10,
+          }}
+        >
+          Addressed by
+        </div>
+
+        {domains.length === 0 ? (
           <p
             style={{
-              margin: 0,
               fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-b2)',
-              lineHeight: 'var(--rmg-leading-b2)',
-              color: 'var(--rmg-color-text-body)',
-              fontWeight: 500,
+              fontSize: 12,
+              color: 'var(--rmg-color-grey-1)',
+              fontStyle: 'italic',
+              margin: 0,
             }}
           >
-            {question.question}
+            No domains linked yet
           </p>
-
-          {domains.length > 0 && (
-            <div style={{ marginTop: 'var(--rmg-spacing-04)' }}>
-              <div
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 'var(--rmg-text-c2)',
-                  color: 'var(--rmg-color-text-light)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  fontWeight: 700,
-                  marginBottom: 'var(--rmg-spacing-02)',
-                }}
-              >
-                Addressed by
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 'var(--rmg-spacing-02)',
-                }}
-              >
-                {domains.map((d) => (
-                  <DomainChip key={d.id} domain={d} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {domains.map((d) => (
+              <DomainChip key={d.id} domain={d} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 function DomainChip({ domain }: { domain: DomainRef }) {
-  const dotColour = domain.risk_level
-    ? RISK_COLOURS[domain.risk_level]
-    : 'var(--rmg-color-grey-1)'
+  const level = domain.risk_level
+  const bg           = level ? RISK_TINTS[level]   : 'var(--rmg-color-grey-3)'
+  const borderColour = level ? RISK_COLOURS[level]  : 'var(--rmg-color-grey-1)'
+
   return (
     <Link href={`/domains/${domain.slug}`} style={{ textDecoration: 'none' }}>
       <span
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 'var(--rmg-spacing-02)',
-          padding: `var(--rmg-spacing-02) var(--rmg-spacing-03)`,
-          backgroundColor: 'var(--rmg-color-surface-light)',
-          borderRadius: 'var(--rmg-radius-s)',
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c1)',
-          color: 'var(--rmg-color-text-body)',
+          borderRadius: 'var(--rmg-radius-xs)',
+          padding: '4px 10px',
+          fontSize: 12,
           fontWeight: 500,
-          border: '1px solid var(--rmg-color-grey-3)',
+          background: bg,
+          borderLeft: `3px solid ${borderColour}`,
+          color: 'var(--rmg-color-text-body)',
+          fontFamily: 'var(--rmg-font-body)',
           whiteSpace: 'nowrap',
+          cursor: 'pointer',
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            backgroundColor: dotColour,
-            flexShrink: 0,
-          }}
-        />
         {domain.name}
       </span>
     </Link>
