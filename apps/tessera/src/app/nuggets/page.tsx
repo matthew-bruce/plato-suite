@@ -5,6 +5,7 @@ import { NuggetsClient } from '@/components/NuggetsClient'
 export const dynamic = 'force-dynamic'
 
 export type Nugget = {
+  id: string
   number: number
   title: string
   content: string
@@ -12,11 +13,12 @@ export type Nugget = {
 }
 
 export default async function NuggetsPage() {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('tessera_nuggets')
-    .select('number, title, content, tags')
-    .eq('is_private', true)
+    .select('id, number, title, content, tags')
     .order('number')
+
+  if (error) console.error('[NuggetsPage] error:', error)
 
   const nuggets = (data ?? []) as Nugget[]
 
@@ -24,64 +26,46 @@ export default async function NuggetsPage() {
     <TesseraShell activeRoute="/nuggets">
       <div
         style={{
-          width: '100%',
-          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
-          boxSizing: 'border-box',
+          backgroundColor: 'var(--rmg-color-surface-light)',
+          minHeight: '100vh',
         }}
       >
-        <div style={{ marginBottom: 'var(--rmg-spacing-07)' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--rmg-spacing-03)',
-              marginBottom: 'var(--rmg-spacing-02)',
-            }}
-          >
+        <div
+          style={{
+            width: '100%',
+            padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div style={{ marginBottom: 'var(--rmg-spacing-05)' }}>
             <h1
               style={{
                 fontFamily: 'var(--rmg-font-display)',
-                fontSize: 'var(--rmg-text-h2)',
-                lineHeight: 'var(--rmg-leading-h2)',
+                fontSize: '2rem',
+                fontWeight: 700,
+                letterSpacing: '-0.03em',
+                lineHeight: 1.1,
                 color: 'var(--rmg-color-text-heading)',
                 margin: 0,
               }}
             >
               Nuggets
             </h1>
-            <span
+            <p
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '3px 8px',
-                backgroundColor: 'var(--rmg-color-text-heading)',
-                color: 'var(--rmg-color-surface-white)',
-                borderRadius: 'var(--rmg-radius-s)',
-                fontFamily: 'monospace',
-                fontSize: '10px',
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 14,
+                color: 'var(--rmg-color-text-light)',
+                margin: 0,
+                marginTop: 6,
               }}
             >
-              Private
-            </span>
+              {nuggets.length} knowledge nuggets
+            </p>
           </div>
-          <p
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 'var(--rmg-text-b3)',
-              lineHeight: 'var(--rmg-leading-b3)',
-              color: 'var(--rmg-color-text-light)',
-              margin: 0,
-            }}
-          >
-            Strategic observations and talking points for in-session use. Not
-            for distribution.
-          </p>
-        </div>
 
-        <NuggetsClient nuggets={nuggets} />
+          <NuggetsClient nuggets={nuggets} />
+        </div>
       </div>
     </TesseraShell>
   )
