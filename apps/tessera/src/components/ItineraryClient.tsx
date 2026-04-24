@@ -2,13 +2,8 @@
 
 import { useState } from 'react'
 import type { ItineraryDay, ItinerarySession, TripState } from '@/app/itinerary/page'
-import { TRACK_COLOURS } from '@plato/ui/tokens'
 
-// ── Permitted non-token hex values (Tessera-specific exceptions) ──────
-const PURPLE_SESSION = '#6C4FC9'   // no --rmg-* token equivalent
-const TEAL_HOTEL     = '#1A9E8C'   // no --rmg-* token equivalent
-
-// ── Supplier colours (SUPPLIER_COLOUR_FALLBACKS subset) ───────────────
+// Supplier colours for the host pill — no Tessera token for these
 const SUPPLIER_HEX: Record<string, string> = {
   CG:  '#003C82',
   TCS: '#9B0A6E',
@@ -18,8 +13,8 @@ const SUPPLIER_HEX: Record<string, string> = {
 
 type CardStyle = {
   bg: string
-  borderColor: string
-  borderStyle: 'solid' | 'dashed'
+  border: string
+  accent: string
 }
 
 const CG_DAY_DATE = '2026-04-30'
@@ -34,30 +29,58 @@ function getCardStyle(
 
   switch (type) {
     case 'flight':
-      return { bg: 'var(--rmg-color-grey-4)', borderColor: 'var(--rmg-color-dark-grey)', borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-flight-tint)',
+        border: 'var(--event-flight-border)',
+        accent: 'var(--rmg-color-black)',
+      }
     case 'travel':
-      return { bg: 'rgba(238,238,238,0.7)', borderColor: 'var(--rmg-color-grey-1)', borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-travel-tint)',
+        border: 'var(--event-travel-border)',
+        accent: 'var(--event-travel-color)',
+      }
     case 'hotel_checkin':
     case 'hotel_checkout':
-      return { bg: 'rgba(26,158,140,0.06)', borderColor: TEAL_HOTEL, borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-hotel-tint)',
+        border: 'var(--event-hotel-border)',
+        accent: 'var(--event-hotel-color)',
+      }
     case 'meal':
-      return { bg: 'rgba(254,235,135,0.4)', borderColor: 'var(--rmg-color-orange)', borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-gap-tint)',
+        border: 'var(--event-gap-border)',
+        accent: 'var(--event-gap-color)',
+      }
     case 'rest':
-      return { bg: 'var(--rmg-color-grey-4)', borderColor: 'var(--rmg-color-grey-2)', borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-travel-tint)',
+        border: 'var(--event-travel-border)',
+        accent: 'var(--event-travel-color)',
+      }
     case 'gap':
-      return { bg: 'rgba(255,189,128,0.4)', borderColor: 'var(--rmg-color-orange)', borderStyle: 'dashed' }
+      return {
+        bg:     'var(--event-gap-tint)',
+        border: 'var(--event-gap-border)',
+        accent: 'var(--event-gap-color)',
+      }
     case 'session':
       if (team === 'DELIVERY') {
-        const col = isCGDay ? TRACK_COLOURS.A : TRACK_COLOURS.B
-        return { bg: isCGDay ? 'rgba(218,32,42,0.06)' : 'rgba(8,146,203,0.06)', borderColor: col, borderStyle: 'solid' }
+        return isCGDay
+          ? { bg: 'var(--track-a-tint)', border: 'var(--track-a-border)', accent: 'var(--track-a)' }
+          : { bg: 'var(--track-b-tint)', border: 'var(--track-b-border)', accent: 'var(--track-b)' }
       }
       if (team === 'SERVICE') {
-        return { bg: 'rgba(218,32,42,0.06)', borderColor: TRACK_COLOURS.A, borderStyle: 'solid' }
+        return { bg: 'var(--track-a-tint)', border: 'var(--track-a-border)', accent: 'var(--track-a)' }
       }
-      // ALL or unknown team
-      return { bg: 'rgba(108,79,201,0.06)', borderColor: PURPLE_SESSION, borderStyle: 'solid' }
+      return { bg: 'var(--event-all-tint)', border: 'var(--event-all-border)', accent: 'var(--event-all-color)' }
     default:
-      return { bg: 'var(--rmg-color-grey-4)', borderColor: 'var(--rmg-color-grey-2)', borderStyle: 'solid' }
+      return {
+        bg:     'var(--event-travel-tint)',
+        border: 'var(--event-travel-border)',
+        accent: 'var(--event-travel-color)',
+      }
   }
 }
 
@@ -185,24 +208,37 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
   return (
     <div
       style={{
+        position: 'relative',
+        overflow: 'hidden',
         background: style.bg,
-        borderLeft: `4px ${style.borderStyle} ${style.borderColor}`,
-        borderRadius: `0 var(--rmg-radius-s) var(--rmg-radius-s) var(--rmg-radius-s)`,
-        padding: '12px 16px',
+        border: `1px solid ${style.border}`,
+        borderRadius: 'var(--rmg-radius-s)',
+        boxShadow: 'var(--rmg-shadow-subtle)',
+        padding: '9px 13px 9px 16px',
         marginBottom: 8,
       }}
     >
+      {/* Fix 1: per-card accent bar */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0, top: 0, bottom: 0,
+          width: 3,
+          background: style.accent,
+        }}
+      />
+
       {/* Row 1: time */}
       {timeStr && (
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            color: 'var(--rmg-color-grey-1)',
-            fontVariantNumeric: 'tabular-nums',
-            textTransform: 'uppercase',
+            fontSize: 12,
+            fontWeight: 700,
             letterSpacing: '0.04em',
-            marginBottom: 4,
+            fontVariantNumeric: 'tabular-nums',
+            color: 'var(--rmg-color-grey-1)',
+            marginBottom: 3,
           }}
         >
           {timeStr}
@@ -213,18 +249,17 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
       <div
         style={{
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: 6,
-          marginBottom: session.location ? 4 : 0,
+          alignItems: 'center',
+          gap: 8,
         }}
       >
-        <Icon type={session.session_type} colour={style.borderColor} />
+        <Icon type={session.session_type} colour={style.accent} />
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 14,
             fontWeight: 600,
-            color: 'var(--rmg-color-text-heading)',
+            color: 'var(--rmg-color-black)',
             lineHeight: 1.35,
             flex: 1,
           }}
@@ -239,33 +274,35 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 13,
-            color: 'var(--rmg-color-text-light)',
-            paddingLeft: 22,
-            marginBottom: supplierColour ? 6 : 0,
+            color: 'var(--rmg-color-grey-1)',
+            marginTop: 3,
+            lineHeight: 1.45,
           }}
         >
           {session.location}
         </div>
       )}
 
-      {/* Row 4: supplier pill */}
+      {/* Row 4: supplier tag */}
       {supplierColour && session.supplier_host && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <span
-            style={{
-              padding: '1px 6px',
-              borderRadius: 'var(--rmg-radius-xl)',
-              fontSize: 10,
-              fontWeight: 700,
-              fontFamily: 'var(--rmg-font-body)',
-              backgroundColor: `${supplierColour}18`,
-              color: supplierColour,
-              border: `1px solid ${supplierColour}`,
-            }}
-          >
-            {session.supplier_host}
-          </span>
-        </div>
+        <span
+          style={{
+            display: 'inline-flex',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.06em',
+            padding: '2px 9px',
+            borderRadius: 'var(--rmg-radius-xl)',
+            marginTop: 6,
+            backgroundColor: `${supplierColour}18`,
+            color: supplierColour,
+            border: `1px solid ${supplierColour}`,
+          }}
+        >
+          {session.supplier_host}
+        </span>
       )}
     </div>
   )
@@ -274,23 +311,24 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
 // ── Legend ────────────────────────────────────────────────────────────
 
 const LEGEND_ITEMS = [
-  { label: 'All Team',  colour: PURPLE_SESSION,                  dashed: false },
-  { label: 'Delivery',  colour: TRACK_COLOURS.B,                 dashed: false },
-  { label: 'Service',   colour: TRACK_COLOURS.A,                 dashed: false },
-  { label: 'Travel',    colour: 'var(--rmg-color-grey-1)',        dashed: false },
-  { label: 'Flight',    colour: 'var(--rmg-color-dark-grey)',     dashed: false },
-  { label: 'Hotel',     colour: TEAL_HOTEL,                      dashed: false },
-  { label: 'Gap',       colour: 'var(--rmg-color-orange)',        dashed: true  },
-  { label: 'CG Day',    colour: TRACK_COLOURS.A,                 dashed: false },
+  { label: 'All Team', colour: 'var(--event-all-color)'   },
+  { label: 'Delivery', colour: 'var(--track-b)'           },
+  { label: 'Service',  colour: 'var(--track-a)'           },
+  { label: 'Travel',   colour: 'var(--event-travel-color)'},
+  { label: 'Flight',   colour: 'var(--rmg-color-black)'   },
+  { label: 'Hotel',    colour: 'var(--event-hotel-color)' },
+  { label: 'Gap',      colour: 'var(--event-gap-color)'   },
+  { label: 'CG Day',   colour: 'var(--track-a)'           },
 ] as const
 
 function Legend() {
   return (
     <div
       style={{
-        backgroundColor: 'var(--rmg-color-grey-4)',
-        borderRadius: 'var(--rmg-radius-m)',
-        padding: '10px 16px',
+        background: 'var(--rmg-color-grey-4)',
+        border: '1px solid var(--rmg-color-grey-3)',
+        borderRadius: 'var(--rmg-radius-s)',
+        padding: '10px 14px',
         display: 'flex',
         gap: 16,
         flexWrap: 'wrap',
@@ -304,16 +342,19 @@ function Legend() {
             style={{
               width: 10, height: 10,
               borderRadius: '50%',
-              backgroundColor: item.dashed ? 'transparent' : item.colour,
-              border: item.dashed ? `2px dashed ${item.colour}` : undefined,
+              backgroundColor: item.colour,
               flexShrink: 0,
+              display: 'inline-block',
             }}
           />
           <span
             style={{
               fontFamily: 'var(--rmg-font-body)',
-              fontSize: 12,
-              color: 'var(--rmg-color-text-light)',
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.06em',
+              color: 'var(--rmg-color-dark-grey)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -336,25 +377,29 @@ function ColumnHeader({
   location: string | null
   borderColour: string
 }) {
+  const parts = label.split(' — ')
+  const title = parts[0]
+  const who   = parts.slice(1).join(' — ')
+
   return (
     <div
       style={{
         borderBottom: `2px solid ${borderColour}`,
-        paddingBottom: 6,
+        paddingBottom: 10,
         marginBottom: 12,
       }}
     >
       <div
         style={{
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          color: 'var(--rmg-color-text-body)',
         }}
       >
-        {label}
+        <span style={{ color: 'var(--rmg-color-text-heading)' }}>{title}</span>
+        {who && (
+          <span style={{ color: borderColour }}>{' — '}{who}</span>
+        )}
       </div>
       {location && (
         <div
@@ -392,12 +437,12 @@ function DayBlock({
   const [headerHovered, setHeaderHovered] = useState(false)
   const isCGDay = day.date === CG_DAY_DATE
 
-  const fullWidth   = sessions.filter(isFullWidth)
-  const deliverySessions = sessions.filter((s) => !isFullWidth(s) && s.team === 'DELIVERY')
-  const serviceSessions  = sessions.filter((s) => !isFullWidth(s) && s.team === 'SERVICE')
-  const hasTwoColumns = deliverySessions.length > 0 && serviceSessions.length > 0
+  const fullWidth         = sessions.filter(isFullWidth)
+  const deliverySessions  = sessions.filter((s) => !isFullWidth(s) && s.team === 'DELIVERY')
+  const serviceSessions   = sessions.filter((s) => !isFullWidth(s) && s.team === 'SERVICE')
+  const hasTwoColumns     = deliverySessions.length > 0 && serviceSessions.length > 0
 
-  const deliveryCol = isCGDay ? TRACK_COLOURS.A : TRACK_COLOURS.B
+  const deliveryCol      = isCGDay ? 'var(--track-a)' : 'var(--track-b)'
   const deliveryLocation = deliverySessions[0]?.location ?? null
   const serviceLocation  = serviceSessions[0]?.location  ?? null
 
@@ -424,6 +469,7 @@ function DayBlock({
         style={{
           display: 'flex',
           alignItems: 'center',
+          gap: 10,
           padding: '16px 20px',
           cursor: 'pointer',
           backgroundColor: isToday
@@ -434,7 +480,8 @@ function DayBlock({
           outline: 'none',
         }}
       >
-        <div style={{ flex: 1, display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+        {/* Heading + badges */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span
             style={{
               fontFamily: 'var(--rmg-font-display)',
@@ -468,7 +515,7 @@ function DayBlock({
               style={{
                 fontFamily: 'var(--rmg-font-body)',
                 fontSize: 12,
-                color: TRACK_COLOURS.A,
+                color: 'var(--track-a)',
                 fontWeight: 600,
                 whiteSpace: 'nowrap',
               }}
@@ -477,17 +524,23 @@ function DayBlock({
             </span>
           )}
         </div>
+
+        {/* Item count */}
         <span
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 13,
             color: 'var(--rmg-color-text-light)',
-            marginRight: 12,
             whiteSpace: 'nowrap',
           }}
         >
           {sessions.length} item{sessions.length === 1 ? '' : 's'}
         </span>
+
+        {/* Fix 6: hairline rule stretching to chevron */}
+        <div style={{ flex: 1, height: 1, background: 'var(--rmg-color-grey-2)' }} />
+
+        {/* Chevron */}
         <span
           style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -529,7 +582,7 @@ function DayBlock({
                       ))}
                     </div>
                     <div>
-                      <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour={TRACK_COLOURS.A} />
+                      <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
                       {serviceSessions.map((s) => (
                         <SessionCard key={s.id} session={s} dayDate={day.date} />
                       ))}
@@ -538,7 +591,7 @@ function DayBlock({
                 </>
               )}
 
-              {/* 2b. Single-column (only delivery or only service) */}
+              {/* 2b. Single-column */}
               {!hasTwoColumns && deliverySessions.length > 0 && (
                 <div>
                   <ColumnHeader label="Delivery — Matt & Jonny" location={deliveryLocation} borderColour={deliveryCol} />
@@ -549,7 +602,7 @@ function DayBlock({
               )}
               {!hasTwoColumns && serviceSessions.length > 0 && (
                 <div>
-                  <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour={TRACK_COLOURS.A} />
+                  <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
                   {serviceSessions.map((s) => (
                     <SessionCard key={s.id} session={s} dayDate={day.date} />
                   ))}
