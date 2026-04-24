@@ -370,11 +370,9 @@ function Legend() {
 
 function ColumnHeader({
   label,
-  location,
   borderColour,
 }: {
   label: string
-  location: string | null
   borderColour: string
 }) {
   const parts = label.split(' — ')
@@ -401,18 +399,6 @@ function ColumnHeader({
           <span style={{ color: borderColour }}>{' — '}{who}</span>
         )}
       </div>
-      {location && (
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            color: 'var(--rmg-color-text-light)',
-            marginTop: 2,
-          }}
-        >
-          {location}
-        </div>
-      )}
     </div>
   )
 }
@@ -443,8 +429,6 @@ function DayBlock({
   const hasTwoColumns     = deliverySessions.length > 0 && serviceSessions.length > 0
 
   const deliveryCol      = isCGDay ? 'var(--track-a)' : 'var(--track-b)'
-  const deliveryLocation = deliverySessions[0]?.location ?? null
-  const serviceLocation  = serviceSessions[0]?.location  ?? null
 
   return (
     <div
@@ -576,13 +560,13 @@ function DayBlock({
                   `}</style>
                   <div className="it-grid">
                     <div>
-                      <ColumnHeader label="Delivery — Matt & Jonny" location={deliveryLocation} borderColour={deliveryCol} />
+                      <ColumnHeader label="Delivery — Matt & Jonny" borderColour={deliveryCol} />
                       {deliverySessions.map((s) => (
                         <SessionCard key={s.id} session={s} dayDate={day.date} />
                       ))}
                     </div>
                     <div>
-                      <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
+                      <ColumnHeader label="Service — Clare & Mandy" borderColour="var(--track-a)" />
                       {serviceSessions.map((s) => (
                         <SessionCard key={s.id} session={s} dayDate={day.date} />
                       ))}
@@ -594,7 +578,7 @@ function DayBlock({
               {/* 2b. Single-column */}
               {!hasTwoColumns && deliverySessions.length > 0 && (
                 <div>
-                  <ColumnHeader label="Delivery — Matt & Jonny" location={deliveryLocation} borderColour={deliveryCol} />
+                  <ColumnHeader label="Delivery — Matt & Jonny" borderColour={deliveryCol} />
                   {deliverySessions.map((s) => (
                     <SessionCard key={s.id} session={s} dayDate={day.date} />
                   ))}
@@ -602,7 +586,7 @@ function DayBlock({
               )}
               {!hasTwoColumns && serviceSessions.length > 0 && (
                 <div>
-                  <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
+                  <ColumnHeader label="Service — Clare & Mandy" borderColour="var(--track-a)" />
                   {serviceSessions.map((s) => (
                     <SessionCard key={s.id} session={s} dayDate={day.date} />
                   ))}
