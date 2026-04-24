@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import { ItineraryPanel } from './ItineraryPanel'
 
 interface TesseraShellProps {
   children: React.ReactNode
@@ -64,6 +65,7 @@ const PLATO_APPS = [
 export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [isPanelOpen, setIsPanelOpen] = useState(false)
 
   useEffect(() => {
     const stored = localStorage.getItem(LS_KEY)
@@ -78,6 +80,15 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
+
+  useEffect(() => {
+    if (!isPanelOpen) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsPanelOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isPanelOpen])
 
   function toggle() {
     setCollapsed((prev) => {
@@ -335,6 +346,56 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
           {children}
         </main>
       </div>
+
+      {/* ── RHS itinerary panel trigger ── */}
+      {!isPanelOpen && (
+        <button
+          type="button"
+          onClick={() => setIsPanelOpen(true)}
+          title="Open itinerary"
+          style={{
+            position: 'fixed',
+            right: 0,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 40,
+            width: 28,
+            height: 72,
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            border: '1px solid var(--rmg-color-grey-3)',
+            borderRight: 'none',
+            borderRadius: 'var(--rmg-radius-s) 0 0 var(--rmg-radius-s)',
+            boxShadow: '-2px 0 6px rgba(0,0,0,0.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          <Calendar size={14} color="var(--rmg-color-grey-1)" />
+        </button>
+      )}
+
+      {/* ── Backdrop ── */}
+      {isPanelOpen && (
+        <div
+          onClick={() => setIsPanelOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.25)',
+            zIndex: 49,
+          }}
+        />
+      )}
+
+      {/* ── Itinerary panel ── */}
+      <ItineraryPanel
+        isOpen={isPanelOpen}
+        onClose={() => setIsPanelOpen(false)}
+        isMobile={isMobile}
+      />
     </div>
   )
 }

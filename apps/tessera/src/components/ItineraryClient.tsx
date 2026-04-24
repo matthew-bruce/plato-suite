@@ -4,22 +4,22 @@ import { useState } from 'react'
 import type { ItineraryDay, ItinerarySession, TripState } from '@/app/itinerary/page'
 
 // Supplier colours for the host pill — no Tessera token for these
-const SUPPLIER_HEX: Record<string, string> = {
+export const SUPPLIER_HEX: Record<string, string> = {
   CG:  '#003C82',
   TCS: '#9B0A6E',
 }
 
 // ── Card style ────────────────────────────────────────────────────────
 
-type CardStyle = {
+export type CardStyle = {
   bg: string
   border: string
   accent: string
 }
 
-const CG_DAY_DATE = '2026-04-30'
+export const CG_DAY_DATE = '2026-04-30'
 
-function getCardStyle(
+export function getCardStyle(
   sessionType: string | null,
   team: string | null,
   dayDate: string,
@@ -84,19 +84,9 @@ function getCardStyle(
   }
 }
 
-// ── Full-width test ───────────────────────────────────────────────────
-
-const FULL_WIDTH_TYPES = new Set([
-  'flight', 'travel', 'hotel_checkin', 'hotel_checkout', 'meal', 'rest', 'gap',
-])
-
-function isFullWidth(s: ItinerarySession): boolean {
-  return s.team === 'ALL' || FULL_WIDTH_TYPES.has(s.session_type ?? '')
-}
-
 // ── Session type label ────────────────────────────────────────────────
 
-function typeLabel(t: string | null): string {
+export function typeLabel(t: string | null): string {
   switch (t) {
     case 'flight':        return 'Flight'
     case 'travel':        return 'Transfer'
@@ -112,7 +102,7 @@ function typeLabel(t: string | null): string {
 
 // ── Icons ─────────────────────────────────────────────────────────────
 
-function Icon({ type, colour }: { type: string | null; colour: string }) {
+export function SessionIcon({ type, colour }: { type: string | null; colour: string }) {
   const props = {
     width: 16, height: 16,
     viewBox: '0 0 24 24',
@@ -121,7 +111,7 @@ function Icon({ type, colour }: { type: string | null; colour: string }) {
     strokeWidth: 2,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
-    style: { flexShrink: 0 },
+    style: { flexShrink: 0 } as React.CSSProperties,
   }
   switch (type) {
     case 'flight':
@@ -192,6 +182,30 @@ function Icon({ type, colour }: { type: string | null; colour: string }) {
   }
 }
 
+// ── Track pill ────────────────────────────────────────────────────────
+
+function TrackPill({ team }: { team: string }) {
+  const isDelivery = team === 'DELIVERY'
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        fontFamily: 'var(--rmg-font-body)',
+        fontSize: 11,
+        fontWeight: 700,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.06em',
+        padding: '2px 9px',
+        borderRadius: 'var(--rmg-radius-xl)',
+        backgroundColor: isDelivery ? 'rgba(74,158,255,0.12)' : 'rgba(232,56,42,0.1)',
+        color: isDelivery ? '#4a9eff' : '#e8382a',
+      }}
+    >
+      {isDelivery ? 'Delivery' : 'Service'}
+    </span>
+  )
+}
+
 // ── Session card ──────────────────────────────────────────────────────
 
 function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate: string }) {
@@ -204,6 +218,7 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         ? `${session.time_start} – ${session.time_end}`
         : session.time_start
       : null
+  const showTrackPill = session.team === 'DELIVERY' || session.team === 'SERVICE'
 
   return (
     <div
@@ -218,7 +233,7 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         marginBottom: 8,
       }}
     >
-      {/* Fix 1: per-card accent bar */}
+      {/* Left accent bar */}
       <div
         style={{
           position: 'absolute',
@@ -253,7 +268,7 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
           gap: 8,
         }}
       >
-        <Icon type={session.session_type} colour={style.accent} />
+        <SessionIcon type={session.session_type} colour={style.accent} />
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
@@ -283,26 +298,30 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         </div>
       )}
 
-      {/* Row 4: supplier tag */}
-      {supplierColour && session.supplier_host && (
-        <span
-          style={{
-            display: 'inline-flex',
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase' as const,
-            letterSpacing: '0.06em',
-            padding: '2px 9px',
-            borderRadius: 'var(--rmg-radius-xl)',
-            marginTop: 6,
-            backgroundColor: `${supplierColour}18`,
-            color: supplierColour,
-            border: `1px solid ${supplierColour}`,
-          }}
-        >
-          {session.supplier_host}
-        </span>
+      {/* Row 4: pills — track pill first, then supplier pill */}
+      {(showTrackPill || (supplierColour && session.supplier_host)) && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {showTrackPill && <TrackPill team={session.team!} />}
+          {supplierColour && session.supplier_host && (
+            <span
+              style={{
+                display: 'inline-flex',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.06em',
+                padding: '2px 9px',
+                borderRadius: 'var(--rmg-radius-xl)',
+                backgroundColor: `${supplierColour}18`,
+                color: supplierColour,
+                border: `1px solid ${supplierColour}`,
+              }}
+            >
+              {session.supplier_host}
+            </span>
+          )}
+        </div>
       )}
     </div>
   )
@@ -366,57 +385,6 @@ function Legend() {
   )
 }
 
-// ── Column header ─────────────────────────────────────────────────────
-
-function ColumnHeader({
-  label,
-  location,
-  borderColour,
-}: {
-  label: string
-  location: string | null
-  borderColour: string
-}) {
-  const parts = label.split(' — ')
-  const title = parts[0]
-  const who   = parts.slice(1).join(' — ')
-
-  return (
-    <div
-      style={{
-        borderBottom: `2px solid ${borderColour}`,
-        paddingBottom: 10,
-        marginBottom: 12,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
-          fontWeight: 700,
-        }}
-      >
-        <span style={{ color: 'var(--rmg-color-text-heading)' }}>{title}</span>
-        {who && (
-          <span style={{ color: borderColour }}>{' — '}{who}</span>
-        )}
-      </div>
-      {location && (
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            color: 'var(--rmg-color-text-light)',
-            marginTop: 2,
-          }}
-        >
-          {location}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Day block ─────────────────────────────────────────────────────────
 
 function DayBlock({
@@ -436,15 +404,6 @@ function DayBlock({
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const isCGDay = day.date === CG_DAY_DATE
-
-  const fullWidth         = sessions.filter(isFullWidth)
-  const deliverySessions  = sessions.filter((s) => !isFullWidth(s) && s.team === 'DELIVERY')
-  const serviceSessions   = sessions.filter((s) => !isFullWidth(s) && s.team === 'SERVICE')
-  const hasTwoColumns     = deliverySessions.length > 0 && serviceSessions.length > 0
-
-  const deliveryCol      = isCGDay ? 'var(--track-a)' : 'var(--track-b)'
-  const deliveryLocation = deliverySessions[0]?.location ?? null
-  const serviceLocation  = serviceSessions[0]?.location  ?? null
 
   return (
     <div
@@ -537,7 +496,6 @@ function DayBlock({
           {sessions.length} item{sessions.length === 1 ? '' : 's'}
         </span>
 
-        {/* Fix 6: hairline rule stretching to chevron */}
         <div style={{ flex: 1, height: 1, background: 'var(--rmg-color-grey-2)' }} />
 
         {/* Chevron */}
@@ -553,7 +511,7 @@ function DayBlock({
         </span>
       </div>
 
-      {/* Body */}
+      {/* Body — single chronological column */}
       {expanded && (
         <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)', padding: '16px 20px' }}>
           {sessions.length === 0 ? (
@@ -562,54 +520,9 @@ function DayBlock({
             </p>
           ) : (
             <>
-              {/* 1. Full-width cards */}
-              {fullWidth.map((s) => (
+              {sessions.map((s) => (
                 <SessionCard key={s.id} session={s} dayDate={day.date} />
               ))}
-
-              {/* 2a. Two-column grid */}
-              {hasTwoColumns && (
-                <>
-                  <style>{`
-                    .it-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-                    @media (max-width: 768px) { .it-grid { grid-template-columns: 1fr; } }
-                  `}</style>
-                  <div className="it-grid">
-                    <div>
-                      <ColumnHeader label="Delivery — Matt & Jonny" location={deliveryLocation} borderColour={deliveryCol} />
-                      {deliverySessions.map((s) => (
-                        <SessionCard key={s.id} session={s} dayDate={day.date} />
-                      ))}
-                    </div>
-                    <div>
-                      <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
-                      {serviceSessions.map((s) => (
-                        <SessionCard key={s.id} session={s} dayDate={day.date} />
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* 2b. Single-column */}
-              {!hasTwoColumns && deliverySessions.length > 0 && (
-                <div>
-                  <ColumnHeader label="Delivery — Matt & Jonny" location={deliveryLocation} borderColour={deliveryCol} />
-                  {deliverySessions.map((s) => (
-                    <SessionCard key={s.id} session={s} dayDate={day.date} />
-                  ))}
-                </div>
-              )}
-              {!hasTwoColumns && serviceSessions.length > 0 && (
-                <div>
-                  <ColumnHeader label="Service — Clare & Mandy" location={serviceLocation} borderColour="var(--track-a)" />
-                  {serviceSessions.map((s) => (
-                    <SessionCard key={s.id} session={s} dayDate={day.date} />
-                  ))}
-                </div>
-              )}
-
-              {/* Day notes */}
               {day.notes && (
                 <p
                   style={{
