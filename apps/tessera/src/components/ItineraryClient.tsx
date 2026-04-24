@@ -86,12 +86,9 @@ function getCardStyle(
 
 // ── Full-width test ───────────────────────────────────────────────────
 
-const FULL_WIDTH_TYPES = new Set([
-  'flight', 'travel', 'hotel_checkin', 'hotel_checkout', 'meal', 'rest', 'gap',
-])
 
 function isFullWidth(s: ItinerarySession): boolean {
-  return s.team === 'ALL' || FULL_WIDTH_TYPES.has(s.session_type ?? '')
+  return s.team === 'ALL' || s.team === null
 }
 
 // ── Session type label ────────────────────────────────────────────────
