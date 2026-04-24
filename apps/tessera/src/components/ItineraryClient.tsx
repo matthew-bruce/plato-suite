@@ -327,20 +327,54 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
   )
 }
 
-// ── Legend ────────────────────────────────────────────────────────────
+// ── Filter bar ────────────────────────────────────────────────────────
 
-const LEGEND_ITEMS = [
-  { label: 'All Team', colour: 'var(--event-all-color)'   },
-  { label: 'Delivery', colour: 'var(--track-b)'           },
-  { label: 'Service',  colour: 'var(--track-a)'           },
-  { label: 'Travel',   colour: 'var(--event-travel-color)'},
-  { label: 'Flight',   colour: 'var(--rmg-color-black)'   },
-  { label: 'Hotel',    colour: 'var(--event-hotel-color)' },
-  { label: 'Gap',      colour: 'var(--event-gap-color)'   },
-  { label: 'CG Day',   colour: 'var(--track-a)'           },
-] as const
+type FilterKey = 'all' | 'delivery' | 'service' | 'travel' | 'flight' | 'hotel' | 'gap' | 'cgday'
 
-function Legend() {
+const FILTER_CONFIG: { key: FilterKey; label: string; colour: string }[] = [
+  { key: 'all',      label: 'All',      colour: '#6c4fc9' },
+  { key: 'delivery', label: 'Delivery', colour: '#4a9eff' },
+  { key: 'service',  label: 'Service',  colour: '#e8382a' },
+  { key: 'travel',   label: 'Travel',   colour: '#8f9495' },
+  { key: 'flight',   label: 'Flight',   colour: '#2a2a2d' },
+  { key: 'hotel',    label: 'Hotel',    colour: '#1a9e8c' },
+  { key: 'gap',      label: 'Gap',      colour: '#f3920d' },
+  { key: 'cgday',    label: 'CG Day',   colour: '#e8382a' },
+]
+
+function isShared(s: ItinerarySession): boolean {
+  const t = s.session_type ?? ''
+  return (
+    s.team === 'ALL' || s.team === null ||
+    t === 'travel' || t === 'flight' ||
+    t === 'hotel_checkin' || t === 'hotel_checkout' ||
+    t === 'meal' || t === 'gap' || t === 'rest'
+  )
+}
+
+function sessionMatchesFilter(s: ItinerarySession, dayDate: string, filters: FilterKey[]): boolean {
+  if (filters.length === 0 || filters.includes('all')) return true
+  return filters.some((f) => {
+    switch (f) {
+      case 'delivery': return s.team === 'DELIVERY' || isShared(s)
+      case 'service':  return s.team === 'SERVICE'  || isShared(s)
+      case 'travel':   return s.session_type === 'travel'
+      case 'flight':   return s.session_type === 'flight'
+      case 'hotel':    return s.session_type === 'hotel_checkin' || s.session_type === 'hotel_checkout'
+      case 'gap':      return s.session_type === 'gap' || s.session_type === 'meal' || s.session_type === 'rest'
+      case 'cgday':    return dayDate === CG_DAY_DATE
+      default:         return false
+    }
+  })
+}
+
+function FilterBar({
+  selectedFilters,
+  onToggle,
+}: {
+  selectedFilters: FilterKey[]
+  onToggle: (key: FilterKey) => void
+}) {
   return (
     <div
       style={{
@@ -349,38 +383,57 @@ function Legend() {
         borderRadius: 'var(--rmg-radius-s)',
         padding: '10px 14px',
         display: 'flex',
-        gap: 16,
+        gap: 8,
         flexWrap: 'wrap',
         alignItems: 'center',
         marginBottom: 'var(--rmg-spacing-05)',
       }}
     >
-      {LEGEND_ITEMS.map((item) => (
-        <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase' as const,
+          letterSpacing: '0.08em',
+          color: 'var(--rmg-color-text-light)',
+          whiteSpace: 'nowrap',
+          marginRight: 4,
+        }}
+      >
+        Show:
+      </span>
+      {FILTER_CONFIG.map(({ key, label, colour }) => {
+        const isActive = selectedFilters.includes(key)
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onToggle(key)}
             style={{
-              width: 10, height: 10,
-              borderRadius: '50%',
-              backgroundColor: item.colour,
-              flexShrink: 0,
-              display: 'inline-block',
-            }}
-          />
-          <span
-            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '4px 12px',
+              borderRadius: 'var(--rmg-radius-xl)',
               fontFamily: 'var(--rmg-font-body)',
               fontSize: 11,
-              fontWeight: 600,
+              fontWeight: isActive ? 700 : 500,
               textTransform: 'uppercase' as const,
               letterSpacing: '0.06em',
-              color: 'var(--rmg-color-dark-grey)',
-              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              border: isActive
+                ? `1.5px solid ${colour}`
+                : '1.5px solid var(--rmg-color-grey-2)',
+              backgroundColor: isActive ? `${colour}26` : 'transparent',
+              color: isActive ? colour : 'var(--rmg-color-text-light)',
+              whiteSpace: 'nowrap' as const,
+              transition: 'all 120ms ease',
             }}
           >
-            {item.label}
-          </span>
-        </div>
-      ))}
+            {label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -638,9 +691,26 @@ export function ItineraryClient({
   todayStr: string
   tripState: TripState
 }) {
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(
-    () => new Set(days.map((d) => d.id)),
-  )
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => {
+    if (days.length === 0) return new Set()
+    const todayDay = days.find((d) => d.date === todayStr)
+    if (todayDay) return new Set([todayDay.id])
+    if (todayStr < days[0].date) return new Set([days[0].id])
+    return new Set([days[days.length - 1].id])
+  })
+
+  const [selectedFilters, setSelectedFilters] = useState<FilterKey[]>(['all'])
+
+  function toggleFilter(key: FilterKey) {
+    setSelectedFilters((prev) => {
+      if (key === 'all') return ['all']
+      const withoutAll = prev.filter((k) => k !== 'all')
+      const next = withoutAll.includes(key)
+        ? withoutAll.filter((k) => k !== key)
+        : [...withoutAll, key]
+      return next.length === 0 ? ['all'] : next
+    })
+  }
 
   const sessionsByDay = new Map<string, ItinerarySession[]>()
   for (const s of sessions) {
@@ -649,17 +719,31 @@ export function ItineraryClient({
     sessionsByDay.set(s.day_id, list)
   }
 
+  const filteredSessionsByDay = new Map<string, ItinerarySession[]>()
+  for (const day of days) {
+    const daySessions = sessionsByDay.get(day.id) ?? []
+    filteredSessionsByDay.set(
+      day.id,
+      selectedFilters.includes('all')
+        ? daySessions
+        : daySessions.filter((s) => sessionMatchesFilter(s, day.date, selectedFilters)),
+    )
+  }
+
   function toggleDay(id: string) {
     setExpandedDays((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
+      if (prev.has(id)) {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      }
+      return new Set([id])
     })
   }
 
   return (
     <>
-      <Legend />
+      <FilterBar selectedFilters={selectedFilters} onToggle={toggleFilter} />
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 'var(--rmg-spacing-04)' }}>
@@ -672,7 +756,7 @@ export function ItineraryClient({
         <DayBlock
           key={day.id}
           day={day}
-          sessions={sessionsByDay.get(day.id) ?? []}
+          sessions={filteredSessionsByDay.get(day.id) ?? []}
           isToday={tripState === 'active' && day.date === todayStr}
           isPast={tripState === 'active' && day.date < todayStr}
           expanded={expandedDays.has(day.id)}
