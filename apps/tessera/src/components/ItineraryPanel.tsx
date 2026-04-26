@@ -120,9 +120,9 @@ function PanelDayBlock({
   const isCGDay = day.date === CG_DAY_DATE
   const { morning, working, evening, anyZoneHasSplit } = zonifyDay(sessions)
   const nonEmpty = [
-    { zone: morning, key: 'morning' },
-    { zone: working, key: 'working' },
-    { zone: evening, key: 'evening' },
+    { zone: morning, key: 'morning', label: 'Morning' },
+    { zone: working, key: 'working', label: 'Daytime' },
+    { zone: evening, key: 'evening', label: 'Evening' },
   ].filter(({ zone }) => zone.sessions.length > 0)
 
   return (
@@ -218,9 +218,12 @@ function PanelDayBlock({
             </div>
           )}
 
-          {nonEmpty.map(({ zone, key }, i) => (
+          {nonEmpty.map(({ zone, key, label }, i) => (
             <Fragment key={key}>
               {i > 0 && <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '6px 0' }} />}
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--rmg-color-grey-1)', marginBottom: 6, marginTop: i === 0 ? 0 : 16, paddingLeft: 2, fontFamily: 'var(--rmg-font-body)' }}>
+                {label}
+              </div>
               <PanelZoneSection zone={zone} />
             </Fragment>
           ))}
