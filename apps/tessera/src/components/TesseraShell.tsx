@@ -386,7 +386,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.25)',
+            backgroundColor: 'rgba(0,0,0,0.15)',
             zIndex: 49,
           }}
         />

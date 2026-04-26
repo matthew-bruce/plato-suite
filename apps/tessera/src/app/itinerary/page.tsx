@@ -73,7 +73,7 @@ export default async function ItineraryPage() {
         <div
           style={{
             width: '100%',
-            maxWidth: '960px',
+            maxWidth: '1200px',
             padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
             boxSizing: 'border-box',
           }}

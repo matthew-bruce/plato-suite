@@ -32,42 +32,61 @@ type PanelSession = {
 const TRIP_START = new Date('2026-04-27T00:00:00Z')
 const TRIP_END   = new Date('2026-05-02T23:59:59Z')
 
-// ── Compact track pill ────────────────────────────────────────────────
+// ── Panel day partition ───────────────────────────────────────────────
 
-function PanelTrackPill({ team }: { team: string }) {
-  const isDelivery = team === 'DELIVERY'
+function partitionPanelDay(sessions: PanelSession[]) {
+  const delivery = sessions.filter((s) => s.team === 'DELIVERY')
+  const service  = sessions.filter((s) => s.team === 'SERVICE')
+  const hasSplit = delivery.length > 0 && service.length > 0
+
+  if (!hasSplit) {
+    return { hasSplit: false, pre: [] as PanelSession[], delivery, service, post: [] as PanelSession[] }
+  }
+
+  const splitOrders = [...delivery, ...service].map((s) => s.sort_order ?? 0)
+  const minOrder    = Math.min(...splitOrders)
+  const maxOrder    = Math.max(...splitOrders)
+  const shared      = sessions.filter((s) => s.team !== 'DELIVERY' && s.team !== 'SERVICE')
+
+  return {
+    hasSplit: true,
+    pre:      shared.filter((s) => (s.sort_order ?? 0) < minOrder),
+    delivery,
+    service,
+    post:     shared.filter((s) => (s.sort_order ?? 0) > maxOrder),
+  }
+}
+
+// ── Compact column header ─────────────────────────────────────────────
+
+function PanelColHeader({ label, colour }: { label: string; colour: string }) {
   return (
-    <span
+    <div
       style={{
-        display: 'inline-flex',
-        marginTop: 5,
         fontFamily: 'var(--rmg-font-body)',
-        fontSize: 10,
+        fontSize: 11,
         fontWeight: 700,
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.06em',
-        padding: '2px 7px',
-        borderRadius: 'var(--rmg-radius-xl)',
-        backgroundColor: isDelivery ? 'rgba(74,158,255,0.12)' : 'rgba(232,56,42,0.1)',
-        color: isDelivery ? '#4a9eff' : '#e8382a',
+        color: colour,
+        borderBottom: `2px solid ${colour}`,
+        paddingBottom: 4,
+        marginBottom: 6,
       }}
     >
-      {isDelivery ? 'Delivery' : 'Service'}
-    </span>
+      {label}
+    </div>
   )
 }
 
 // ── Compact session card ──────────────────────────────────────────────
 
-function PanelSessionCard({ session, dayDate }: { session: PanelSession; dayDate: string }) {
-  const style = getCardStyle(session.session_type, session.team, dayDate)
+function PanelSessionCard({ session }: { session: PanelSession }) {
+  const style = getCardStyle(session.session_type, session.team)
   const title = session.focus ?? typeLabel(session.session_type)
   const timeStr = session.time_start
     ? session.time_end
       ? `${session.time_start} – ${session.time_end}`
       : session.time_start
     : null
-  const showTrackPill = session.team === 'DELIVERY' || session.team === 'SERVICE'
 
   return (
     <div
@@ -81,7 +100,6 @@ function PanelSessionCard({ session, dayDate }: { session: PanelSession; dayDate
         marginBottom: 5,
       }}
     >
-      {/* Accent bar */}
       <div
         style={{
           position: 'absolute',
@@ -91,7 +109,6 @@ function PanelSessionCard({ session, dayDate }: { session: PanelSession; dayDate
         }}
       />
 
-      {/* Time */}
       {timeStr && (
         <div
           style={{
@@ -108,7 +125,6 @@ function PanelSessionCard({ session, dayDate }: { session: PanelSession; dayDate
         </div>
       )}
 
-      {/* Icon + title */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <SessionIcon type={session.session_type} colour={style.accent} />
         <span
@@ -124,9 +140,6 @@ function PanelSessionCard({ session, dayDate }: { session: PanelSession; dayDate
           {title}
         </span>
       </div>
-
-      {/* Track pill */}
-      {showTrackPill && <PanelTrackPill team={session.team!} />}
     </div>
   )
 }
@@ -146,6 +159,7 @@ function PanelDayBlock({
 }) {
   const [hovered, setHovered] = useState(false)
   const isCGDay = day.date === CG_DAY_DATE
+  const { hasSplit, pre, delivery, service, post } = partitionPanelDay(sessions)
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -204,9 +218,37 @@ function PanelDayBlock({
         </span>
       </div>
 
-      {expanded && sessions.map((s) => (
-        <PanelSessionCard key={s.id} session={s} dayDate={day.date} />
-      ))}
+      {expanded && (
+        hasSplit ? (
+          <>
+            {pre.map((s) => <PanelSessionCard key={s.id} session={s} />)}
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+                alignItems: 'start',
+                marginTop: pre.length > 0 ? 6 : 0,
+                marginBottom: post.length > 0 ? 6 : 0,
+              }}
+            >
+              <div>
+                <PanelColHeader label="Delivery — Matt & Jonny" colour="#4a9eff" />
+                {delivery.map((s) => <PanelSessionCard key={s.id} session={s} />)}
+              </div>
+              <div>
+                <PanelColHeader label="Service — Clare & Mandy" colour="#e8382a" />
+                {service.map((s) => <PanelSessionCard key={s.id} session={s} />)}
+              </div>
+            </div>
+
+            {post.map((s) => <PanelSessionCard key={s.id} session={s} />)}
+          </>
+        ) : (
+          sessions.map((s) => <PanelSessionCard key={s.id} session={s} />)
+        )
+      )}
     </div>
   )
 }
@@ -250,7 +292,6 @@ export function ItineraryPanel({
       setSessions(loadedSessions)
       setLoaded(true)
 
-      // Determine which day to expand by default
       const today = new Date()
       today.setUTCHours(0, 0, 0, 0)
       const todayStr  = today.toISOString().slice(0, 10)
@@ -261,7 +302,6 @@ export function ItineraryPanel({
       if (isActive) {
         defaultId = loadedDays.find((d) => d.date === todayStr)?.id ?? null
       } else if (!isAfter) {
-        // Before trip: expand first upcoming day
         defaultId = loadedDays.find((d) => d.date >= todayStr)?.id ?? loadedDays[0]?.id ?? null
       }
 
@@ -286,7 +326,7 @@ export function ItineraryPanel({
     sessionsByDay.set(s.day_id, list)
   }
 
-  const panelWidth = isMobile ? '100vw' : '380px'
+  const panelWidth = isMobile ? '100vw' : '480px'
 
   return (
     <div
