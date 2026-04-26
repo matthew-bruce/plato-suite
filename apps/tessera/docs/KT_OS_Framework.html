@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KT OS — eBusiness Factory Transition Framework</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0f0f10;
+    --surface: #1a1a1d;
+    --border: #2a2a2f;
+    --accent-red: #e8382a;
+    --accent-amber: #f5a623;
+    --accent-green: #2ecc71;
+    --accent-blue: #4a9eff;
+    --text-primary: #f0f0f0;
+    --text-secondary: #9a9a9f;
+    --text-dim: #5a5a60;
+    --track-a: #e8382a;
+    --track-b: #4a9eff;
+    --high: #e8382a;
+    --medium: #f5a623;
+    --low: #2ecc71;
+    --scoped: #9b59b6;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* HEADER */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 32px 40px 24px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .header-left h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+  .header-left .subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .header-right {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .track-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+  }
+  .track-a-badge { background: rgba(232,56,42,0.15); color: var(--track-a); border: 1px solid rgba(232,56,42,0.3); }
+  .track-b-badge { background: rgba(74,158,255,0.15); color: var(--track-b); border: 1px solid rgba(74,158,255,0.3); }
+
+  /* NAV */
+  .nav {
+    padding: 16px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .nav-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-right: 8px;
+  }
+  .nav a {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .nav a:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
+  /* PREAMBLE */
+  .preamble {
+    padding: 32px 40px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .preamble-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+  }
+  .preamble-card.track-a-card { border-left: 3px solid var(--track-a); }
+  .preamble-card.track-b-card { border-left: 3px solid var(--track-b); }
+  .preamble-card h3 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .track-a-card h3 { color: var(--track-a); }
+  .track-b-card h3 { color: var(--track-b); }
+  .preamble-card p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* PARKER MAPPER */
+  .parker-section {
+    padding: 24px 40px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(245, 166, 35, 0.03);
+  }
+  .parker-section h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent-amber);
+    margin-bottom: 12px;
+  }
+  .parker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+  }
+  .parker-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .parker-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-amber);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* DOMAINS */
+  .domains {
+    padding: 0 40px 60px;
+  }
+  .domain-group-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    padding: 32px 0 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  .domain-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+
+  .domain-header {
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .domain-header:hover { background: rgba(255,255,255,0.02); }
+
+  .domain-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    min-width: 24px;
+  }
+  .domain-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+  }
+  .domain-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex: 2;
+  }
+  .risk-pill {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .risk-high { background: rgba(232,56,42,0.15); color: var(--high); border: 1px solid rgba(232,56,42,0.25); }
+  .risk-medium { background: rgba(245,166,35,0.15); color: var(--medium); border: 1px solid rgba(245,166,35,0.25); }
+  .risk-low { background: rgba(46,204,113,0.15); color: var(--low); border: 1px solid rgba(46,204,113,0.25); }
+  .risk-scoped { background: rgba(155,89,182,0.15); color: var(--scoped); border: 1px solid rgba(155,89,182,0.25); }
+  .toggle-icon {
+    font-size: 10px;
+    color: var(--text-dim);
+    transition: transform 0.2s;
+  }
+
+  .domain-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .domain-body.collapsed { display: none; }
+
+  .track-panel {
+    padding: 20px;
+    border-right: 1px solid var(--border);
+  }
+  .track-panel:last-child { border-right: none; }
+
+  .track-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .track-label.a { color: var(--track-a); }
+  .track-label.b { color: var(--track-b); }
+  .track-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .field {
+    margin-bottom: 14px;
+  }
+  .field-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+  }
+  .field-content {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+  .field-content strong { color: var(--text-primary); font-weight: 500; }
+
+  .people-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 4px;
+  }
+  .person-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+  .person-tag.cg { border-color: rgba(232,56,42,0.3); color: #e8382a; background: rgba(232,56,42,0.08); }
+  .person-tag.rmg { border-color: rgba(46,204,113,0.3); color: #2ecc71; background: rgba(46,204,113,0.08); }
+  .person-tag.ht { border-color: rgba(74,158,255,0.3); color: #4a9eff; background: rgba(74,158,255,0.08); }
+  .person-tag.nh { border-color: rgba(245,166,35,0.3); color: #f5a623; background: rgba(245,166,35,0.08); }
+  .person-tag.tbc { border-color: rgba(155,89,182,0.3); color: #9b59b6; background: rgba(155,89,182,0.08); }
+
+  .artefacts-list {
+    list-style: none;
+    margin-top: 4px;
+  }
+  .artefacts-list li {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 2px 0;
+    padding-left: 12px;
+    position: relative;
+  }
+  .artefacts-list li::before {
+    content: '↗';
+    position: absolute;
+    left: 0;
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  .artefacts-list li a { color: var(--accent-blue); text-decoration: none; }
+  .artefacts-list li a:hover { text-decoration: underline; }
+
+  .test-block {
+    background: rgba(74,158,255,0.05);
+    border: 1px solid rgba(74,158,255,0.15);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .test-block::before {
+    content: 'TEST → ';
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-blue);
+    font-style: normal;
+  }
+
+  .red-flag {
+    background: rgba(232,56,42,0.05);
+    border: 1px solid rgba(232,56,42,0.15);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .red-flag::before {
+    content: '⚑ IF GAP: ';
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--track-a);
+  }
+
+  .note-block {
+    background: rgba(245,166,35,0.05);
+    border: 1px solid rgba(245,166,35,0.15);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+  .note-block::before {
+    content: '◆ NOTE: ';
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-amber);
+  }
+
+  .parker-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .parker-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: rgba(245,166,35,0.1);
+    color: var(--accent-amber);
+    border: 1px solid rgba(245,166,35,0.2);
+  }
+
+  .cg-caveat {
+    background: rgba(232,56,42,0.04);
+    border: 1px solid rgba(232,56,42,0.1);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 6px;
+  }
+  .cg-caveat::before {
+    content: '⚠ CG ROLE: ';
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(232,56,42,0.7);
+    font-style: normal;
+  }
+
+  /* NUGGETS SIDEBAR */
+  .nuggets-strip {
+    padding: 24px 40px;
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.01);
+  }
+  .nuggets-strip h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+  .nuggets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+  }
+  .nugget {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-amber);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .nugget-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent-amber);
+    margin-bottom: 4px;
+  }
+
+  /* VERSION / META */
+  .meta-bar {
+    padding: 12px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .meta-bar span { display: flex; gap: 6px; align-items: center; }
+  .meta-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+
+  @media (max-width: 900px) {
+    .preamble { grid-template-columns: 1fr; }
+    .domain-body { grid-template-columns: 1fr; }
+    .header { flex-direction: column; }
+    .nav { padding: 12px 20px; }
+    .domains, .preamble, .parker-section { padding-left: 20px; padding-right: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>KT OS — eBusiness Factory Transition</h1>
+    <div class="subtitle">Project Dudley · India Trip Framework · v1.1 · April 2026</div>
+  </div>
+  <div class="header-right">
+    <span class="track-badge track-a-badge">TRACK A — CG EXTRACTION</span>
+    <span class="track-badge track-b-badge">TRACK B — TCS ONBOARDING</span>
+  </div>
+</div>
+
+<div class="meta-bar">
+  <span><span class="meta-dot"></span> Live document — iterate as conversations progress</span>
+  <span>🔴 CG &nbsp; 🟢 RMG &nbsp; 🔵 Happy Team &nbsp; 🟡 North Highland &nbsp; 🟣 TBC</span>
+  <span>Classified: RMG Internal</span>
+</div>
+
+<nav class="nav">
+  <span class="nav-label">Jump to</span>
+  <a href="#domain-1">Drupal</a>
+  <a href="#domain-2">Camel / Zeus</a>
+  <a href="#domain-3">Platform Eng</a>
+  <a href="#domain-4">Magento</a>
+  <a href="#domain-5">ForgeRock</a>
+  <a href="#domain-6">Release Mgmt</a>
+  <a href="#domain-7">QA / Testing</a>
+  <a href="#domain-8">Analytics</a>
+  <a href="#domain-9">Azure / Cloud</a>
+  <a href="#domain-10">React / Frontend</a>
+  <a href="#domain-11">Security</a>
+  <a href="#domain-12">Service Mgmt</a>
+  <a href="#nuggets">Nuggets</a>
+</nav>
+
+<div class="preamble">
+  <div class="preamble-card track-a-card">
+    <h3>TRACK A — CG EXTRACTION</h3>
+    <p>Time-critical. Irreversible. <strong>You have ONE day with CG (Thursday 30th April, Noida).</strong> Clare and Mandy have two days with CG on Service — your day is Delivery-focused. Once CG people leave, that knowledge is gone permanently. Use the questions as conversation, not interrogation. You are correcting a timing mistake — "we should have been here earlier." Structured extraction is the goal, not morale management. Prioritise ruthlessly: Drupal, Camel/Integration, Platform Eng, Magento gap, and Service Management fabric.</p>
+  </div>
+  <div class="preamble-card track-b-card">
+    <h3>TRACK B — TCS ONBOARDING</h3>
+    <p>Two full days with TCS (Tuesday 28th + Wednesday 29th, Gurgaon). Official objectives: assess offshore readiness (~20% through KT on arrival per Mark's estimate — test this on day one), accelerate TCS onto the eBiz and BIG development pitch, agree resources and key target areas, go through delivery plans. TCS need to service manage the <em>whole</em> platform — including Azure and React that CG never built. Do not mistake shadowing for understanding — test capability, don't observe it.</p>
+  </div>
+  <div class="preamble-card" style="grid-column: 1 / -1; border-left: 3px solid var(--accent-amber);">
+    <h3 style="color:var(--accent-amber);">OFFICIAL OBJECTIVES (per Mark Dickson → Steve Potts)</h3>
+    <p style="font-size:12px; color:var(--text-secondary); line-height:1.7;">
+      1. Assess TCS offshore readiness for eBiz service take-on (~20% through KT on arrival) — meet teams, probe skills, hold playback sessions, explain Peak priorities &nbsp;|&nbsp;
+      2. Accelerate TCS onto the eBiz development pitch — agree resources, key areas, go through delivery plans &nbsp;|&nbsp;
+      3. Accelerate TCS onto the BIG pitch — Jonny leads &nbsp;|&nbsp;
+      4 &amp; 5. Keep CG offshore motivated for eBiz + BIG / Peak &nbsp;|&nbsp;
+      6. 2× Townhalls (Service + Delivery) at both locations
+    </p>
+  </div>
+</div>
+
+<div class="parker-section" style="background:rgba(74,158,255,0.03); border-bottom: 1px solid var(--border);">
+  <h2 style="color:var(--accent-blue);">Trip Itinerary — Confirmed</h2>
+  <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:8px; margin-bottom:12px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px 12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-bottom:4px;">SUN 26 APR</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Depart Heathrow 20:10 (Virgin Atlantic) → Delhi arrives Mon 09:10</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px 12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-bottom:4px;">MON 27 APR</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Arrive + acclimatise. <strong style="color:var(--text-primary);">Joint dinner — TCS &amp; CG</strong></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(74,158,255,0.3);border-radius:4px;padding:10px 12px;border-left:3px solid var(--track-b);">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--track-b);margin-bottom:4px;">TUE 28 APR — DAY 1</div>
+      <div style="font-size:12px;color:var(--text-secondary);"><strong style="color:var(--text-primary);">Matt + Jonny → TCS (Gurgaon)</strong><br>Clare + Mandy → CG (Noida)</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(74,158,255,0.3);border-radius:4px;padding:10px 12px;border-left:3px solid var(--track-b);">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--track-b);margin-bottom:4px;">WED 29 APR — DAY 2</div>
+      <div style="font-size:12px;color:var(--text-secondary);"><strong style="color:var(--text-primary);">Matt + Jonny → TCS (Gurgaon)</strong><br>Clare + Mandy → CG (Noida)</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(232,56,42,0.3);border-radius:4px;padding:10px 12px;border-left:3px solid var(--track-a);">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--track-a);margin-bottom:4px;">THU 30 APR — CG DAY ⚑</div>
+      <div style="font-size:12px;color:var(--text-secondary);"><strong style="color:var(--text-primary);">Matt + Jonny → CG (Noida)</strong><br>Clare + Mandy → TCS (Gurgaon)<br><span style="color:var(--accent-amber);font-size:11px;">Travel to airport Thu evening</span></div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px 12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);margin-bottom:4px;">FRI 1 MAY</div>
+      <div style="font-size:12px;color:var(--text-secondary);">Depart Delhi 02:05 → Heathrow 07:20</div>
+    </div>
+  </div>
+  <div style="background:rgba(232,56,42,0.08);border:1px solid rgba(232,56,42,0.2);border-radius:4px;padding:10px 14px;font-size:12px;color:var(--text-secondary);">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--track-a);">⚑ CRITICAL: </span>Track A (CG Extraction) = ONE day only, Thursday 30th. Everything in the CG domain of this framework must be prioritised and sequenced for a single full day. Ruthless triage required — Drupal, Camel, Platform Eng, Magento gap, and Service Management fabric are your top five.
+  </div>
+  <div style="margin-top:8px;background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.2);border-radius:4px;padding:10px 14px;font-size:12px;color:var(--text-secondary);">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--accent-amber);">◆ OPEN ISSUE: </span>Ways of working for TCS in factory is unresolved. CG accepted TCS shadowing but flagged accountability confusion if TCS write code or execute tests. This must be landed — at minimum as a stated intent — before leaving India. It is a live action with Matt, Tahir, Chris M, Ian Hanson.
+  </div>
+</div>
+
+<div class="parker-section">
+  <h2>Robert Parker's 7 Questions — Reference Map</h2>
+  <div class="parker-grid">
+    <div class="parker-item"><span class="parker-num">P1</span>What's the KT demand of Dudley on the factory, if any, and how can that be accommodated?</div>
+    <div class="parker-item"><span class="parker-num">P2</span>What's the resource demand on factory to support migrations and can that be accommodated?</div>
+    <div class="parker-item"><span class="parker-num">P3</span>What is the impact of migrations on the factory pipeline and how can it be managed?</div>
+    <div class="parker-item"><span class="parker-num">P4</span>What is the impact of migrations on service activities and how can it be managed?</div>
+    <div class="parker-item"><span class="parker-num">P5</span>What does the service transition timeline mean for factory releases and KT?</div>
+    <div class="parker-item"><span class="parker-num">P6</span>What is the optimal plan for transitioning factory resources from CG to TCS?</div>
+    <div class="parker-item"><span class="parker-num">P7</span>How do we track and manage the above, including the impacts of any plan changes?</div>
+  </div>
+</div>
+
+<!-- ============== DOMAINS ============== -->
+<div class="domains">
+
+  <div class="domain-group-label">HIGH RISK DOMAINS — Legacy Platform (CG Prime)</div>
+
+  <!-- DOMAIN 1: DRUPAL -->
+  <div class="domain-card" id="domain-1">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">01</span>
+      <span class="domain-title">Drupal / Legacy CMS</span>
+      <span class="domain-subtitle">Cosmos & Cygnus teams — royalmail.com / parcelforce.com front-end and back-end</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs (India / leaving)</div>
+          <div class="people-list">
+            <span class="person-tag cg">Vipul Suriya (SME)</span>
+            <span class="person-tag cg">Ramakrisnan Poornachandran (SME)</span>
+            <span class="person-tag cg">Anupama Rs</span>
+            <span class="person-tag cg">Margala Kumar (Ajay)</span>
+            <span class="person-tag cg">Makarand Parab (Arch)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Drupal 8/9 site architecture, content model, custom modules, deployment pipeline specifics, known failure modes, version quirks. What's in the Drupal Matrix vs what's in heads only. Release gotchas and dependency chains.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question</div>
+          <div class="field-content">
+            "If the Drupal codebase threw an error tomorrow that you'd never seen before — what would you do first, and is that documented anywhere?"
+          </div>
+        </div>
+        <div class="test-block">Ask TCS Drupal resource (SrimirnathanK — already started 13/4) to describe the deployment process for a Drupal change independently. Do not prompt. See what they actually know vs what they've been told.</div>
+        <div class="red-flag">Neither side can describe the Drupal release pipeline independently — this is a P5 / P6 escalation. Do not leave India without naming the gap explicitly.</div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>Drupal Matrix — verify currency, confirm TCS access</li>
+            <li>Drupal Knowledge Base (38 sub-pages) — check last updated dates on key pages</li>
+            <li>Build Process Overviews — confirm still accurate post any recent releases</li>
+            <li>RCAs (7 sub-pages) — gold dust for tribal knowledge of failure modes</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P5</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Vipul Suriya</span>
+            <span class="person-tag cg">Ramakrisnan Poornachandran</span>
+            <span class="person-tag rmg">Justin Fox (Lead SW Eng)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Ability to triage a Drupal defect to a module and environment. Familiarity with the eBiz Drupal deployment pipeline. Understanding of content model and cache layers (Redis dependency). Knowing what they don't know and who to ask.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Sequencing note</div>
+          <div class="field-content">
+            SrimirnathanK has already started (13/4). First TCS Drupal resource in place. Confirm directly in TCS sessions: has this person been introduced formally to Vipul and Ramakrisnan? What have they actually done in week one?
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Critical question for TCS</div>
+          <div class="field-content">
+            "What is your Drupal team structure for Cosmos and Cygnus — who is the lead, and what's their experience level with Drupal 8/9 specifically?"
+          </div>
+        </div>
+        <div class="note-block">Drupal is the single highest-volume legacy platform domain. If TCS don't have depth here by Q2 switch, Cosmos and Cygnus are the most likely sources of production incidents.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 2: CAMEL / ZEUS -->
+  <div class="domain-card" id="domain-2">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">02</span>
+      <span class="domain-title">Camel / Integration + Zeus</span>
+      <span class="domain-subtitle">Message routing, API integration layer, load balancing / traffic routing</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Nick Walter (SME — UK, 60% committed)</span>
+            <span class="person-tag cg">Nikhil Vibhav (India)</span>
+            <span class="person-tag cg">Anupama Yadav (India)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Apache Camel route topology and ownership. Zeus routing rules, configuration, failure handling. Integration dependencies (which systems touch Camel, in what order). Known fragility points. What's in the Camel Matrix vs what isn't.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question (Nikhil / Anupama)</div>
+          <div class="field-content">
+            "Walk me through what happens end-to-end when a parcel tracking event comes in. Where does Camel sit in that flow and what breaks if it's slow?"
+          </div>
+        </div>
+        <div class="test-block">Ask TCS integration resource to draw (on whiteboard or paper) the Camel routing topology from memory. Don't help. The drawing is the test.</div>
+        <div class="red-flag">Zeus configuration is undocumented outside Nick Walter's head. If neither TCS nor Nick's notes cover it, this is a single-point-of-failure that could take down routing in production.</div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>Camel Matrix — primary reference, verify currency</li>
+            <li>Camel section in eBusiness Environments (6 sub-pages)</li>
+            <li>Zeus section in eBusiness Environments (12 sub-pages) — check last updated</li>
+            <li>CiscoVPN solution for Camel Dev Teammates — access dependency</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P4</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Nick Walter (UK — 3 days/wk)</span>
+            <span class="person-tag cg">Nikhil Vibhav</span>
+            <span class="person-tag rmg">Justin Fox</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Read and interpret a Camel route definition. Know the integration touchpoints for core journeys (checkout, tracking, registration). Understand Zeus's role in traffic routing and what a failover looks like.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Critical question for TCS</div>
+          <div class="field-content">
+            "Who on your team has hands-on Apache Camel experience? What version are we on and have they worked with it in production before?"
+          </div>
+        </div>
+        <div class="note-block">Nick Walter is only 60% committed (3 days/wk). His KT window is narrow. TCS needs structured access to him in Q1 — not just shadowing. Agree a specific Camel/Zeus KT schedule before leaving Delhi.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 3: PLATFORM ENGINEERING -->
+  <div class="domain-card" id="domain-3">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">03</span>
+      <span class="domain-title">Platform Engineering / DevOps</span>
+      <span class="domain-subtitle">Jenkins pipelines, Redis, infrastructure operations, build and deploy toolchain</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Paul Dixon (UK — Platform Eng)</span>
+            <span class="person-tag cg">Poorna (DevOps Principal — India)</span>
+            <span class="person-tag cg">Nikhil (DevOps Principal — India)</span>
+            <span class="person-tag cg">Ajay Margala (DevOps Sr — India)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Jenkins pipeline topology — what triggers what. Redis cache layer configuration and known issues. Infrastructure dependencies for legacy Ensono-hosted stack. Platform-level runbooks that exist only in practice. Production access patterns and who-has-what.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question</div>
+          <div class="field-content">
+            "What's the first thing you check when the site is slow? Walk me through it — tools, order, what you're looking for."
+          </div>
+        </div>
+        <div class="test-block">Ask TCS DevOps resource to describe what a successful release looks like in Jenkins — from trigger to sign-off. Look for gaps in environment knowledge specifically.</div>
+        <div class="red-flag">Paul Dixon's actual availability is inconsistent across documents (10% in team structure vs 100% in KT estimate). Clarify this before or on arrival — he may be the most operationally critical single person in the transition.</div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>Production Jenkins users — who has access, confirm TCS access plan</li>
+            <li>Redis on eBusiness web tier (3 sub-pages)</li>
+            <li>Standard operating procedure for AWS continuity page (manually invoked)</li>
+            <li>eBusiness Security — Pen Test Findings (acknowledged)</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P4</span><span class="parker-tag">P5</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Paul Dixon</span>
+            <span class="person-tag ht">Jakub Benzef (DevOps — HT)</span>
+            <span class="person-tag ht">Jan Urbaniak (DevOps — HT)</span>
+            <span class="person-tag rmg">Justin Fox</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Can execute a pipeline run independently. Knows the environment topology (QA → QT → PreProd → Prod). Understands the Redis cache layer and can clear it appropriately. Has documented access to production tooling.
+          </div>
+        </div>
+        <div class="note-block">Happy Team's DevOps resource (Jakub, Jan) are the new-world equivalents. TCS DevOps needs to build relationships with both the CG legacy team AND the HT Azure-world team — two different stacks, both in scope.</note>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 4: MAGENTO -->
+  <div class="domain-card" id="domain-4">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">04</span>
+      <span class="domain-title">Magento / eCommerce</span>
+      <span class="domain-subtitle">Shop functionality — lives in Cosmos/Cygnus territory</span>
+      <span class="risk-pill risk-medium">MEDIUM / GAP</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Hitendrasinh Rajput (on loan from SM — status unknown)</span>
+            <span class="person-tag tbc">TCS Magento dev (TBC per Mark's slide)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Magento version, customisation extent, integration points with Drupal and payment gateway. Known fragility. Who in the current CG team understands it well enough to cover if Hitendrasinh is gone.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">First question — Sajesh</div>
+          <div class="field-content">
+            "Hitendrasinh was noted as on loan from SM until end of March. Where is he now and who holds the Magento knowledge on the CG side today?"
+          </div>
+        </div>
+        <div class="red-flag">No named KT resource for Magento in the KT estimate. If Hitendrasinh has rolled off or is rolling off, and TCS Magento resource is still TBC, this is a live gap. Needs naming at the trip.</div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Hitendrasinh Rajput (status TBC)</span>
+            <span class="person-tag tbc">TCS Magento resource (not yet named)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            This can't be assessed until a TCS Magento resource is named. First step: confirm who it is. Second: confirm their Magento version experience. Third: introduce them to Hitendrasinh or whoever holds the knowledge now.
+          </div>
+        </div>
+        <div class="cg-caveat">CG's role in Magento KT is uncertain — the primary SME may have already moved on. Even if available, the depth of documented knowledge here is likely shallow. TCS may need to do investigative KT rather than structured handover.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 5: FORGEROCK -->
+  <div class="domain-card" id="domain-5">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">05</span>
+      <span class="domain-title">ForgeRock / IAM</span>
+      <span class="domain-subtitle">Identity & access management — v5.5, out of support. Ensono Exit workstream. Survival to Peak only.</span>
+      <span class="risk-pill risk-scoped">SCOPED / SURVIVAL</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">Context</div>
+          <div class="field-content">
+            ForgeRock v5.5 is completely out of support. Replacement (Ping Identity SaaS) already in motion. <strong>KT goal is narrow</strong>: TCS only needs to keep this alive through Peak 2026 (mid-Nov → early Jan 2027). This is an Ensono Exit workstream — not a factory KT priority.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract (limited scope)</div>
+          <div class="field-content">
+            Who currently holds operational knowledge of ForgeRock. What "keeping it alive" means in practice. What could cause it to fall over and what the recovery procedure is. Document who to call if it breaks during Peak.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>ForgeRock IAM section (18 sub-pages) — check which are still relevant at v5.5</li>
+            <li>OpenAM section — predecessor/related</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P4</span><span class="parker-tag">P5</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">What TCS needs</div>
+          <div class="field-content">
+            Runbook for Peak: what to monitor, what the failure modes look like, who to escalate to. They do <strong>not</strong> need deep ForgeRock expertise — they need enough to not break it and a clear escalation path if it looks wobbly.
+          </div>
+        </div>
+        <div class="cg-caveat">CG's role here is specifically around operational runbooks for the existing v5.5 instance. SME knowledge for the replacement (Ping Identity) will not come from CG — that's a separate workstream entirely.</div>
+        <div class="note-block">Do not invest time on this in India beyond confirming the survival plan exists and is documented. If it isn't — that's the action. One person, one runbook, one escalation list.</note>
+      </div>
+    </div>
+  </div>
+
+  <div class="domain-group-label">PROCESS & OPERATIONS DOMAINS</div>
+
+  <!-- DOMAIN 6: RELEASE MANAGEMENT -->
+  <div class="domain-card" id="domain-6">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">06</span>
+      <span class="domain-title">Release Management</span>
+      <span class="domain-subtitle">Factory release cadence, process, freeze windows, change approval</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Sajesh Advilkar (Offshore Delivery Mgr)</span>
+            <span class="person-tag cg">Bharat Patil (Technical Delivery Mgr)</span>
+            <span class="person-tag cg">Shilpa Surve (Scrum Master — India)</span>
+            <span class="person-tag cg">Manasi Ketkar (PMO — India)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            How releases are planned, coordinated and approved in practice vs on paper. What the actual freeze window rules are. How Capgemini manages the release calendar day-to-day. What goes wrong most often and why. How the CG and RMG sides have historically disagreed on release readiness.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question — Sajesh</div>
+          <div class="field-content">
+            "Take me through a release that nearly went wrong — what happened, how did you catch it, and what would TCS need to know to have caught it the same way?"
+          </div>
+        </div>
+        <div class="test-block">Ask TCS delivery lead to describe the factory release approval chain — who signs off what, in what order. See whether they know it from first principles or have been briefed a script.</div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>eBusiness Release Calendar — confirm TCS access and how it's maintained</li>
+            <li>Release / Code Freeze Definition page</li>
+            <li>Technical Release Documentation (47 sub-pages)</li>
+            <li>eBusiness Release Management (409 total pages — very rich)</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P3</span><span class="parker-tag">P4</span><span class="parker-tag">P5</span><span class="parker-tag">P7</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Sajesh Advilkar</span>
+            <span class="person-tag cg">Bharat Patil</span>
+            <span class="person-tag rmg">Matthew Bruce (you)</span>
+            <span class="person-tag rmg">Selen Hamilton (Demand)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Can they produce a release plan independently? Do they know the freeze calendar for Peak 2026? Do they understand the difference between factory releases and migration releases and how they're coordinated?
+          </div>
+        </div>
+        <div class="note-block">Release Management is where Parker's P3 and P5 questions are most live. The migration workstream affects the factory release pipeline directly. TCS must understand both the factory rhythm AND the migration constraints before Q2 switch.</note>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 7: QA / TESTING -->
+  <div class="domain-card" id="domain-7">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">07</span>
+      <span class="domain-title">QA / Testing</span>
+      <span class="domain-subtitle">Test strategy, automation frameworks, performance/PVT, regression</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Amol Tate (QA Lead)</span>
+            <span class="person-tag cg">Nilesh Kumar (PVT / Performance)</span>
+            <span class="person-tag cg">Praneeth Gudelli (Automation)</span>
+            <span class="person-tag cg">Various offshore testers</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Automation framework (Playwright PoC status, Eggplant to LoadRunner migration status). Performance test baseline data and what constitutes a pass/fail. Risk-based regression approach. What's actually automated vs what's still manual. Test environment gotchas.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question</div>
+          <div class="field-content">
+            "What's the one test that you always run before a release that isn't in any automated suite — and why isn't it automated yet?"
+          </div>
+        </div>
+        <div class="test-block">Ask TCS QA lead to describe the regression approach for a Drupal release. Do they reference Risk Based Regression? Do they know what's in/out of scope? That's the depth test.</div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>KT section (4 pages) + KT Status (65 sub-pages) — this already exists, verify who owns it and if TCS can see it</li>
+            <li>eBusiness Risk Based Regression</li>
+            <li>Automation — Playwright PoC (check maturity)</li>
+            <li>Eggplant to LoadRunner Script Migration eBiz</li>
+            <li>Performance & Volume Testing (17 sub-pages)</li>
+            <li>eBusiness PVT Applications list</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P3</span><span class="parker-tag">P4</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Amol Tate</span>
+            <span class="person-tag cg">Nilesh Kumar</span>
+            <span class="person-tag rmg">Anjusmita Choudhury (Lead Test Mgr)</span>
+            <span class="person-tag rmg">Dipti Devanga (Test Automation)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Can run the automation suite. Understands performance testing scope for eBiz (especially Ensono vs Azure environments — different performance profiles). Knows the test environment topology and can access it independently.
+          </div>
+        </div>
+        <div class="note-block">The existing KT Status tracker (65 sub-pages) in Confluence is the most likely source of what CG has already been documenting. Before the trip, someone should audit its currency — it may be the most useful asset you own or a false sense of security.</note>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 8: ANALYTICS -->
+  <div class="domain-card" id="domain-8">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">08</span>
+      <span class="domain-title">Analytics</span>
+      <span class="domain-subtitle">Tealium, Adobe Analytics, TrustArc, event-driven data layer — owned by Digital, limited KT scope</span>
+      <span class="risk-pill risk-low">LOW / BOUNDED</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs (leaving)</div>
+          <div class="people-list">
+            <span class="person-tag cg">Rajat Pandey (Analytics Consultant — offshore, leaving)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Rajat's specific knowledge of Tealium tag configuration, Adobe Analytics implementation, TrustArc cookie consent setup, and the current state of the event-driven data layer work. What's documented vs what's in his head.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Note on ownership</div>
+          <div class="field-content">
+            Analytics is now owned by <strong>Digital</strong>, not Platform. KT is real but bounded. Najam Khan-Muztar (North Highland, staying) is the primary SME and doesn't need extracting — he's not going anywhere. The gap is specifically Rajat leaving.
+          </div>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>Analytics Team Space (359 sub-pages — large but Digital-owned)</li>
+            <li>Event Driven Data Layer (82 sub-pages) — check completion status</li>
+            <li>Tealium cookie consent and tag consent categorisation (125 sub-pages)</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag nh">Najam Khan-Muztar (staying — primary SME)</span>
+            <span class="person-tag cg">Rajat Pandey (leaving)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS needs</div>
+          <div class="field-content">
+            Orientation-level understanding of the analytics stack (not deep ownership). Know what tools are in play, who to contact (Najam), and what not to break. Event-driven data layer status briefing is probably the most practically useful thing.
+          </div>
+        </div>
+        <div class="cg-caveat">CG's KT role here is specifically Rajat. Most analytics SME knowledge sits outside CG. Do not over-engineer this domain in the India trip — it is not a factory primary and Digital owns the outcome.</cg-caveat>
+      </div>
+    </div>
+  </div>
+
+  <div class="domain-group-label">NEW WORLD DOMAINS — SMEs outside CG</div>
+
+  <!-- DOMAIN 9: AZURE -->
+  <div class="domain-card" id="domain-9">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">09</span>
+      <span class="domain-title">Azure Platform / Cloud Infrastructure</span>
+      <span class="domain-subtitle">Azure architecture, DevOps pipelines, cloud-native services — Happy Team and RMG SMEs</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG role in this domain</div>
+          <div class="field-content">
+            <strong>CG did not build the Azure platform.</strong> Their role has been service management of it, not development. The knowledge gap here is primarily about what CG's service management team actually understands vs. what they've been managing by proxy.
+          </div>
+        </div>
+        <div class="cg-caveat">The substantive SME knowledge for Azure sits with Happy Team (Emil, Mateusz, Jakub, Mariusz, etc.) and RMG's own engineers — not with CG. Use the CG day to understand what CG's SM team actually knows, and whether that's enough to safely hand to TCS or whether TCS needs to go direct to Happy Team.</cg-caveat>
+        <div class="field">
+          <div class="field-label">Question for Sajesh / Bharat</div>
+          <div class="field-content">
+            "For Azure incidents — when something breaks in the new platform — who does your team actually call? Walk me through the last one."
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P2</span><span class="parker-tag">P4</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Real SMEs (non-CG)</div>
+          <div class="people-list">
+            <span class="person-tag ht">Emil Nowak (Azure Tech Lead)</span>
+            <span class="person-tag ht">Mateusz Kowalewski (Solution Arch)</span>
+            <span class="person-tag ht">Maciej Cieslak (Solution Arch)</span>
+            <span class="person-tag ht">Jakub Benzef (DevOps)</span>
+            <span class="person-tag ht">Jan Urbaniak (DevOps)</span>
+            <span class="person-tag rmg">Justin Fox</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Understanding of the Azure tenancy structure, subscription layout, and how the new-world teams are organised. ADO pipeline awareness. Knows that Happy Team are the build SMEs — and has a clear picture of who to contact for what.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>Azure / Orion / Janus team required access and SOP</li>
+            <li>Azure DST routing from Zeus to Azure Application Gateways</li>
+            <li>Azure Teams section in Platform Initiatives (535 sub-pages)</li>
+            <li>Azure ADO Scrum Process (4 sub-pages)</li>
+          </ul>
+        </div>
+        <div class="note-block">This is the domain where TCS will be most exposed. They are inheriting service management of a platform that CG managed at arm's length and Happy Team actually built. TCS needs structured introductions to Happy Team — not just a document drop.</note>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 10: REACT / FRONTEND -->
+  <div class="domain-card" id="domain-10">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">10</span>
+      <span class="domain-title">React / Frontend Framework</span>
+      <span class="domain-subtitle">SNY and strategic frontend — Janus and Nebula teams, Helios FE Framework</span>
+      <span class="risk-pill risk-medium">MEDIUM</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG role in this domain</div>
+          <div class="field-content">
+            Minimal. CG's offshore team included some React resource (Mohit Porwal — React/Front End, split across Cosmos/Cygnus) but the strategic React work was led by RMG and Happy Team. CG SM team likely have limited React depth.
+          </div>
+        </div>
+        <div class="cg-caveat">CG is not the primary source of React knowledge. Ask Sajesh/Bharat what their team's actual React exposure is — this will tell you whether TCS needs to lean entirely on Happy Team and RMG for this domain.</cg-caveat>
+        <div class="field">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>React Handover — exists as a named page, check content and currency</li>
+            <li>React Team Space (1 sub-page currently — sparse)</li>
+            <li>SNY Technical Doc</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P2</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Real SMEs (non-CG)</div>
+          <div class="people-list">
+            <span class="person-tag rmg">Leopold Kwok (React FE)</span>
+            <span class="person-tag ht">Adam Dobrzeniewski (React FE)</span>
+            <span class="person-tag ht">Krzysztof Derek (React FE — moved to Nebula mid-Apr)</span>
+            <span class="person-tag rmg">Justin Fox</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Understanding of the Helios FE framework and how it relates to Janus and Nebula delivery. React component architecture awareness. Knows who the engineers are and that SM responsibilities for React incidents require a different escalation path than legacy Drupal.
+          </div>
+        </div>
+        <div class="note-block">The React Handover page in Confluence exists — check it before the TCS sessions. It may be the best existing KT artefact for this domain or it may be empty. Either way it's a reference point for TCS.</note>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 11: SECURITY -->
+  <div class="domain-card" id="domain-11">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">11</span>
+      <span class="domain-title">Security</span>
+      <span class="domain-subtitle">Application security, pen test findings, security checklist for web development</span>
+      <span class="risk-pill risk-medium">MEDIUM</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Tom Tanser (Security SME — fixed engagement, UK)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            Status of any open / acknowledged pen test findings. Security obligations embedded in the current SoW that TCS need to inherit. Any security-specific runbooks or processes CG holds that aren't documented in Confluence.
+          </div>
+        </div>
+        <div class="cg-caveat">Tom Tanser is a fixed engagement UK resource — unlikely to be in India. This domain is probably better addressed as a separate bilateral conversation with Tom and TCS's security contact, not in the Delhi sessions. Flag in advance.</cg-caveat>
+        <div class="field">
+          <div class="field-label">Confluence artefacts</div>
+          <ul class="artefacts-list">
+            <li>eBusiness Security — Acknowledged Platform Pen Test Findings</li>
+            <li>Security Checklist for Web Application Development</li>
+            <li>eBusiness Important Security Warnings</li>
+          </ul>
+        </div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P4</span><span class="parker-tag">P6</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Full SME picture</div>
+          <div class="people-list">
+            <span class="person-tag cg">Tom Tanser (fixed, UK)</span>
+            <span class="person-tag tbc">TCS Security contact (not named)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What TCS must demonstrate</div>
+          <div class="field-content">
+            Awareness of open pen test findings and remediation status. Understanding that security sign-off is part of the release gate process. Named contact for security escalation.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DOMAIN 12: SERVICE MANAGEMENT -->
+  <div class="domain-card" id="domain-12">
+    <div class="domain-header" onclick="toggleDomain(this)">
+      <span class="domain-num">12</span>
+      <span class="domain-title">Service Management / Support Operations</span>
+      <span class="domain-subtitle">Day-to-day factory operations, incident management, governance, ways of working</span>
+      <span class="risk-pill risk-high">HIGH RISK</span>
+      <span class="toggle-icon">▼</span>
+    </div>
+    <div class="domain-body">
+      <div class="track-panel">
+        <div class="track-label a">Track A — CG Extraction</div>
+        <div class="field">
+          <div class="field-label">CG SMEs</div>
+          <div class="people-list">
+            <span class="person-tag cg">Sajesh Advilkar (Offshore Delivery Mgr — India, primary)</span>
+            <span class="person-tag cg">Bharat Patil (Technical Delivery Mgr — UK)</span>
+            <span class="person-tag cg">Manasi Ketkar (PMO — India)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">What to extract</div>
+          <div class="field-content">
+            How the factory actually runs day-to-day — the informal norms, escalation paths, relationship dynamics with RMG SMs (Clare, Mandy). What the 3-way governance rhythm looks like in practice. How incidents are actually managed vs how they're supposed to be managed. What CG's SM team knows about the platform that most of the technical team doesn't.
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">Opening question — Sajesh</div>
+          <div class="field-content">
+            "What does a normal week look like for your team — not the ceremonies, the actual work? And what's the thing that most often goes off-script?"
+          </div>
+        </div>
+        <div class="test-block">Ask TCS Service Management lead: "Who are your counterparts on the RMG side and what does the weekly governance rhythm look like?" Their answer tells you how much of the SM fabric they've actually absorbed.</div>
+        <div class="red-flag">Most of the real SM knowledge sits on the factory team (your engineers) not CG's SM team. If TCS think KT from CG SM = complete onboarding, they will be wrong. The India trip is the moment to correct this assumption explicitly.</div>
+        <div class="field">
+          <div class="field-label">Parker mapping</div>
+          <div class="parker-tags"><span class="parker-tag">P1</span><span class="parker-tag">P4</span><span class="parker-tag">P6</span><span class="parker-tag">P7</span></div>
+        </div>
+      </div>
+      <div class="track-panel">
+        <div class="track-label b">Track B — TCS Onboarding</div>
+        <div class="field">
+          <div class="field-label">Real SMEs (broader picture)</div>
+          <div class="people-list">
+            <span class="person-tag cg">Sajesh Advilkar</span>
+            <span class="person-tag rmg">Clare (SM)</span>
+            <span class="person-tag rmg">Mandy (SM)</span>
+            <span class="person-tag rmg">Matthew Bruce (you)</span>
+            <span class="person-tag rmg">Ajmal Malik (Lead SA)</span>
+            <span class="person-tag rmg">Anjusmita Choudhury (Test Mgr)</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">The key message to land with TCS</div>
+          <div class="field-content">
+            CG's SM team is the starting point, not the complete picture. The majority of SME knowledge for service management lives in the factory — in your RMG team and the Happy Team engineers. TCS needs to build relationships across the whole factory, not just inherit CG's contact list.
+          </div>
+        </div>
+        <div class="note-block">This is the meta-domain. Everything else in this framework depends on TCS understanding how the factory operates as a system. This conversation should happen early in the TCS sessions, not last.</note>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /domains -->
+
+<!-- NUGGETS REFERENCE -->
+<div class="nuggets-strip" id="nuggets">
+  <h2>🔑 KT OS Nuggets — Private Reference</h2>
+  <div class="nuggets-grid">
+    <div class="nugget"><div class="nugget-num">NUGGET 1</div>Real objective = transfer critical knowledge without service degradation while establishing control over a new, unproven supplier. Trip is optics — what WE bring determines whether it's also useful.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 2</div>Flip the timing narrative: "We should have been here earlier. We're correcting that now." Humility without undermining authority. Structured extraction of knowledge &gt; morale management.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 3</div>KT illusion — shadowing ≠ understanding, documentation ≠ operability. Test KT, don't observe. Ask TCS to demonstrate something independently. Don't use this language externally.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 4</div>Direct operational icebreakers: "What breaks first if you left tomorrow?" / "Where is documentation misleading or outdated?" / "What does TCS not yet understand?" Entry points into the real conversation.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 5</div>TCS conditional carrot — not a commitment, a pathway. Keep the lights on legacy + build RIGHT strategic teams = earn a role in the new Azure world. CG failed this test. TCS can choose differently.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 6</div>Trip is CIO-sanctioned. Steve Potts referenced it personally in a note to CG's Billie Major. This isn't a morale visit — it's been positioned at CIO level as a signal of commitment. Use that weight.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 7</div>Robert Parker and Jon are staying — 1-2 days/week through end of year. Parker's 7 questions are not rhetorical. He'll be around to follow up. The framework outputs need to be presentable to him.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 8</div>BIG timeline ringfenced — shadow over Peak 26, transition Jan 27. Steve has personally committed to commercial certainty for CG BIG team through peak. Don't over-promise BIG CG availability before January.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 9</div>Political temperature is warm — by design. CG leadership have been praised and asked to stay. People in India should be primed to cooperate. But don't mistake managed politeness for genuine capability transfer.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 10</div>DST dispute settled. No unresolved commercial grievance to navigate. Clean air for the actual conversations.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 11</div>eBiz timeline confirmed: Q1 Apr-Jun (CG prime/TCS shadow) → Q2 Jul-Sep (switch) → Q3 Oct-Dec (TCS prime/CG hypercare). TCS not charging for transition but "billable" trigger is undefined — commercial time bomb. Resolve before Q2.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 12</div>ForgeRock v5.5 — survival mode only. Just needs to stay alive through Peak (mid-Nov 26 → Jan 27). Ping Identity SaaS replacement already in motion. Don't invest India trip time beyond confirming the runbook exists.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 13</div>Analytics boundary — Digital owns it, not Platform. Rajat Pandey (CG) is the only leaver. Najam (NH) stays. KT is real but limited: TrustArc, Tealium, Adobe Analytics, event-driven data layer status. Don't over-engineer this domain.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 14</div>"eBusiness' Incomplete Guide to Everything" — a real Confluence page title. Use as a disarming opener: "We literally named a page that — so tell me what's genuinely not written down anywhere." Invites honesty without confrontation.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 15</div>Magento has no named KT resource. Hitendrasinh Rajput (CG SME) was on loan until end of March — status unknown. Ask Sajesh directly: "Who holds Magento knowledge on your side today?" This gap needs naming.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 16</div>Trip split confirmed. Matt + Jonny = 2 days TCS (Tue/Wed, Gurgaon) + 1 day CG (Thu, Noida). Clare + Mandy = 2 days CG + 1 day TCS. Track A must land everything in ONE day. Ruthless prioritisation required.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 17</div>TCS will be ~20% through KT on arrival — Mark's expectation, not confirmed reality. Test this assumption on day one with the framework's test blocks. Don't accept "on track" without evidence of independent capability.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 18</div>Ways of working for TCS in factory is UNRESOLVED. CG accepted shadowing but flagged accountability confusion if TCS write code or execute tests. Must be agreed — at minimum as stated intent — before leaving India.</div>
+    <div class="nugget"><div class="nugget-num">NUGGET 19</div>CG retention shape likely mirrors HCL deal: 1-year SoW + 10% retainer on completion. This is the commercial lever to keep critical KT people (Sajesh, Nick Walter, Paul Dixon) engaged through Q3. Parker + Jon already retained at CIO level.</div>
+  </div>
+</div>
+
+<script>
+  function toggleDomain(header) {
+    const body = header.nextElementSibling;
+    const icon = header.querySelector('.toggle-icon');
+    if (body.classList.contains('collapsed')) {
+      body.classList.remove('collapsed');
+      icon.style.transform = 'rotate(0deg)';
+    } else {
+      body.classList.add('collapsed');
+      icon.style.transform = 'rotate(-90deg)';
+    }
+  }
+  // Start all open
+</script>
+</body>
+</html>

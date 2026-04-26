@@ -150,6 +150,7 @@
      Source: Effects page
      ---------------------------------------------------------- */
   --rmg-shadow-card:     0 4px 56px 0 rgba(0, 0, 0, 0.08);  /* Card shadow — most common elevation */
+  --rmg-shadow-subtle:   0 1px 3px rgba(0, 0, 0, 0.04);     /* Dense UI — compact cards, list items */
   --rmg-shadow-megamenu: 0 4px 16px 0 rgba(0, 0, 0, 0.20);  /* Megamenu / nav dropdown */
   --rmg-shadow-header:   0 2px 12px 0 rgba(0, 0, 0, 0.08);  /* Main nav / header bar */
 
