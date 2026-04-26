@@ -63,13 +63,16 @@ function PanelColHeader({ label, colour }: { label: string; colour: string }) {
   return (
     <div
       style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        backgroundColor: 'var(--rmg-color-surface-white)',
+        padding: '0 4px 8px',
         fontFamily: 'var(--rmg-font-body)',
-        fontSize: 11,
+        fontSize: 12,
         fontWeight: 700,
         color: colour,
         borderBottom: `2px solid ${colour}`,
-        paddingBottom: 4,
-        marginBottom: 6,
       }}
     >
       {label}
@@ -326,7 +329,7 @@ export function ItineraryPanel({
     sessionsByDay.set(s.day_id, list)
   }
 
-  const panelWidth = isMobile ? '100vw' : '480px'
+  const panelWidth = isMobile ? '100vw' : '580px'
 
   return (
     <div

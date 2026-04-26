@@ -235,7 +235,7 @@ function SessionCard({ session }: { session: ItinerarySession }) {
         </div>
       )}
 
-      {supplierColour && session.supplier_host && (
+      {session.session_type === 'session' && supplierColour && session.supplier_host && (
         <div style={{ marginTop: 6 }}>
           <span
             style={{
@@ -402,13 +402,17 @@ function ColHeader({ label, colour, size = 13 }: { label: string; colour: string
   return (
     <div
       style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        backgroundColor: 'var(--rmg-color-surface-light)',
+        paddingTop: 6,
+        paddingBottom: 10,
         fontFamily: 'var(--rmg-font-body)',
         fontSize: size,
         fontWeight: 700,
         color: colour,
         borderBottom: `2px solid ${colour}`,
-        paddingBottom: 5,
-        marginBottom: 8,
       }}
     >
       {label}
@@ -552,6 +556,11 @@ function DayBlock({
               {/* Zone 1 — Pre-day shared events */}
               {pre.map((s) => <SessionCard key={s.id} session={s} />)}
 
+              {/* Separator: pre → split */}
+              {pre.length > 0 && (
+                <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
+              )}
+
               {/* Zone 2 — Split columns */}
               <div
                 style={{
@@ -559,8 +568,6 @@ function DayBlock({
                   gridTemplateColumns: '1fr 1fr',
                   gap: 10,
                   alignItems: 'start',
-                  marginTop: pre.length > 0 ? 8 : 0,
-                  marginBottom: post.length > 0 ? 8 : 0,
                 }}
               >
                 <div>
@@ -572,6 +579,11 @@ function DayBlock({
                   {service.map((s) => <SessionCard key={s.id} session={s} />)}
                 </div>
               </div>
+
+              {/* Separator: split → post */}
+              {post.length > 0 && (
+                <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
+              )}
 
               {/* Zone 3 — Post-day shared events */}
               {post.map((s) => <SessionCard key={s.id} session={s} />)}
