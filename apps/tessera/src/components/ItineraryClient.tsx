@@ -779,13 +779,7 @@ export function ItineraryClient({
   todayStr: string
   tripState: TripState
 }) {
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => {
-    if (days.length === 0) return new Set()
-    const todayDay = days.find((d) => d.date === todayStr)
-    if (todayDay) return new Set([todayDay.id])
-    if (todayStr < days[0].date) return new Set([days[0].id])
-    return new Set([days[days.length - 1].id])
-  })
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set(days.map((d) => d.id)))
 
   const [selectedFilters, setSelectedFilters] = useState<FilterKey[]>(['all'])
 
