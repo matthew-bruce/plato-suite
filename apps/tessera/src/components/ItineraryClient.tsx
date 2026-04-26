@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, Fragment } from 'react'
+import { MapPin } from 'lucide-react'
 import type { ItineraryDay, ItinerarySession, TripState } from '@/app/itinerary/page'
 
 // Supplier colours for the host pill — no Tessera token for these
@@ -151,6 +152,24 @@ export function SessionIcon({ type, colour }: { type: string | null; colour: str
         </svg>
       )
   }
+}
+
+// ── Location pin ──────────────────────────────────────────────────────
+
+export function LocationPin({ location }: { location: string }) {
+  return (
+    <a
+      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none', color: 'inherit', marginTop: 3 }}
+    >
+      <MapPin size={12} color="var(--rmg-color-grey-1)" />
+      <span style={{ fontSize: 12, color: 'var(--rmg-color-grey-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {location}
+      </span>
+    </a>
+  )
 }
 
 // ── Session card ──────────────────────────────────────────────────────
