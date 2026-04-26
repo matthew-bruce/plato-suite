@@ -1,12 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import { MapPin } from 'lucide-react'
 import type { ItineraryDay, ItinerarySession, TripState } from '@/app/itinerary/page'
 
-// Supplier colours for the host pill — no Tessera token for these
+// Supplier colours — kept for any external use
 export const SUPPLIER_HEX: Record<string, string> = {
   CG:  '#003C82',
   TCS: '#9B0A6E',
+}
+
+// Solid supplier pill styles
+const SUPPLIER_PILL_STYLES: Record<string, { background: string; color: string }> = {
+  TCS: { background: '#9B0A6E', color: '#ffffff' },
+  CG:  { background: '#003C82', color: '#ffffff' },
 }
 
 // ── Card style ────────────────────────────────────────────────────────
@@ -22,65 +29,36 @@ export const CG_DAY_DATE = '2026-04-30'
 export function getCardStyle(
   sessionType: string | null,
   team: string | null,
-  dayDate: string,
 ): CardStyle {
-  const isCGDay = dayDate === CG_DAY_DATE
   const type = sessionType ?? 'session'
 
   switch (type) {
-    case 'flight':
-      return {
-        bg:     'var(--event-flight-tint)',
-        border: 'var(--event-flight-border)',
-        accent: 'var(--rmg-color-black)',
-      }
-    case 'travel':
-      return {
-        bg:     'var(--event-travel-tint)',
-        border: 'var(--event-travel-border)',
-        accent: 'var(--event-travel-color)',
-      }
-    case 'hotel_checkin':
-    case 'hotel_checkout':
-      return {
-        bg:     'var(--event-hotel-tint)',
-        border: 'var(--event-hotel-border)',
-        accent: 'var(--event-hotel-color)',
-      }
+    case 'session':
+      if (team === 'DELIVERY')
+        return { bg: 'var(--track-b-tint)', border: 'var(--track-b-border)', accent: 'var(--track-b)' }
+      if (team === 'SERVICE')
+        return { bg: 'var(--track-a-tint)', border: 'var(--track-a-border)', accent: 'var(--track-a)' }
+      return { bg: 'var(--event-all-tint)', border: 'var(--event-all-border)', accent: 'var(--event-all-color)' }
     case 'meal':
       return {
-        bg:     'var(--event-gap-tint)',
-        border: 'var(--event-gap-border)',
-        accent: 'var(--event-gap-color)',
+        bg:     'rgba(253, 218, 36, 0.08)',
+        border: 'rgba(201, 168, 0, 0.25)',
+        accent: '#c9a800',
       }
+    case 'travel':
     case 'rest':
-      return {
-        bg:     'var(--event-travel-tint)',
-        border: 'var(--event-travel-border)',
-        accent: 'var(--event-travel-color)',
-      }
+      return { bg: 'var(--event-travel-tint)', border: 'var(--event-travel-border)', accent: 'var(--event-travel-color)' }
+    case 'hotel_checkin':
+    case 'hotel_checkout':
+      return { bg: 'var(--event-hotel-tint)', border: 'var(--event-hotel-border)', accent: 'var(--event-hotel-color)' }
+    case 'flight':
+      return { bg: 'var(--event-flight-tint)', border: 'var(--event-flight-border)', accent: 'var(--rmg-color-black)' }
     case 'gap':
-      return {
-        bg:     'var(--event-gap-tint)',
-        border: 'var(--event-gap-border)',
-        accent: 'var(--event-gap-color)',
-      }
-    case 'session':
-      if (team === 'DELIVERY') {
-        return isCGDay
-          ? { bg: 'var(--track-a-tint)', border: 'var(--track-a-border)', accent: 'var(--track-a)' }
-          : { bg: 'var(--track-b-tint)', border: 'var(--track-b-border)', accent: 'var(--track-b)' }
-      }
-      if (team === 'SERVICE') {
-        return { bg: 'var(--track-a-tint)', border: 'var(--track-a-border)', accent: 'var(--track-a)' }
-      }
+      return { bg: 'var(--event-gap-tint)', border: 'var(--event-gap-border)', accent: 'var(--event-gap-color)' }
+    case 'sunset':
       return { bg: 'var(--event-all-tint)', border: 'var(--event-all-border)', accent: 'var(--event-all-color)' }
     default:
-      return {
-        bg:     'var(--event-travel-tint)',
-        border: 'var(--event-travel-border)',
-        accent: 'var(--event-travel-color)',
-      }
+      return { bg: 'var(--event-travel-tint)', border: 'var(--event-travel-border)', accent: 'var(--event-travel-color)' }
   }
 }
 
@@ -88,15 +66,15 @@ export function getCardStyle(
 
 export function typeLabel(t: string | null): string {
   switch (t) {
-    case 'flight':        return 'Flight'
-    case 'travel':        return 'Transfer'
-    case 'hotel_checkin': return 'Hotel check-in'
-    case 'hotel_checkout':return 'Hotel check-out'
-    case 'meal':          return 'Meal'
-    case 'rest':          return 'Rest'
-    case 'gap':           return 'Gap'
-    case 'session':       return 'Session'
-    default:              return t ?? 'Session'
+    case 'flight':         return 'Flight'
+    case 'travel':         return 'Transfer'
+    case 'hotel_checkin':  return 'Hotel check-in'
+    case 'hotel_checkout': return 'Hotel check-out'
+    case 'meal':           return 'Meal'
+    case 'rest':           return 'Rest'
+    case 'gap':            return 'Gap'
+    case 'session':        return 'Session'
+    default:               return t ?? 'Session'
   }
 }
 
@@ -168,7 +146,7 @@ export function SessionIcon({ type, colour }: { type: string | null; colour: str
           <polyline points="12 6 12 12 16 14" />
         </svg>
       )
-    default: // session
+    default:
       return (
         <svg {...props}>
           <line x1="8" y1="6" x2="21" y2="6" />
@@ -182,35 +160,10 @@ export function SessionIcon({ type, colour }: { type: string | null; colour: str
   }
 }
 
-// ── Track pill ────────────────────────────────────────────────────────
-
-function TrackPill({ team }: { team: string }) {
-  const isDelivery = team === 'DELIVERY'
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 11,
-        fontWeight: 700,
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.06em',
-        padding: '2px 9px',
-        borderRadius: 'var(--rmg-radius-xl)',
-        backgroundColor: isDelivery ? 'rgba(74,158,255,0.12)' : 'rgba(232,56,42,0.1)',
-        color: isDelivery ? '#4a9eff' : '#e8382a',
-      }}
-    >
-      {isDelivery ? 'Delivery' : 'Service'}
-    </span>
-  )
-}
-
 // ── Session card ──────────────────────────────────────────────────────
 
-function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate: string }) {
-  const style = getCardStyle(session.session_type, session.team, dayDate)
-  const supplierColour = session.supplier_host ? (SUPPLIER_HEX[session.supplier_host] ?? null) : null
+function SessionCard({ session }: { session: ItinerarySession }) {
+  const style = getCardStyle(session.session_type, session.team)
   const title = session.focus ?? typeLabel(session.session_type)
   const timeStr =
     session.time_start
@@ -218,7 +171,14 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         ? `${session.time_start} – ${session.time_end}`
         : session.time_start
       : null
-  const showTrackPill = session.team === 'DELIVERY' || session.team === 'SERVICE'
+  const supplierPillStyle =
+    session.session_type === 'session' && session.supplier_host
+      ? (SUPPLIER_PILL_STYLES[session.supplier_host] ?? null)
+      : null
+  const showLocationPin =
+    !!session.location &&
+    session.session_type !== 'flight' &&
+    session.session_type !== 'rest'
 
   return (
     <div
@@ -230,7 +190,7 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         borderRadius: 'var(--rmg-radius-s)',
         boxShadow: 'var(--rmg-shadow-subtle)',
         padding: '9px 13px 9px 16px',
-        marginBottom: 8,
+        marginBottom: 7,
       }}
     >
       {/* Left accent bar */}
@@ -243,7 +203,6 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         }}
       />
 
-      {/* Row 1: time */}
       {timeStr && (
         <div
           style={{
@@ -260,14 +219,7 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         </div>
       )}
 
-      {/* Row 2: icon + title */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <SessionIcon type={session.session_type} colour={style.accent} />
         <div
           style={{
@@ -283,44 +235,26 @@ function SessionCard({ session, dayDate }: { session: ItinerarySession; dayDate:
         </div>
       </div>
 
-      {/* Row 3: location meta */}
-      {session.location && (
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 13,
-            color: 'var(--rmg-color-grey-1)',
-            marginTop: 3,
-            lineHeight: 1.45,
-          }}
-        >
-          {session.location}
-        </div>
-      )}
+      {showLocationPin && <LocationPin location={session.location!} />}
 
-      {/* Row 4: pills — track pill first, then supplier pill */}
-      {(showTrackPill || (supplierColour && session.supplier_host)) && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {showTrackPill && <TrackPill team={session.team!} />}
-          {supplierColour && session.supplier_host && (
-            <span
-              style={{
-                display: 'inline-flex',
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase' as const,
-                letterSpacing: '0.06em',
-                padding: '2px 9px',
-                borderRadius: 'var(--rmg-radius-xl)',
-                backgroundColor: `${supplierColour}18`,
-                color: supplierColour,
-                border: `1px solid ${supplierColour}`,
-              }}
-            >
-              {session.supplier_host}
-            </span>
-          )}
+      {supplierPillStyle && (
+        <div style={{ marginTop: 6 }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: 'uppercase' as const,
+              letterSpacing: '0.06em',
+              padding: '2px 8px',
+              borderRadius: 100,
+              backgroundColor: supplierPillStyle.background,
+              color: supplierPillStyle.color,
+            }}
+          >
+            {session.supplier_host}
+          </span>
         </div>
       )}
     </div>
@@ -438,6 +372,70 @@ function FilterBar({
   )
 }
 
+// ── Day partition ─────────────────────────────────────────────────────
+
+function partitionDay(sessions: ItinerarySession[]) {
+  const delivery = sessions.filter((s) => s.team === 'DELIVERY')
+  const service  = sessions.filter((s) => s.team === 'SERVICE')
+  const hasSplit = delivery.length > 0 && service.length > 0
+
+  if (!hasSplit) {
+    return { hasSplit: false, pre: [] as ItinerarySession[], delivery, service, post: [] as ItinerarySession[] }
+  }
+
+  const splitOrders = [...delivery, ...service].map((s) => s.sort_order ?? 0)
+  const minOrder    = Math.min(...splitOrders)
+  const maxOrder    = Math.max(...splitOrders)
+  const shared      = sessions.filter((s) => s.team !== 'DELIVERY' && s.team !== 'SERVICE')
+
+  return {
+    hasSplit: true,
+    pre:      shared.filter((s) => (s.sort_order ?? 0) < minOrder),
+    delivery,
+    service,
+    post:     shared.filter((s) => (s.sort_order ?? 0) > maxOrder),
+  }
+}
+
+// ── Location pin ──────────────────────────────────────────────────────
+
+export function LocationPin({ location }: { location: string }) {
+  const [hovered, setHovered] = useState(false)
+  const colour = hovered ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-1)'
+  const mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(location)
+
+  return (
+    <a
+      href={mapsUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        textDecoration: 'none',
+        color: colour,
+        marginTop: 3,
+      }}
+    >
+      <MapPin size={12} color={colour} strokeWidth={2} style={{ flexShrink: 0 }} />
+      <span
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {location}
+      </span>
+    </a>
+  )
+}
+
 // ── Day block ─────────────────────────────────────────────────────────
 
 function DayBlock({
@@ -457,6 +455,7 @@ function DayBlock({
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const isCGDay = day.date === CG_DAY_DATE
+  const { hasSplit, pre, delivery, service, post } = partitionDay(sessions)
 
   return (
     <div
@@ -492,7 +491,6 @@ function DayBlock({
           outline: 'none',
         }}
       >
-        {/* Heading + badges */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span
             style={{
@@ -537,7 +535,6 @@ function DayBlock({
           )}
         </div>
 
-        {/* Item count */}
         <span
           style={{
             fontFamily: 'var(--rmg-font-body)',
@@ -551,7 +548,6 @@ function DayBlock({
 
         <div style={{ flex: 1, height: 1, background: 'var(--rmg-color-grey-2)' }} />
 
-        {/* Chevron */}
         <span
           style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -564,36 +560,116 @@ function DayBlock({
         </span>
       </div>
 
-      {/* Body — single chronological column */}
+      {/* Body */}
       {expanded && (
-        <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)', padding: '16px 20px' }}>
-          {sessions.length === 0 ? (
-            <p style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 12, color: 'var(--rmg-color-grey-1)', margin: 0 }}>
-              No sessions scheduled.
-            </p>
-          ) : (
-            <>
-              {sessions.map((s) => (
-                <SessionCard key={s.id} session={s} dayDate={day.date} />
-              ))}
-              {day.notes && (
-                <p
+        <>
+          {hasSplit && (
+            <div
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
+                backgroundColor: 'var(--rmg-color-surface-light)',
+                padding: '12px 20px',
+                borderBottom: '2px solid var(--rmg-color-grey-2)',
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: 'var(--rmg-font-display)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: 'var(--rmg-color-text-heading)',
+                  marginBottom: 8,
+                }}
+              >
+                {day.day_label}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div
                   style={{
                     fontFamily: 'var(--rmg-font-body)',
-                    fontSize: 'var(--rmg-text-c2)',
-                    color: 'var(--rmg-color-text-light)',
-                    fontStyle: 'italic',
-                    margin: '8px 0 0',
-                    borderTop: '1px solid var(--rmg-color-grey-3)',
-                    paddingTop: 8,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#4a9eff',
+                    borderBottom: '2px solid #4a9eff',
+                    paddingBottom: 4,
                   }}
                 >
-                  {day.notes}
-                </p>
-              )}
-            </>
+                  Delivery — Matt &amp; Jonny
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#e8382a',
+                    borderBottom: '2px solid #e8382a',
+                    paddingBottom: 4,
+                  }}
+                >
+                  Service — Clare &amp; Mandy
+                </div>
+              </div>
+            </div>
           )}
-        </div>
+
+          <div style={{ borderTop: hasSplit ? 'none' : '1px solid var(--rmg-color-grey-3)', padding: '16px 20px' }}>
+            {sessions.length === 0 ? (
+              <p style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 12, color: 'var(--rmg-color-grey-1)', margin: 0 }}>
+                No sessions scheduled.
+              </p>
+            ) : hasSplit ? (
+              <>
+                {pre.map((s) => <SessionCard key={s.id} session={s} />)}
+
+                {pre.length > 0 && (
+                  <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
+                )}
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10,
+                    alignItems: 'start',
+                  }}
+                >
+                  <div>
+                    {delivery.map((s) => <SessionCard key={s.id} session={s} />)}
+                  </div>
+                  <div>
+                    {service.map((s) => <SessionCard key={s.id} session={s} />)}
+                  </div>
+                </div>
+
+                {post.length > 0 && (
+                  <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
+                )}
+
+                {post.map((s) => <SessionCard key={s.id} session={s} />)}
+              </>
+            ) : (
+              sessions.map((s) => <SessionCard key={s.id} session={s} />)
+            )}
+
+            {day.notes && (
+              <p
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-text-light)',
+                  fontStyle: 'italic',
+                  margin: '8px 0 0',
+                  borderTop: '1px solid var(--rmg-color-grey-3)',
+                  paddingTop: 8,
+                }}
+              >
+                {day.notes}
+              </p>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
@@ -691,13 +767,7 @@ export function ItineraryClient({
   todayStr: string
   tripState: TripState
 }) {
-  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => {
-    if (days.length === 0) return new Set()
-    const todayDay = days.find((d) => d.date === todayStr)
-    if (todayDay) return new Set([todayDay.id])
-    if (todayStr < days[0].date) return new Set([days[0].id])
-    return new Set([days[days.length - 1].id])
-  })
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(() => new Set(days.map((d) => d.id)))
 
   const [selectedFilters, setSelectedFilters] = useState<FilterKey[]>(['all'])
 
@@ -719,6 +789,11 @@ export function ItineraryClient({
     sessionsByDay.set(s.day_id, list)
   }
 
+  const hasSplitDays = days.some((day) => {
+    const ds = sessionsByDay.get(day.id) ?? []
+    return ds.some((s) => s.team === 'DELIVERY') && ds.some((s) => s.team === 'SERVICE')
+  })
+
   const filteredSessionsByDay = new Map<string, ItinerarySession[]>()
   for (const day of days) {
     const daySessions = sessionsByDay.get(day.id) ?? []
@@ -732,17 +807,59 @@ export function ItineraryClient({
 
   function toggleDay(id: string) {
     setExpandedDays((prev) => {
-      if (prev.has(id)) {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      }
-      return new Set([id])
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
     })
   }
 
   return (
     <>
+      {/* Track info strip — only when split days exist */}
+      {hasSplitDays && (
+        <div
+          style={{
+            backgroundColor: 'var(--rmg-color-surface-white)',
+            borderBottom: '1px solid var(--rmg-color-grey-3)',
+            padding: '10px 0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 'var(--rmg-spacing-05)',
+          }}
+        >
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              fontWeight: 700,
+              color: '#4a9eff',
+            }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#4a9eff', flexShrink: 0, display: 'inline-block' }} />
+            Delivery — Matt &amp; Jonny
+          </span>
+          <div style={{ width: 1, height: 16, backgroundColor: 'var(--rmg-color-grey-2)' }} />
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              fontWeight: 700,
+              color: '#e8382a',
+            }}
+          >
+            Service — Clare &amp; Mandy
+            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#e8382a', flexShrink: 0, display: 'inline-block' }} />
+          </span>
+        </div>
+      )}
+
       <FilterBar selectedFilters={selectedFilters} onToggle={toggleFilter} />
 
       {/* Controls */}
