@@ -13,6 +13,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  GanttChartSquare,
 } from 'lucide-react'
 import { ItineraryPanel } from './ItineraryPanel'
 
@@ -41,8 +42,9 @@ const NAV_SECTIONS: ReadonlyArray<NavSectionDef> = [
     label: 'KT Framework',
     items: [
       { label: 'Dashboard', icon: LayoutGrid, href: '/' },
-      { label: 'Domains', icon: BookOpen, href: '/domains' },
-      { label: 'Sessions', icon: ClipboardList, href: '/sessions' },
+      { label: 'Domains',  icon: BookOpen,         href: '/domains' },
+      { label: 'Timeline', icon: GanttChartSquare, href: '/timeline' },
+      { label: 'Sessions', icon: ClipboardList,    href: '/sessions' },
       { label: 'App Groups', icon: Layers, href: '/groups' },
       { label: 'People', icon: Users, href: '/people' },
     ],

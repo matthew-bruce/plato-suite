@@ -43,7 +43,12 @@ type DbSessionRow = {
   tessera_app_groups: { group_name: string } | { group_name: string }[] | null
 }
 
-export default async function PeoplePage() {
+export default async function PeoplePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ resource?: string }>
+}) {
+  const { resource: initialSelectedId = null } = await searchParams
   const [resourcesRes, suppliersRes] = await Promise.all([
     supabase
       .from('resources')
@@ -153,6 +158,7 @@ export default async function PeoplePage() {
             resources={resources}
             leadSessionsByResource={Object.fromEntries(sessionMap)}
             suppliers={suppliers}
+            initialSelectedId={initialSelectedId}
           />
         </div>
       </div>

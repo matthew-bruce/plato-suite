@@ -9,6 +9,7 @@ interface PeopleClientProps {
   resources: Resource[]
   leadSessionsByResource: Record<string, SessionRef[]>
   suppliers: SupplierInfo[]
+  initialSelectedId?: string | null
 }
 
 type SortKey = 'name' | 'role' | 'exp' | 'sessions' | null
@@ -469,13 +470,14 @@ export function PeopleClient({
   resources,
   leadSessionsByResource,
   suppliers,
+  initialSelectedId,
 }: PeopleClientProps) {
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
 
   const colourMap = useMemo(() => buildSupplierMap(suppliers), [suppliers])
   const supplierOrder = useMemo(
@@ -575,7 +577,7 @@ export function PeopleClient({
       <style>{`
         .people-layout {
           display: grid;
-          grid-template-columns: 1fr 360px;
+          grid-template-columns: 2fr minmax(320px, 1fr);
           gap: 20px;
           align-items: flex-start;
         }
@@ -846,12 +848,13 @@ export function PeopleClient({
           <div
             style={{
               width: '100%',
+              minWidth: 0,
               backgroundColor: 'var(--rmg-color-surface-white)',
               borderRadius: 'var(--rmg-radius-m)',
               boxShadow: 'var(--rmg-shadow-card)',
               position: 'sticky',
               top: 16,
-              overflow: 'hidden',
+              overflow: 'auto',
             }}
           >
             {selectedResource ? (
