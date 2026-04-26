@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   LayoutGrid,
   BookOpen,
@@ -15,6 +15,8 @@ import {
   ChevronRight,
   GanttChartSquare,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import type { ItineraryDay, ItinerarySession } from '@/app/itinerary/page'
 import { ItineraryPanel } from './ItineraryPanel'
 
 interface TesseraShellProps {
@@ -68,6 +70,9 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [isPanelOpen, setIsPanelOpen] = useState(false)
+  const [itineraryData, setItineraryData] = useState<{ days: ItineraryDay[]; sessions: ItinerarySession[] } | null>(null)
+  const [itineraryLoading, setItineraryLoading] = useState(false)
+  const hasFetched = useRef(false)
 
   useEffect(() => {
     const stored = localStorage.getItem(LS_KEY)
@@ -90,6 +95,23 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isPanelOpen])
+
+  useEffect(() => {
+    if (!isPanelOpen || hasFetched.current) return
+    hasFetched.current = true
+    setItineraryLoading(true)
+    void (async () => {
+      const [{ data: days }, { data: sessions }] = await Promise.all([
+        supabase.from('tessera_itinerary_days').select('*').order('date'),
+        supabase.from('tessera_itinerary_sessions').select('*').order('sort_order'),
+      ])
+      setItineraryData({
+        days:     (days     ?? []) as ItineraryDay[],
+        sessions: (sessions ?? []) as ItinerarySession[],
+      })
+      setItineraryLoading(false)
+    })()
   }, [isPanelOpen])
 
   function toggle() {
@@ -397,6 +419,9 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
         isOpen={isPanelOpen}
         onClose={() => setIsPanelOpen(false)}
         isMobile={isMobile}
+        days={itineraryData?.days ?? []}
+        sessions={itineraryData?.sessions ?? []}
+        loading={itineraryLoading}
       />
     </div>
   )

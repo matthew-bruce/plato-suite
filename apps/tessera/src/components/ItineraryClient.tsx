@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import type { ItineraryDay, ItinerarySession, TripState } from '@/app/itinerary/page'
 
 // Supplier colours for the host pill — no Tessera token for these
@@ -371,28 +371,59 @@ function FilterBar({
   )
 }
 
-// ── Day partition ─────────────────────────────────────────────────────
+// ── Three-zone day layout ─────────────────────────────────────────────
 
-function partitionDay(sessions: ItinerarySession[]) {
+export type DayZone = {
+  sessions: ItinerarySession[]
+  hasSplit: boolean
+  delivery: ItinerarySession[]
+  service:  ItinerarySession[]
+  all:      ItinerarySession[]
+}
+
+export type DayZones = {
+  morning:        DayZone
+  working:        DayZone
+  evening:        DayZone
+  anyZoneHasSplit: boolean
+}
+
+function buildZone(list: ItinerarySession[]): DayZone {
+  const sessions = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
   const delivery = sessions.filter((s) => s.team === 'DELIVERY')
   const service  = sessions.filter((s) => s.team === 'SERVICE')
-  const hasSplit = delivery.length > 0 && service.length > 0
+  const all      = sessions.filter((s) => s.team !== 'DELIVERY' && s.team !== 'SERVICE')
+  return { sessions, delivery, service, all, hasSplit: delivery.length > 0 || service.length > 0 }
+}
 
-  if (!hasSplit) {
-    return { hasSplit: false, pre: [] as ItinerarySession[], delivery, service, post: [] as ItinerarySession[] }
+export function zonifyDay(sessions: ItinerarySession[]): DayZones {
+  const m: ItinerarySession[] = []
+  const w: ItinerarySession[] = []
+  const e: ItinerarySession[] = []
+
+  for (const s of sessions) {
+    const t = s.time_start
+    if (t === null) {
+      if (s.session_type === 'hotel_checkout') m.push(s)
+      else if (s.session_type === 'hotel_checkin') e.push(s)
+      else w.push(s)
+    } else if (t < '11:00') {
+      m.push(s)
+    } else if (t < '17:30') {
+      w.push(s)
+    } else {
+      e.push(s)
+    }
   }
 
-  const splitOrders = [...delivery, ...service].map((s) => s.sort_order ?? 0)
-  const minOrder    = Math.min(...splitOrders)
-  const maxOrder    = Math.max(...splitOrders)
-  const shared      = sessions.filter((s) => s.team !== 'DELIVERY' && s.team !== 'SERVICE')
-
+  const morning = buildZone(m)
+  const working = buildZone(w)
+  const evening = buildZone(e)
   return {
-    hasSplit: true,
-    pre:      shared.filter((s) => (s.sort_order ?? 0) < minOrder),
-    delivery,
-    service,
-    post:     shared.filter((s) => (s.sort_order ?? 0) > maxOrder),
+    morning,
+    working,
+    evening,
+    anyZoneHasSplit: morning.hasSplit || working.hasSplit || evening.hasSplit,
   }
 }
 
@@ -439,7 +470,7 @@ function DayBlock({
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const isCGDay = day.date === CG_DAY_DATE
-  const { hasSplit, pre, delivery, service, post } = partitionDay(sessions)
+  const { morning, working, evening, anyZoneHasSplit } = zonifyDay(sessions)
 
   return (
     <div
@@ -546,68 +577,89 @@ function DayBlock({
 
       {/* Body */}
       {expanded && (
-        <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)', padding: '16px 20px' }}>
-          {sessions.length === 0 ? (
-            <p style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 12, color: 'var(--rmg-color-grey-1)', margin: 0 }}>
-              No sessions scheduled.
-            </p>
-          ) : hasSplit ? (
-            <>
-              {/* Zone 1 — Pre-day shared events */}
-              {pre.map((s) => <SessionCard key={s.id} session={s} />)}
-
-              {/* Separator: pre → split */}
-              {pre.length > 0 && (
-                <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
-              )}
-
-              {/* Zone 2 — Split columns */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: 10,
-                  alignItems: 'start',
-                }}
-              >
-                <div>
-                  <ColHeader label="Delivery — Matt & Jonny" colour="#4a9eff" />
-                  {delivery.map((s) => <SessionCard key={s.id} session={s} />)}
-                </div>
-                <div>
-                  <ColHeader label="Service — Clare & Mandy" colour="#e8382a" />
-                  {service.map((s) => <SessionCard key={s.id} session={s} />)}
-                </div>
-              </div>
-
-              {/* Separator: split → post */}
-              {post.length > 0 && (
-                <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />
-              )}
-
-              {/* Zone 3 — Post-day shared events */}
-              {post.map((s) => <SessionCard key={s.id} session={s} />)}
-            </>
-          ) : (
-            sessions.map((s) => <SessionCard key={s.id} session={s} />)
-          )}
-
-          {day.notes && (
-            <p
+        <>
+          {anyZoneHasSplit && (
+            <div
               style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 'var(--rmg-text-c2)',
-                color: 'var(--rmg-color-text-light)',
-                fontStyle: 'italic',
-                margin: '8px 0 0',
-                borderTop: '1px solid var(--rmg-color-grey-3)',
-                paddingTop: 8,
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
+                backgroundColor: 'var(--rmg-color-surface-light)',
+                padding: '12px 20px',
+                borderBottom: '2px solid var(--rmg-color-grey-2)',
               }}
             >
-              {day.notes}
-            </p>
+              <div
+                style={{
+                  fontFamily: 'var(--rmg-font-display)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: 'var(--rmg-color-text-heading)',
+                  marginBottom: 8,
+                }}
+              >
+                {day.day_label}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 13, fontWeight: 700, color: '#4a9eff', borderBottom: '2px solid #4a9eff', paddingBottom: 4 }}>
+                  Delivery — Matt &amp; Jonny
+                </div>
+                <div style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 13, fontWeight: 700, color: '#e8382a', borderBottom: '2px solid #e8382a', paddingBottom: 4 }}>
+                  Service — Clare &amp; Mandy
+                </div>
+              </div>
+            </div>
           )}
-        </div>
+
+          <div style={{ borderTop: anyZoneHasSplit ? 'none' : '1px solid var(--rmg-color-grey-3)', padding: '16px 20px' }}>
+            {sessions.length === 0 ? (
+              <p style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 12, color: 'var(--rmg-color-grey-1)', margin: 0 }}>
+                No sessions scheduled.
+              </p>
+            ) : (
+              <>
+                {[
+                  { zone: morning, key: 'morning' },
+                  { zone: working, key: 'working' },
+                  { zone: evening, key: 'evening' },
+                ]
+                  .filter(({ zone }) => zone.sessions.length > 0)
+                  .map(({ zone, key }, i) => (
+                    <Fragment key={key}>
+                      {i > 0 && <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '8px 0' }} />}
+                      {zone.hasSplit ? (
+                        <>
+                          {zone.all.map((s) => <SessionCard key={s.id} session={s} />)}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'start' }}>
+                            <div>{zone.delivery.map((s) => <SessionCard key={s.id} session={s} />)}</div>
+                            <div>{zone.service.map((s) => <SessionCard key={s.id} session={s} />)}</div>
+                          </div>
+                        </>
+                      ) : (
+                        zone.sessions.map((s) => <SessionCard key={s.id} session={s} />)
+                      )}
+                    </Fragment>
+                  ))}
+              </>
+            )}
+
+            {day.notes && (
+              <p
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 'var(--rmg-text-c2)',
+                  color: 'var(--rmg-color-text-light)',
+                  fontStyle: 'italic',
+                  margin: '8px 0 0',
+                  borderTop: '1px solid var(--rmg-color-grey-3)',
+                  paddingTop: 8,
+                }}
+              >
+                {day.notes}
+              </p>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
