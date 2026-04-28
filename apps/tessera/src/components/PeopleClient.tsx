@@ -549,15 +549,39 @@ export function PeopleClient({
   }, [resources])
 
   const functionCounts = useMemo(() => {
+    // Apply supplier, location, and search filters — but NOT the function filter —
+    // so each chip shows how many people would be visible if that function were selected.
+    let base = resources
+
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      base = base.filter((r) =>
+        [r.resource_name, r.resource_job_title].some(
+          (f) => f?.toLowerCase().includes(q) ?? false,
+        ),
+      )
+    }
+
+    if (selectedSuppliers.length > 0) {
+      base = base.filter((r) => {
+        const s = getSupplier(r.suppliers)
+        return s != null && selectedSuppliers.includes(s.supplier_abbreviation)
+      })
+    }
+
+    if (selectedLocation) {
+      base = base.filter((r) => r.resource_location === selectedLocation)
+    }
+
     const counts: Record<string, number> = {
-      ALL: resources.length,
+      ALL: base.length,
       FACTORY: 0,
       SERVICE: 0,
       MIGRATION: 0,
       CLOUD_OPS: 0,
       __UNASSIGNED__: 0,
     }
-    for (const r of resources) {
+    for (const r of base) {
       if (r.resource_function === null) {
         counts.__UNASSIGNED__++
       } else if (r.resource_function in counts) {
@@ -565,7 +589,7 @@ export function PeopleClient({
       }
     }
     return counts
-  }, [resources])
+  }, [resources, search, selectedSuppliers, selectedLocation])
 
   const filtered = useMemo(() => {
     let result = resources
