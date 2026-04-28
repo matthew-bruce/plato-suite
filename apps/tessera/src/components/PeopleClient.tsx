@@ -45,7 +45,7 @@ function filterPill(active: boolean): React.CSSProperties {
   }
 }
 
-const GRID_COLS = '1fr 150px 80px 50px 36px'
+const GRID_COLS = '1fr 150px 80px 90px 50px 36px'
 
 const labelStyle: React.CSSProperties = {
   fontFamily: 'var(--rmg-font-body)',
@@ -55,6 +55,29 @@ const labelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
   flexShrink: 0,
+}
+
+const FUNCTION_OPTIONS: Array<{ label: string; value: string | null }> = [
+  { label: 'All', value: null },
+  { label: 'Factory', value: 'FACTORY' },
+  { label: 'Service', value: 'SERVICE' },
+  { label: 'Migration', value: 'MIGRATION' },
+  { label: 'Cloud Ops', value: 'CLOUD_OPS' },
+  { label: 'Unassigned', value: '__UNASSIGNED__' },
+]
+
+const FUNCTION_BADGE: Record<string, { bg: string; color: string }> = {
+  FACTORY: { bg: '#dbeafe', color: '#1d4ed8' },
+  SERVICE: { bg: '#dcfce7', color: '#15803d' },
+  MIGRATION: { bg: '#fef3c7', color: '#92400e' },
+  CLOUD_OPS: { bg: '#e0f2fe', color: '#0369a1' },
+}
+
+const FUNCTION_LABELS: Record<string, string> = {
+  FACTORY: 'Factory',
+  SERVICE: 'Service',
+  MIGRATION: 'Migration',
+  CLOUD_OPS: 'Cloud Ops',
 }
 
 function SortButton({
@@ -222,6 +245,36 @@ function PersonRow({
           }}
         >
           {supplier.supplier_abbreviation}
+        </span>
+      ) : (
+        <span
+          style={{
+            color: 'var(--rmg-color-text-light)',
+            fontSize: 'var(--rmg-text-c2)',
+          }}
+        >
+          —
+        </span>
+      )}
+
+      {/* Function badge */}
+      {resource.resource_function && FUNCTION_BADGE[resource.resource_function] ? (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'center',
+            padding: '2px 7px',
+            borderRadius: 'var(--rmg-radius-s)',
+            fontFamily: 'var(--rmg-font-body)',
+            fontSize: '10px',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            backgroundColor: FUNCTION_BADGE[resource.resource_function].bg,
+            color: FUNCTION_BADGE[resource.resource_function].color,
+          }}
+        >
+          {FUNCTION_LABELS[resource.resource_function] ?? resource.resource_function}
         </span>
       ) : (
         <span
@@ -478,6 +531,7 @@ export function PeopleClient({
   const [sortKey, setSortKey] = useState<SortKey>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
+  const [selectedFunction, setSelectedFunction] = useState<string | null>(null)
 
   const colourMap = useMemo(() => buildSupplierMap(suppliers), [suppliers])
   const supplierOrder = useMemo(
@@ -492,6 +546,25 @@ export function PeopleClient({
     const seen = new Set<string>()
     for (const r of resources) if (r.resource_location) seen.add(r.resource_location)
     return [...seen].sort()
+  }, [resources])
+
+  const functionCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      ALL: resources.length,
+      FACTORY: 0,
+      SERVICE: 0,
+      MIGRATION: 0,
+      CLOUD_OPS: 0,
+      __UNASSIGNED__: 0,
+    }
+    for (const r of resources) {
+      if (r.resource_function === null) {
+        counts.__UNASSIGNED__++
+      } else if (r.resource_function in counts) {
+        counts[r.resource_function]++
+      }
+    }
+    return counts
   }, [resources])
 
   const filtered = useMemo(() => {
@@ -515,6 +588,14 @@ export function PeopleClient({
 
     if (selectedLocation) {
       result = result.filter((r) => r.resource_location === selectedLocation)
+    }
+
+    if (selectedFunction !== null) {
+      if (selectedFunction === '__UNASSIGNED__') {
+        result = result.filter((r) => r.resource_function === null)
+      } else {
+        result = result.filter((r) => r.resource_function === selectedFunction)
+      }
     }
 
     return [...result].sort((a, b) => {
@@ -553,6 +634,7 @@ export function PeopleClient({
     search,
     selectedSuppliers,
     selectedLocation,
+    selectedFunction,
     sortKey,
     sortDir,
     supplierOrder,
@@ -601,13 +683,19 @@ export function PeopleClient({
             backgroundColor: 'var(--rmg-color-surface-white)',
             borderRadius: 'var(--rmg-radius-m)',
             boxShadow: 'var(--rmg-shadow-card)',
-            padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: 'var(--rmg-spacing-04)',
-            alignItems: 'center',
+            overflow: 'hidden',
           }}
         >
+          {/* Row 1: Search + Supplier + Location + count */}
+          <div
+            style={{
+              padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 'var(--rmg-spacing-04)',
+              alignItems: 'center',
+            }}
+          >
           {/* Search */}
           <div
             style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}
@@ -761,6 +849,45 @@ export function PeopleClient({
           >
             {filtered.length} result{filtered.length === 1 ? '' : 's'}
           </span>
+          </div>
+
+          {/* Row 2: Function filter */}
+          <div
+            style={{
+              padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 'var(--rmg-spacing-02)',
+              alignItems: 'center',
+              backgroundColor: 'var(--rmg-color-grey-4)',
+              borderTop: '1px solid var(--rmg-color-grey-3)',
+            }}
+          >
+            <span style={labelStyle}>Function</span>
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              {FUNCTION_OPTIONS.map(({ label, value }) => {
+                const countKey = value ?? 'ALL'
+                const count = functionCounts[countKey] ?? 0
+                const isActive = selectedFunction === value
+                return (
+                  <button
+                    key={countKey}
+                    type="button"
+                    onClick={() => {
+                      if (value === null) {
+                        setSelectedFunction(null)
+                      } else {
+                        setSelectedFunction(selectedFunction === value ? null : value)
+                      }
+                    }}
+                    style={filterPill(isActive)}
+                  >
+                    {label} {count}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Two-column layout */}
@@ -800,6 +927,7 @@ export function PeopleClient({
                 onSort={handleSort}
               />
               <span style={labelStyle}>Supplier</span>
+              <span style={labelStyle}>Function</span>
               <SortButton
                 label="Exp"
                 sortKey="exp"
