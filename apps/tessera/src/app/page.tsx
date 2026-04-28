@@ -443,82 +443,78 @@ function StatCard({
         backgroundColor: 'var(--rmg-color-surface-white)',
         borderRadius: 'var(--rmg-radius-m)',
         boxShadow: 'var(--rmg-shadow-card)',
-        padding: '20px 24px 0',
-        overflow: 'hidden',
+        padding: '20px 24px 16px',
       }}
     >
-      {/* Text content — paddingBottom creates space before pct label */}
-      <div style={{ paddingBottom: 14 }}>
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.07em',
-            color: 'var(--rmg-color-grey-1)',
-            marginBottom: 8,
-          }}
-        >
-          {label}
-        </div>
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-display)',
-            fontSize: '1.75rem',
-            fontWeight: 700,
-            color: 'var(--rmg-color-text-heading)',
-            letterSpacing: '-0.02em',
-            lineHeight: 1.1,
-            marginBottom: 4,
-          }}
-        >
-          {number}
-        </div>
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 12,
-            color: 'var(--rmg-color-grey-1)',
-          }}
-        >
-          {subLabel}
-        </div>
-      </div>
-
-      {/* Percentage label above bar */}
-      {progressLabel && (
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 11,
-            fontWeight: 600,
-            color: progressColour,
-            marginBottom: 6,
-          }}
-        >
-          {progressLabel}
-        </div>
-      )}
-
-      {/* Progress bar — negative margin makes it flush to card edges */}
       <div
         style={{
-          marginLeft: -24,
-          marginRight: -24,
-          height: 5,
-          backgroundColor: 'var(--rmg-color-grey-3)',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.07em',
+          color: 'var(--rmg-color-grey-1)',
+          marginBottom: 8,
         }}
       >
-        {progressPct > 0 && (
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: '1.75rem',
+          fontWeight: 700,
+          color: 'var(--rmg-color-text-heading)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.1,
+          marginBottom: 4,
+        }}
+      >
+        {number}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: 'var(--rmg-color-grey-1)',
+        }}
+      >
+        {subLabel}
+      </div>
+
+      {/* Progress section */}
+      <div style={{ marginTop: 12 }}>
+        {progressLabel && (
           <div
             style={{
-              width: `${progressPct}%`,
-              height: '100%',
-              backgroundColor: progressColour,
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: progressColour,
+              marginBottom: 5,
             }}
-          />
+          >
+            {progressLabel}
+          </div>
         )}
+        <div
+          style={{
+            height: 5,
+            borderRadius: 100,
+            backgroundColor: 'var(--rmg-color-grey-3)',
+            overflow: 'hidden',
+          }}
+        >
+          {progressPct > 0 && (
+            <div
+              style={{
+                width: `${progressPct}%`,
+                height: '100%',
+                backgroundColor: progressColour,
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
