@@ -117,6 +117,18 @@ export default async function Home() {
     ),
   )
 
+  const sessionsPct = plannedSessionsCount > 0 ? Math.round((completedCount / plannedSessionsCount) * 100) : 0
+  const sessionsRag = getProgressRag(sessionsPct)
+  const hoursPct = Number(plannedHours) > 0 ? Math.round((Math.round(hoursDelivered) / Number(plannedHours)) * 100) : 0
+  const hoursRag = getProgressRag(hoursPct)
+  const totalDays = Math.round(
+    (KT_END.getTime() - KT_START.getTime()) / (1000 * 60 * 60 * 24),
+  )
+  const elapsedDays = Math.max(
+    0,
+    Math.floor((today.getTime() - KT_START.getTime()) / (1000 * 60 * 60 * 24)),
+  )
+
   const daysToIndia = Math.ceil(
     (INDIA_DEPARTURE.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
   )
@@ -139,7 +151,7 @@ export default async function Home() {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: var(--rmg-spacing-05);
-          margin-bottom: var(--rmg-spacing-08);
+          margin-bottom: var(--rmg-spacing-04);
         }
         .ds-domain-grid {
           display: grid;
@@ -255,18 +267,85 @@ export default async function Home() {
               label="Sessions Completed"
               number={String(completedCount)}
               subLabel={`of ${plannedSessionsCount} planned`}
+              progressPct={sessionsPct}
+              progressColour={sessionsRag.colour}
+              progressLabel={sessionsRag.label}
             />
             <StatCard
               label="Hours Delivered"
               number={String(Math.round(hoursDelivered))}
               subLabel={`of ${plannedHours} planned`}
+              progressPct={hoursPct}
+              progressColour={hoursRag.colour}
+              progressLabel={hoursRag.label}
             />
             <StatCard
               label="KT Timeline"
               number={`${Math.round(timelinePct)}%`}
               subLabel="1 Apr → 3 Jul 2026"
+              progressPct={Math.round(timelinePct)}
+              progressColour="var(--rmg-color-blue)"
+              progressLabel={`${elapsedDays} of ${totalDays} days elapsed`}
             />
             <BrandMomentCard daysToIndia={daysToIndia} />
+          </div>
+
+          {/* ── RAG key ── */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 16,
+              flexWrap: 'wrap',
+              marginBottom: 'var(--rmg-spacing-06)',
+            }}
+          >
+            <span
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--rmg-color-grey-1)',
+              }}
+            >
+              KT progress key:
+            </span>
+            {(
+              [
+                {
+                  colour: 'var(--rmg-color-green-contrast)',
+                  label: 'Green',
+                  text: '80%+ complete',
+                },
+                {
+                  colour: 'var(--rmg-color-orange)',
+                  label: 'Amber',
+                  text: '30–79% complete',
+                },
+                {
+                  colour: 'var(--rmg-color-red)',
+                  label: 'Red',
+                  text: '< 30% complete',
+                },
+              ] as const
+            ).map(({ colour, label, text }) => (
+              <span
+                key={label}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 11,
+                  color: 'var(--rmg-color-grey-1)',
+                }}
+              >
+                <span style={{ color: colour }}>●</span>
+                <span>
+                  {label} — {text}
+                </span>
+              </span>
+            ))}
           </div>
 
           {/* ── Domain Readiness ── */}
@@ -313,6 +392,14 @@ export default async function Home() {
   )
 }
 
+// ── RAG progress helper ────────────────────────────────────────────────────────
+
+function getProgressRag(pct: number): { colour: string; label: string } {
+  if (pct >= 80) return { colour: 'var(--rmg-color-green-contrast)', label: `${pct}% complete` }
+  if (pct >= 30) return { colour: 'var(--rmg-color-orange)', label: `${pct}% complete` }
+  return { colour: 'var(--rmg-color-red)', label: `${pct}% complete` }
+}
+
 // ── Countdown chip (header, Section 8) ────────────────────────────────────────
 
 function CountdownChip({ daysToIndia }: { daysToIndia: number }) {
@@ -352,10 +439,16 @@ function StatCard({
   label,
   number,
   subLabel,
+  progressPct = 0,
+  progressColour = 'var(--rmg-color-grey-3)',
+  progressLabel,
 }: {
   label: string
   number: string
   subLabel: string
+  progressPct?: number
+  progressColour?: string
+  progressLabel?: string
 }) {
   return (
     <div
@@ -363,9 +456,7 @@ function StatCard({
         backgroundColor: 'var(--rmg-color-surface-white)',
         borderRadius: 'var(--rmg-radius-m)',
         boxShadow: 'var(--rmg-shadow-card)',
-        padding: '20px 24px',
-        position: 'relative',
-        overflow: 'hidden',
+        padding: '20px 24px 16px',
       }}
     >
       <div
@@ -399,22 +490,45 @@ function StatCard({
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
           color: 'var(--rmg-color-grey-1)',
-          marginBottom: 16,
         }}
       >
         {subLabel}
       </div>
-      {/* Bottom accent bar — grey-3 default (no coloured accent unless data warrants) */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 3,
-          backgroundColor: 'var(--rmg-color-grey-3)',
-        }}
-      />
+
+      {/* Progress section */}
+      <div style={{ marginTop: 12 }}>
+        {progressLabel && (
+          <div
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 11,
+              fontWeight: 600,
+              color: progressColour,
+              marginBottom: 5,
+            }}
+          >
+            {progressLabel}
+          </div>
+        )}
+        <div
+          style={{
+            height: 5,
+            borderRadius: 100,
+            backgroundColor: 'var(--rmg-color-grey-3)',
+            overflow: 'hidden',
+          }}
+        >
+          {progressPct > 0 && (
+            <div
+              style={{
+                width: `${progressPct}%`,
+                height: '100%',
+                backgroundColor: progressColour,
+              }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   )
 }
