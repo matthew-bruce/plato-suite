@@ -324,47 +324,47 @@ export function SessionsClient({
           </p>
         </div>
 
-        {/* Tabs — full width */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 2,
-            borderBottom: '1px solid var(--rmg-color-grey-3)',
-            marginBottom: 'var(--rmg-spacing-04)',
-          }}
-        >
-          {(['list', 'calendar'] as TabId[]).map((t) => {
-            const active = activeTab === t
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setActiveTab(t)}
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 14,
-                  fontWeight: active ? 700 : 500,
-                  color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-                  padding: '8px 16px',
-                  borderBottom: active
-                    ? '2px solid var(--rmg-color-red)'
-                    : '2px solid transparent',
-                  marginBottom: -1,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {t === 'list' ? 'List' : 'Calendar'}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Two-column content area — list/calendar + detail panel */}
+        {/* Two-column layout — tabs+list on left, detail panel on right */}
         <div className="sessions-layout">
+          {/* Left column: tabs + list or calendar */}
           <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 2,
+                borderBottom: '1px solid var(--rmg-color-grey-3)',
+                marginBottom: 'var(--rmg-spacing-04)',
+              }}
+            >
+              {(['list', 'calendar'] as TabId[]).map((t) => {
+                const active = activeTab === t
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setActiveTab(t)}
+                    style={{
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 14,
+                      fontWeight: active ? 700 : 500,
+                      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+                      padding: '8px 16px',
+                      borderBottom: active
+                        ? '2px solid var(--rmg-color-red)'
+                        : '2px solid transparent',
+                      marginBottom: -1,
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      outline: 'none',
+                    }}
+                  >
+                    {t === 'list' ? 'List' : 'Calendar'}
+                  </button>
+                )
+              })}
+            </div>
+
             {activeTab === 'list' && (
               <ProgressView
                 groups={groups}
@@ -400,7 +400,7 @@ export function SessionsClient({
             )}
           </div>
 
-          {/* Detail panel */}
+          {/* Right column: detail panel — sticky alongside the full left column */}
           <div className="sessions-detail-col" style={{ position: 'sticky', top: 20 }}>
             <DetailPanel
               session={selectedSession}
@@ -1195,29 +1195,29 @@ function AllSessionsView({
       {/* Header row */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 90px 140px 90px 60px 60px 100px',
+          display: 'flex',
+          alignItems: 'center',
           backgroundColor: 'var(--rmg-color-grey-4)',
           borderBottom: '1px solid var(--rmg-color-grey-3)',
         }}
       >
-        <div style={{ ...headerCell, paddingLeft: 20 }}>Session</div>
-        <div className="sessions-col-group" style={headerCell}>
+        <div style={{ ...headerCell, flex: 1, minWidth: 0, paddingLeft: 20 }}>Session</div>
+        <div className="sessions-col-group" style={{ ...headerCell, width: 90, flexShrink: 0 }}>
           Group
         </div>
-        <div className="sessions-col-lead" style={headerCell}>
+        <div className="sessions-col-lead" style={{ ...headerCell, width: 140, flexShrink: 0 }}>
           Lead
         </div>
-        <div className="sessions-col-date" style={headerCell}>
+        <div className="sessions-col-date" style={{ ...headerCell, width: 90, flexShrink: 0 }}>
           Date
         </div>
-        <div className="sessions-col-people" style={{ ...headerCell, textAlign: 'right' }}>
+        <div className="sessions-col-people" style={{ ...headerCell, width: 60, flexShrink: 0, textAlign: 'right' }}>
           People
         </div>
-        <div className="sessions-col-dur" style={{ ...headerCell, textAlign: 'right' }}>
+        <div className="sessions-col-dur" style={{ ...headerCell, width: 60, flexShrink: 0, textAlign: 'right' }}>
           Dur.
         </div>
-        <div style={headerCell}>Status</div>
+        <div style={{ ...headerCell, width: 100, flexShrink: 0 }}>Status</div>
       </div>
 
       {/* Rows */}
@@ -1291,9 +1291,9 @@ function FlatSessionRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 90px 160px 110px 56px 56px 110px',
+        display: 'flex',
         alignItems: 'center',
+        width: '100%',
         borderBottom: isLast ? 'none' : '1px solid var(--rmg-color-grey-3)',
         backgroundColor: bg,
         cursor: 'pointer',
@@ -1301,8 +1301,8 @@ function FlatSessionRow({
         borderLeft: selected ? '3px solid var(--rmg-color-red)' : '3px solid transparent',
       }}
     >
-      {/* Session name + group subtitle — reduced weight */}
-      <div style={{ padding: '12px 12px 12px 17px' }}>
+      {/* Session name + group subtitle */}
+      <div style={{ flex: 1, minWidth: 0, padding: '12px 12px 12px 17px' }}>
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
@@ -1310,6 +1310,9 @@ function FlatSessionRow({
             fontWeight: 500,
             color: 'var(--rmg-color-dark-grey)',
             lineHeight: 1.3,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
           {highlightMatch(session.session_name, search)}
@@ -1321,6 +1324,9 @@ function FlatSessionRow({
               fontSize: 12,
               color: 'var(--rmg-color-grey-1)',
               marginTop: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
             {highlightMatch(group.group_name, search)}
@@ -1331,7 +1337,7 @@ function FlatSessionRow({
       {/* Group badge */}
       <div
         className="sessions-col-group"
-        style={{ padding: '12px', display: 'flex', alignItems: 'center' }}
+        style={{ width: 90, flexShrink: 0, padding: '12px', display: 'flex', alignItems: 'center' }}
       >
         {group && (
           <span
@@ -1354,7 +1360,7 @@ function FlatSessionRow({
       {/* Lead chip */}
       <div
         className="sessions-col-lead"
-        style={{ padding: '12px', display: 'flex', alignItems: 'center' }}
+        style={{ width: 140, flexShrink: 0, padding: '12px', display: 'flex', alignItems: 'center' }}
       >
         {lead && (
           <SupplierChip
@@ -1369,6 +1375,8 @@ function FlatSessionRow({
       <div
         className="sessions-col-date"
         style={{
+          width: 90,
+          flexShrink: 0,
           padding: '12px',
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
@@ -1383,6 +1391,8 @@ function FlatSessionRow({
       <div
         className="sessions-col-people"
         style={{
+          width: 60,
+          flexShrink: 0,
           padding: '12px',
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
@@ -1398,6 +1408,8 @@ function FlatSessionRow({
       <div
         className="sessions-col-dur"
         style={{
+          width: 60,
+          flexShrink: 0,
           padding: '12px',
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
@@ -1411,7 +1423,7 @@ function FlatSessionRow({
       </div>
 
       {/* Status badge */}
-      <div style={{ padding: '12px' }}>
+      <div style={{ width: 100, flexShrink: 0, padding: '12px', display: 'flex', alignItems: 'center' }}>
         <StatusBadge status={session.status} />
       </div>
     </div>
