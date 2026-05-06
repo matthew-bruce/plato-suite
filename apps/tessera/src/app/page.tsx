@@ -22,6 +22,7 @@ type AppGroup = {
   group_number: number
   group_name: string
   category: string | null
+  is_active: boolean
   total_planned_sessions: number
   total_planned_hours: number | null
 }
@@ -54,7 +55,7 @@ export default async function Home() {
     supabase
       .from('tessera_app_groups')
       .select(
-        'id, group_number, group_name, category, total_planned_sessions, total_planned_hours',
+        'id, group_number, group_name, category, is_active, total_planned_sessions, total_planned_hours',
       )
       .order('group_number'),
     supabase
@@ -68,6 +69,20 @@ export default async function Home() {
   const appGroups = (appGroupsRes.data ?? []) as AppGroup[]
   const domains = (domainsRes.data ?? []) as Domain[]
   const ragScores = (ragRes.data ?? []) as RagScore[]
+
+  const groupActiveMap: Record<string, boolean> = {}
+  for (const g of appGroups) groupActiveMap[g.id] = g.is_active
+
+  const countedSessions = sessions.filter((s) => {
+    if (s.status === 'CANCELLED') return false
+    const parentActive = s.app_group_id ? (groupActiveMap[s.app_group_id] ?? true) : true
+    if (!parentActive && s.status !== 'COMPLETED') return false
+    return true
+  })
+
+  const plannedSessionsCount = countedSessions.length
+  const rawPlannedHours = countedSessions.reduce((sum, s) => sum + (Number(s.duration_hrs) || 0), 0)
+  const plannedHours = Number.isInteger(rawPlannedHours) ? rawPlannedHours : rawPlannedHours.toFixed(1)
 
   const completedSessions = sessions.filter((s) => s.status === 'COMPLETED')
   const completedCount = completedSessions.length
@@ -239,12 +254,12 @@ export default async function Home() {
             <StatCard
               label="Sessions Completed"
               number={String(completedCount)}
-              subLabel="of 125 planned"
+              subLabel={`of ${plannedSessionsCount} planned`}
             />
             <StatCard
               label="Hours Delivered"
               number={String(Math.round(hoursDelivered))}
-              subLabel="of 322 planned"
+              subLabel={`of ${plannedHours} planned`}
             />
             <StatCard
               label="KT Timeline"
