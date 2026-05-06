@@ -26,6 +26,7 @@ export type Group = {
   group_number: number
   group_name: string
   category: string | null
+  is_active: boolean
   total_planned_sessions: number
   total_planned_hours: number | null
   tessera_app_group_resources: GroupResourceRow[]
@@ -58,7 +59,7 @@ export default async function AppGroupsPage() {
     supabase
       .from('tessera_app_groups')
       .select(`
-        id, group_number, group_name, category, total_planned_sessions, total_planned_hours,
+        id, group_number, group_name, category, is_active, total_planned_sessions, total_planned_hours,
         tessera_app_group_resources (
           role,
           resources (
@@ -123,10 +124,18 @@ export default async function AppGroupsPage() {
     lead_name: leadNameMap[s.id] ?? null,
   }))
 
-  const rawHours = groups.reduce(
-    (sum, g) => sum + (Number(g.total_planned_hours) || 0),
-    0,
-  )
+  const groupActiveMap: Record<string, boolean> = {}
+  for (const g of groups) groupActiveMap[g.id] = g.is_active
+
+  // Exclude cancelled sessions and incomplete sessions in inactive groups (completed in inactive groups still count)
+  const countedSessions = sessions.filter((s) => {
+    if (s.status === 'CANCELLED') return false
+    const parentActive = s.app_group_id ? (groupActiveMap[s.app_group_id] ?? true) : true
+    if (!parentActive && s.status !== 'COMPLETED') return false
+    return true
+  })
+
+  const rawHours = countedSessions.reduce((sum, s) => sum + (Number(s.duration_hrs) || 0), 0)
   const totalHours = Number.isInteger(rawHours) ? rawHours : rawHours.toFixed(1)
 
   return (
@@ -167,7 +176,7 @@ export default async function AppGroupsPage() {
                 marginTop: 6,
               }}
             >
-              {groups.length} application groups · {sessions.length} sessions ·{' '}
+              {groups.length} application groups · {countedSessions.length} sessions ·{' '}
               {totalHours} hrs
             </p>
           </div>

@@ -17,7 +17,6 @@ type GroupDerived = {
   hasMatches: boolean
   hasNoMatches: boolean
   leads: Array<{ id: string; name: string; supplier: SupplierRef | null }>
-  headerColour: string
 }
 
 interface AppGroupsClientProps {
@@ -52,6 +51,15 @@ function statusLabel(status: KtSession['status']): string {
 function statusColour(status: KtSession['status']): string {
   if (status === 'RESCHEDULED') return STATUS_COLOURS.IN_PROGRESS
   return STATUS_COLOURS[status as keyof typeof STATUS_COLOURS] ?? STATUS_COLOURS.SCHEDULED
+}
+
+function statusBadgeColors(status: KtSession['status']): { bg: string; fg: string } {
+  switch (status) {
+    case 'COMPLETED':   return { bg: '#C1E3C1', fg: '#008A00' }
+    case 'SCHEDULED':   return { bg: '#EFF6FF', fg: '#1E40AF' }
+    case 'CANCELLED':   return { bg: '#F9CFD6', fg: '#B70D12' }
+    default:            return { bg: statusColour(status), fg: 'white' }
+  }
 }
 
 function matchesStatusFilter(s: KtSession, f: StatusFilter): boolean {
@@ -170,7 +178,6 @@ export function AppGroupsClient({ groups, sessions, supplierMap }: AppGroupsClie
   const [searchFocused, setSearchFocused] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [expandedBeyond4, setExpandedBeyond4] = useState<Set<string>>(new Set())
   const [activeTab, setActiveTab] = useState<'progress' | 'calendar'>('progress')
 
   const groupDerived = useMemo(() => {
@@ -198,11 +205,6 @@ export function AppGroupsClient({ groups, sessions, supplierMap }: AppGroupsClie
         leads.push({ id: r.resource_id, name: r.resource_name, supplier: unwrap(r.suppliers) })
       }
 
-      const firstSupplier = leads[0]?.supplier
-      const headerColour = firstSupplier
-        ? getSupplierColour(firstSupplier.supplier_abbreviation, supplierMap)
-        : 'var(--rmg-color-grey-3)'
-
       map.set(g.id, {
         allSessions,
         filteredSessions: filtered,
@@ -211,7 +213,6 @@ export function AppGroupsClient({ groups, sessions, supplierMap }: AppGroupsClie
         hasMatches: q.length > 0 && searchMatches.length > 0,
         hasNoMatches: q.length > 0 && searchMatches.length === 0,
         leads,
-        headerColour,
       })
     }
     return map
@@ -346,8 +347,6 @@ export function AppGroupsClient({ groups, sessions, supplierMap }: AppGroupsClie
             setStatusFilter={setStatusFilter}
             expandedGroups={expandedGroups}
             toggleGroup={toggleGroup}
-            expandedBeyond4={expandedBeyond4}
-            setExpandedBeyond4={setExpandedBeyond4}
             searchStats={searchStats}
             onExpandAll={() => setExpandedGroups(new Set(groups.map((g) => g.id)))}
             onCollapseAll={() => setExpandedGroups(new Set())}
@@ -375,8 +374,6 @@ interface ProgressTabProps {
   setStatusFilter: (v: StatusFilter) => void
   expandedGroups: Set<string>
   toggleGroup: (id: string) => void
-  expandedBeyond4: Set<string>
-  setExpandedBeyond4: React.Dispatch<React.SetStateAction<Set<string>>>
   searchStats: { totalMatches: number; groupsWithMatches: number; groupsHidden: number } | null
   onExpandAll: () => void
   onCollapseAll: () => void
@@ -510,14 +507,6 @@ function ProgressTab(p: ProgressTabProps) {
               expanded={p.expandedGroups.has(g.id)}
               onToggle={() => p.toggleGroup(g.id)}
               searchQuery={p.searchQuery}
-              beyond4Expanded={p.expandedBeyond4.has(g.id)}
-              onToggleBeyond4={() =>
-                p.setExpandedBeyond4((prev) => {
-                  const next = new Set(prev)
-                  next.has(g.id) ? next.delete(g.id) : next.add(g.id)
-                  return next
-                })
-              }
               supplierMap={p.supplierMap}
             />
           ))
@@ -561,8 +550,6 @@ function GroupCard({
   expanded,
   onToggle,
   searchQuery,
-  beyond4Expanded,
-  onToggleBeyond4,
   supplierMap,
 }: {
   group: Group
@@ -570,15 +557,11 @@ function GroupCard({
   expanded: boolean
   onToggle: () => void
   searchQuery: string
-  beyond4Expanded: boolean
-  onToggleBeyond4: () => void
   supplierMap: Record<string, string>
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const searchActive = searchQuery.trim().length > 0
   const sourceSessions = searchActive ? derived.searchMatches : derived.filteredSessions
-  const overflowCount = sourceSessions.length > 4 && !beyond4Expanded ? sourceSessions.length - 4 : 0
-  const visibleSessions = overflowCount > 0 ? sourceSessions.slice(0, 4) : sourceSessions
   const completionPct = group.total_planned_sessions > 0
     ? Math.round((derived.completedCount / group.total_planned_sessions) * 100)
     : 0
@@ -606,33 +589,56 @@ function GroupCard({
           gap: 14,
           padding: '14px 20px',
           cursor: 'pointer',
-          borderLeft: `4px solid ${derived.headerColour}`,
-          backgroundColor: headerHovered ? 'var(--rmg-color-grey-4)' : 'transparent',
           outline: 'none',
+          ...(group.is_active
+            ? {
+                backgroundColor: headerHovered ? '#F9F9F9' : '#FFFFFF',
+                borderLeft: '3px solid #DA202A',
+              }
+            : {
+                backgroundColor: headerHovered ? '#EBEBEB' : '#F5F5F5',
+              }),
         }}
       >
         {/* Group number chip */}
         <span style={{
           fontFamily: 'monospace',
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 700,
-          color: 'var(--rmg-color-grey-1)',
-          backgroundColor: 'var(--rmg-color-grey-4)',
-          borderRadius: 'var(--rmg-radius-xs)',
-          padding: '2px 7px',
+          color: group.is_active ? '#FFFFFF' : '#8F9495',
+          backgroundColor: group.is_active ? '#DA202A' : '#EEEEEE',
+          borderRadius: 4,
+          padding: '2px 6px',
           whiteSpace: 'nowrap',
           flexShrink: 0,
         }}>
-          G{group.group_number}
+          G{String(group.group_number).padStart(2, '0')}
         </span>
+
+        {/* Inactive badge */}
+        {!group.is_active && (
+          <span style={{
+            backgroundColor: '#EEEEEE',
+            color: '#404044',
+            fontSize: 11,
+            borderRadius: 4,
+            padding: '2px 8px',
+            fontFamily: 'var(--rmg-font-body)',
+            fontWeight: 500,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}>
+            Inactive
+          </span>
+        )}
 
         {/* Name + description */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--rmg-color-text-heading)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: group.is_active ? 'var(--rmg-color-text-heading)' : '#8F9495', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {highlightMatch(group.group_name, searchQuery)}
           </div>
           {group.category && (
-            <div style={{ fontSize: 12, color: 'var(--rmg-color-text-light)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 12, color: group.is_active ? 'var(--rmg-color-text-light)' : '#8F9495', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {group.category}
             </div>
           )}
@@ -693,7 +699,7 @@ function GroupCard({
       {/* Session list */}
       {expanded && (
         <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
-          {visibleSessions.length === 0 ? (
+          {sourceSessions.length === 0 ? (
             <div style={{
               fontFamily: 'var(--rmg-font-body)', fontSize: 'var(--rmg-text-c2)',
               color: 'var(--rmg-color-grey-1)', textAlign: 'center',
@@ -702,25 +708,9 @@ function GroupCard({
               No sessions match the current filters.
             </div>
           ) : (
-            visibleSessions.map((s) => (
-              <SessionRow key={s.id} session={s} searchQuery={searchQuery} />
+            sourceSessions.map((s, i) => (
+              <SessionRow key={s.id} session={s} searchQuery={searchQuery} rowIndex={i} />
             ))
-          )}
-          {overflowCount > 0 && (
-            <button
-              type="button"
-              onClick={onToggleBeyond4}
-              style={{
-                display: 'block', width: '100%',
-                background: 'none', border: 'none',
-                padding: '10px 20px', textAlign: 'left',
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 'var(--rmg-text-c2)',
-                color: 'var(--rmg-color-grey-1)', cursor: 'pointer',
-              }}
-            >
-              + {overflowCount} more session{overflowCount === 1 ? '' : 's'} →
-            </button>
           )}
         </div>
       )}
@@ -733,15 +723,18 @@ function GroupCard({
 function SessionRow({
   session,
   searchQuery,
+  rowIndex,
 }: {
   session: KtSession
   searchQuery: string
+  rowIndex: number
 }) {
   const [hovered, setHovered] = useState(false)
   const trackColour = session.track
     ? TRACK_COLOURS[session.track]
     : 'var(--rmg-color-grey-3)'
   const typeLabel = session.is_playback ? 'Playback' : 'KT Only'
+  const zebraBg = rowIndex % 2 === 0 ? '#FFFFFF' : '#F5F5F5'
 
   return (
     <div
@@ -753,7 +746,7 @@ function SessionRow({
         gap: 16,
         padding: '14px 20px',
         borderBottom: '1px solid var(--rmg-color-grey-3)',
-        backgroundColor: hovered ? 'var(--rmg-color-grey-4)' : 'transparent',
+        backgroundColor: hovered ? 'var(--rmg-color-grey-4)' : zebraBg,
         cursor: 'pointer',
       }}
     >
@@ -822,12 +815,12 @@ function SessionRow({
         {session.duration_hrs != null ? `${session.duration_hrs}h` : '—'}
       </div>
 
-      {/* Status badge — Section 3C solid fill */}
+      {/* Status badge */}
       <span style={{
         borderRadius: 'var(--rmg-radius-xl)',
         padding: '2px 10px',
-        backgroundColor: statusColour(session.status),
-        color: 'white',
+        backgroundColor: statusBadgeColors(session.status).bg,
+        color: statusBadgeColors(session.status).fg,
         fontSize: 11,
         fontWeight: 600,
         whiteSpace: 'nowrap',
