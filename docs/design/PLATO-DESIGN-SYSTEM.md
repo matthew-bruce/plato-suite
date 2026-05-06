@@ -933,3 +933,191 @@ Tessera has no auth (ADR-TESS-001). All queries run as `anon`.
 If any Supabase query returns 0 rows silently — check RLS policies **before touching the code**.  
 Fix: `CREATE POLICY "Open read" ON kt_table_name FOR SELECT USING (true);`  
 Check: `SELECT tablename, policyname FROM pg_policies WHERE tablename = 'kt_sessions';`
+
+## Tessera Dashboard — UI Specification (May 2026)
+
+> These patterns were approved in design review. Implement them exactly.
+> All hex values are final. Do not substitute or approximate.
+
+---
+
+### General Principles
+
+- White surfaces throughout. Colour lives in data elements (numbers, chips, badges, progress bars) — NOT in card backgrounds or structural chrome.
+- Status colours (red/amber/green) must always sit on white or near-white backgrounds. Never place them on dark backgrounds.
+- Structural elements (nav bar, page header, section labels) use `--rmg-color-black` (#2A2A2D) and `--rmg-color-red` (#DA202A).
+- Page background: `--rmg-color-surface-light` (#F1F2F5).
+
+---
+
+### Group Colour System
+
+Each application group has a fixed colour used on badges, calendar pills, and progress bars. These are the ONLY colours permitted for group identity. Do not use supplier colours for groups.
+
+```ts
+export const GROUP_COLOURS: Record<number, string> = {
+  0:  '#2A2A2D', // Black
+  1:  '#DA202A', // RMG Red
+  2:  '#F3920D', // Orange
+  3:  '#0892CB', // Blue
+  4:  '#62A531', // Green
+  5:  '#B70D12', // Warm Red
+  6:  '#404044', // Dark Grey
+  7:  '#008A00', // Go Green
+  8:  '#0E7490', // Teal (supplementary)
+  9:  '#6D28D9', // Violet (supplementary)
+  10: '#D5D5D5', // Inactive (grey)
+  11: '#E63338', // Bright Red
+  12: '#D5D5D5', // Inactive (grey)
+}
+```
+
+Inactive groups (10, 12) always render at 40% opacity with grey badge and no progress bar fill.
+
+---
+
+### Stat Cards (Dashboard — top row)
+
+Three cards only. No India trip card. No countdown.
+
+Structure per card:
+- White background (`#FFFFFF`)
+- `border-radius: 10px`
+- `border-top: 4px solid [card colour]`
+- `padding: 18px 18px 14px`
+- Ring SVG: `position: absolute; top: 14px; right: 14px` — 56×56px
+- Label: 10px, 700, uppercase, `letter-spacing: 0.08em`, `color: #8F9495`, `padding-right: 68px`
+- Number: 38px, 700, `letter-spacing: -0.03em`, coloured by card type
+- Subtext: 12px, `color: #8F9495` — one line only, no wrapping
+- Bottom progress bar: `height: 3px`, background `#EEEEEE`, fill coloured by card type
+
+**The big number is always the raw count, not the percentage. The percentage lives in the ring only.**
+
+Card definitions:
+
+| Card | Colour | Number | Subtext |
+|------|--------|--------|---------|
+| Sessions completed | `#DA202A` | Sessions completed | `of {total} planned` |
+| Hours delivered | `#F3920D` | Hours delivered | `of {total} planned` |
+| KT timeline | `#0892CB` | Days elapsed | `of {total} days elapsed` |
+
+Ring SVG pattern (56×56, substitute colour and percentage):
+```tsx
+<svg width="56" height="56" viewBox="0 0 56 56">
+  <circle cx="28" cy="28" r="22" fill="none" stroke="#EEEEEE" strokeWidth="6"/>
+  <circle cx="28" cy="28" r="22" fill="none" stroke={colour} strokeWidth="6"
+    strokeDasharray={`${(pct/100) * 138.2} ${138.2 - (pct/100) * 138.2}`}
+    strokeLinecap="round" strokeDashoffset="34.5"/>
+  <text x="28" y="32" textAnchor="middle" fontSize="11" fontWeight="700" fill={colour}>
+    {pct}%
+  </text>
+</svg>
+```
+
+---
+
+### Section Headers (Dashboard)
+
+```tsx
+<h2 style={{
+  fontSize: '13px', fontWeight: 700, color: '#2A2A2D',
+  display: 'inline-block',
+  marginBottom: '12px', paddingBottom: '8px',
+  borderBottom: '2px solid #DA202A',
+}}>
+  Section Title
+</h2>
+```
+
+---
+
+### Domain Readiness Cards
+
+All 12 domains shown. No "View all" link. No pagination.
+
+Card rules:
+- White background always — does NOT change with state
+- `border-left: 3px solid #EEEEEE` always — does NOT change with state
+- `border-radius: 8px`, `padding: 12px 14px`
+- All state indication is in the chips and confidence badge only
+
+Card structure:
+```
+
+[Domain name] [Confidence badge] [Status label] [X / 7] [7 dimension chips ] [Progress bar ]
+
+```
+
+**Confidence badge** — top right, `flex-direction: column`, `align-items: center`:
+- Score: 16px, 700
+- Label: "Conf." — 8px, 700, uppercase
+- Colour rules: `< 2.5` → `#DA202A` (red); `2.5–3.9` → `#F3920D` (amber); `≥ 4.0` → `#008A00` (green); no data → `#D5D5D5` (grey, shows "—")
+
+**Dimension chips** — 7 chips per card, wrapping flex row, `gap: 3px`:
+
+```tsx
+// Chip colours
+const CHIP_DONE = { background: '#C1E3C1', color: '#1A6B00' }
+const CHIP_PROG = { background: '#BEE0F5', color: '#005F8A' }
+const CHIP_NONE = { background: '#EEEEEE', color: '#8F9495' }
+
+// Style
+{
+  fontSize: '9px', fontWeight: 700,
+  padding: '2px 5px', borderRadius: '3px',
+  letterSpacing: '0.02em', whiteSpace: 'nowrap',
+}
+```
+
+**The 7 dimensions — labels, order, and completion logic:**
+
+| # | Label | Not started | In progress | Done |
+|---|-------|-------------|-------------|------|
+| 1 | People | No resources linked to domain | Only TCS resources linked | ≥1 TCS + ≥1 non-TCS resource linked |
+| 2 | Sessions | No sessions linked | Sessions linked, no playback session yet | ≥1 KT session + ≥1 playback session linked |
+| 3 | Schedule | No linked sessions have a `planned_date` | Some linked sessions have `planned_date`, some don't | All linked sessions have `planned_date` |
+| 4 | KT | No linked sessions complete or have `confidence_score` | Some sessions complete or have `confidence_score` | All linked sessions complete and/or have `confidence_score` |
+| 5 | Demo | No `is_playback = true` session linked and COMPLETED | — (binary — no in-progress) | ≥1 `is_playback = true` session linked and COMPLETED |
+| 6 | Docs | Not manually set | — (binary) | Manually flagged as done via domain detail page |
+| 7 | Sign-off | Not manually set | — (binary) | Manually set by Platform SME — final gate, only settable when dims 1–6 are done |
+
+Dims 1–4 are auto-derived from DB. Dims 5 is auto-derived. Dims 6–7 require a manual toggle on the domain detail page (not yet built).
+
+**Progress bar** — derived from chip count:
+- `width: (doneCount / 7) * 100 + '%'`
+- `background: #0892CB` when partially done; `#62A531` when all 7 done
+
+**Overall card status label:**
+- 0 done → "Not started" (`#8F9495`)
+- 1–6 done → "In progress" (`#0892CB`)
+- 7 done → "Done" (`#62A531`)
+
+---
+
+### App Group Progress Rows
+
+All groups shown (including inactive). No "View all". Full list.
+
+Row grid: `grid-template-columns: 26px 1fr 86px 36px`, `gap: 10px`, `padding: 8px 14px`
+
+Group badge: `24×24px`, `border-radius: 4px`, `font-size: 9px`, `font-weight: 700`, `color: #fff`, background from `GROUP_COLOURS`. Inactive groups use `#D5D5D5` with `color: #8F9495`.
+
+Progress bar fill uses the group's own colour from `GROUP_COLOURS`.
+
+Percentage: coloured with group colour when > 0; `#D5D5D5` when 0%.
+
+Inactive rows: `opacity: 0.4`, no progress bar fill, show "—" for count and percentage.
+
+---
+
+### Removed Patterns — Do Not Reintroduce
+
+- India trip countdown chip/pill
+- "In India" eyebrow state indicator
+- India trip stat card (4th card)
+- Risk level badges (HIGH/MEDIUM/LOW/SCOPED) on domain cards
+- "View all domains →" / "View all sessions →" links on dashboard
+- Dark backgrounds on stat cards
+- Coloured card backgrounds on domain cards based on state
+
+---
