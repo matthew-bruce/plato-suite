@@ -59,8 +59,8 @@ type DbSession = {
 type DbLeadRow = {
   session_id: string
   resources:
-    | { resource_id: string; resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string } | null }
-    | { resource_id: string; resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string } | null }[]
+    | { resource_id: string; resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }
+    | { resource_id: string; resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }[]
     | null
 }
 
