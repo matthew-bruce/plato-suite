@@ -89,53 +89,45 @@ Team ID: `team_JJ0EI2Nif9V39YFgUObazMjR`
 
 ## Git / Branch Rules (CRITICAL — read before every session)
 
-### The one rule: always work on main
+### How branching actually works
 
-Every Claude Code prompt **must** begin with:
+The `main` branch is **protected at the GitHub repository level**. Direct
+pushes to `main` are blocked. Claude Code Web cannot push to `main`
+regardless of what the prompt says — it will always create a `claude/`
+prefixed branch.
 
+**The "Work directly on the main branch" instruction is ineffective and
+should not be used.** It does not override GitHub branch protection rules.
+
+### The correct workflow
+
+1. Claude Code creates a `claude/` branch, commits, and pushes
+2. Matt merges the branch into `main` via GitHub UI or the following CLI:
+
+```bash
+git checkout main
+git pull origin main
+git merge claude/[branch-name]
+git push origin main
+git branch -d claude/[branch-name]
+git push origin --delete claude/[branch-name]
 ```
-Work directly on the main branch.
-```
 
-This is non-negotiable. Do not omit it.
+3. Vercel auto-deploys from `main` after the merge
 
-### Why this matters
+### End of every Claude Code session
 
-Claude Code Web creates a `claude/` prefixed branch by default if not
-instructed otherwise. If two sessions run without this prefix, they can
-work on diverging branches without knowing about each other. When those
-branches are eventually merged, conflicts appear — wasting significant
-time on housekeeping that should never have been needed.
+- All work must be committed and pushed to the `claude/` branch before
+  the session ends — never leave uncommitted changes
+- Matt merges to `main` immediately after reviewing the session output
+- The `claude/` branch is deleted after merging — do not let them
+  accumulate
 
-The deployment pipeline is: **commit to main → Vercel auto-deploys**.
-Branch preview deployments are not used. There is no need for any branch
-other than main.
+### Branch accumulation warning
 
-### What "origin/main" means
-
-- `main` = the branch in the local Claude Code environment
-- `origin/main` = the same branch on GitHub (`github.com/matthew-bruce/plato-suite`)
-- `git push` sends local `main` → `origin/main`
-- `git pull` / `git fetch` brings `origin/main` → local `main`
-
-If these ever diverge (two sessions working in parallel without pulling),
-a merge conflict will occur. The "Work directly on the main branch"
-instruction prevents this by ensuring every session starts from and
-pushes directly to the same linear history.
-
-### Never do these things
-
-- Never create `claude/` prefixed branches
-- Never open PRs — commit directly to main
-- Never use `--force` or `--force-with-lease` on main without explicit instruction
-- Never leave uncommitted work at the end of a session
-
-### End of session: always push
-
-Every session must end with:
-```
-git add . && git commit -m "..." && git push origin main
-```
+If more than 2 unmerged `claude/` branches exist on the remote, stop and
+merge them before starting new work. Stale branches cause merge conflicts
+and confusion.
 
 ---
 
@@ -342,11 +334,24 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
 
 2. **One domain per session** — don't drift into adjacent concerns mid-session
 
-3. **Flag at ~15 messages** or a logical break point — summarise decisions,
-   end session, start fresh
+3. **Monitor thread length actively** — Claude must track conversation
+   length and flag proactively. Long threads degrade response quality and
+   waste tokens as context fills up.
+
+   - At **~15 messages**: flag that the thread is getting long and suggest
+     wrapping up at the next logical break point
+   - At **~25 messages**: strongly recommend ending the session now —
+     summarise, produce handoff notes, and start a fresh thread
+   - At **~35+ messages**: warn that context quality is degrading and
+     refuse to start new work until a fresh thread is opened
+
+   The flag should be a brief visible notice at the top of the response:
+   > ⚠️ **Thread length notice** — This thread is X messages long.
+   > Consider wrapping up and starting fresh to preserve response quality.
 
 4. **Proactively reduce token usage** — flag when context is being wasted on
-   re-explanation that should be in a file
+   re-explanation that should be in a file. Every decision that matters
+   should be in a `.md` file, not repeated in chat.
 
 5. **ADR first** — any deviation from the locked tech stack or architectural
    principles requires an ADR before implementation
