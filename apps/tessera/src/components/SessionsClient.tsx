@@ -390,6 +390,7 @@ export function SessionsClient({
             {activeTab === 'calendar' && (
               <CalendarView
                 sessions={sessions}
+                groups={groups}
                 calYear={calYear}
                 calMonth={calMonth}
                 setCalYear={setCalYear}
@@ -1438,8 +1439,28 @@ const MONTH_NAMES = [
 ]
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+// App group colours — specified by programme, intentional Tessera hardcoded exceptions
+const GROUP_COLOURS: Record<number, string> = {
+  0: '#1A2B5B',
+  1: '#DA202A',
+  2: '#E2611A',
+  3: '#7C3AED',
+  4: '#0892CB',
+  5: '#008A00',
+  6: '#9B0A6E',
+  7: '#3ABFB8',
+  8: '#FF8C00',
+  9: '#3D3D3D',
+  10: '#8F9495',
+  11: '#1976F2',
+  12: '#8F9495',
+}
+
+type GroupInfo = { groupNum: number; label: string; color: string }
+
 function CalendarView({
   sessions,
+  groups,
   calYear,
   calMonth,
   setCalYear,
@@ -1448,6 +1469,7 @@ function CalendarView({
   onSelectSession,
 }: {
   sessions: KtSession[]
+  groups: AppGroup[]
   calYear: number
   calMonth: number
   setCalYear: (y: number) => void
@@ -1466,6 +1488,18 @@ function CalendarView({
     else setCalMonth(calMonth + 1)
   }
 
+  const groupInfoMap = useMemo(() => {
+    const m = new Map<string, GroupInfo>()
+    for (const g of groups) {
+      m.set(g.id, {
+        groupNum: g.group_number,
+        label: `G${String(g.group_number).padStart(2, '0')}`,
+        color: GROUP_COLOURS[g.group_number] ?? '#8F9495',
+      })
+    }
+    return m
+  }, [groups])
+
   const byDate = useMemo(() => {
     const m = new Map<string, KtSession[]>()
     for (const s of sessions) {
@@ -1477,11 +1511,8 @@ function CalendarView({
     return m
   }, [sessions])
 
-  // Build the full grid explicitly:
-  // leading empty cells → all days of the month → trailing empty cells to fill the last row
   const mo = String(calMonth + 1).padStart(2, '0')
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
-  // getDay() is 0=Sun…6=Sat; convert to Mon-first (0=Mon…6=Sun)
   const firstDow = (new Date(calYear, calMonth, 1).getDay() + 6) % 7
 
   type GridCell =
@@ -1501,136 +1532,65 @@ function CalendarView({
   const totalCells = cells.length
 
   return (
-    <div
-      style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{ border: '1px solid var(--rmg-color-grey-3)', borderRadius: 8, overflow: 'hidden' }}>
       {/* Month navigation */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 20px',
-          borderBottom: '1px solid var(--rmg-color-grey-3)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={prevMonth}
-          style={{
-            background: 'none',
-            border: '1px solid var(--rmg-color-grey-2)',
-            borderRadius: 'var(--rmg-radius-xs)',
-            padding: '3px 10px',
-            cursor: 'pointer',
-            fontSize: 13,
-            color: 'var(--rmg-color-text-body)',
-            fontFamily: 'var(--rmg-font-body)',
-          }}
-        >
-          ←
-        </button>
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-display)',
-            fontSize: 14,
-            fontWeight: 700,
-            color: 'var(--rmg-color-text-heading)',
-          }}
-        >
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 20px', borderBottom: '1px solid var(--rmg-color-grey-3)',
+        backgroundColor: 'var(--rmg-color-surface-white)',
+      }}>
+        <button type="button" onClick={prevMonth} aria-label="Previous month" style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '4px 8px', color: 'var(--rmg-color-text-body)',
+          fontSize: 18, lineHeight: 1, fontFamily: 'var(--rmg-font-body)',
+        }}>‹</button>
+        <span style={{ fontFamily: 'var(--rmg-font-body)', fontSize: 16, fontWeight: 500, color: 'var(--rmg-color-text-heading)' }}>
           {MONTH_NAMES[calMonth]} {calYear}
         </span>
-        <button
-          type="button"
-          onClick={nextMonth}
-          style={{
-            background: 'none',
-            border: '1px solid var(--rmg-color-grey-2)',
-            borderRadius: 'var(--rmg-radius-xs)',
-            padding: '3px 10px',
-            cursor: 'pointer',
-            fontSize: 13,
-            color: 'var(--rmg-color-text-body)',
-            fontFamily: 'var(--rmg-font-body)',
-          }}
-        >
-          →
-        </button>
+        <button type="button" onClick={nextMonth} aria-label="Next month" style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '4px 8px', color: 'var(--rmg-color-text-body)',
+          fontSize: 18, lineHeight: 1, fontFamily: 'var(--rmg-font-body)',
+        }}>›</button>
       </div>
 
       {/* Day-of-week headers */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
-          borderBottom: '1px solid var(--rmg-color-grey-3)',
-          backgroundColor: 'var(--rmg-color-grey-4)',
-        }}
-      >
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--rmg-color-grey-3)', backgroundColor: 'var(--rmg-color-grey-4)' }}>
         {DAY_NAMES.map((d) => (
-          <div
-            key={d}
-            style={{
-              textAlign: 'center',
-              padding: '5px 4px',
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: 'var(--rmg-color-grey-1)',
-            }}
-          >
+          <div key={d} style={{ textAlign: 'center', padding: '6px 4px', fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--rmg-color-grey-1)' }}>
             {d}
           </div>
         ))}
       </div>
 
-      {/* Calendar grid — all weeks of the month */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
-        }}
-      >
+      {/* Calendar grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
         {cells.map((cell, position) => {
           const isLastCol = (position + 1) % 7 === 0
           const isLastRow = position >= totalCells - 7
 
           if (cell.kind === 'empty') {
             return (
-              <div
-                key={`empty-${cell.idx}`}
-                style={{
-                  minHeight: 64,
-                  borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
-                  borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
-                  backgroundColor: 'var(--rmg-color-grey-4)',
-                  opacity: 0.5,
-                }}
-              />
+              <div key={`empty-${cell.idx}`} style={{
+                minHeight: 100,
+                borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
+                borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
+                backgroundColor: 'var(--rmg-color-grey-4)',
+              }} />
             )
           }
 
           const { dayNum, dateStr } = cell
           const daySessions = byDate.get(dateStr) ?? []
           const isToday = dateStr === today
-          const isPast = dateStr < today
-          const hasCompleted = daySessions.some((s) => s.status === 'COMPLETED')
 
           return (
             <DayCell
               key={dateStr}
               dayNum={dayNum}
-              dateStr={dateStr}
               sessions={daySessions}
               isToday={isToday}
-              isPastWithCompleted={isPast && hasCompleted}
+              groupInfoMap={groupInfoMap}
               selectedId={selectedId}
               onSelectSession={onSelectSession}
               isLastCol={isLastCol}
@@ -1647,113 +1607,114 @@ function DayCell({
   dayNum,
   sessions,
   isToday,
-  isPastWithCompleted,
+  groupInfoMap,
   selectedId,
   onSelectSession,
   isLastCol,
   isLastRow,
 }: {
   dayNum: number
-  dateStr: string
   sessions: KtSession[]
   isToday: boolean
-  isPastWithCompleted: boolean
+  groupInfoMap: Map<string, GroupInfo>
   selectedId: string | null
   onSelectSession: (id: string) => void
   isLastCol: boolean
   isLastRow: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const MAX_VISIBLE = 2
-  const overflowCount =
-    sessions.length > MAX_VISIBLE && !expanded ? sessions.length - MAX_VISIBLE : 0
-  const visible = overflowCount > 0 ? sessions.slice(0, MAX_VISIBLE) : sessions
+  const OVERFLOW_THRESHOLD = 3
+  const MAX_COLLAPSED = 2
+  const isOverflowing = sessions.length > OVERFLOW_THRESHOLD && !expanded
+  const visible = isOverflowing ? sessions.slice(0, MAX_COLLAPSED) : sessions
+  const overflowCount = isOverflowing ? sessions.length - MAX_COLLAPSED : 0
 
-  let cellBg = 'var(--rmg-color-white)'
-  if (isToday) cellBg = 'var(--rmg-color-tint-yellow)'
-  else if (isPastWithCompleted) cellBg = 'var(--rmg-color-tint-green)'
+  const cellBg = isToday ? 'var(--rmg-color-tint-yellow)' : 'var(--rmg-color-surface-white)'
 
   return (
-    <div
-      style={{
-        minHeight: 64,
-        backgroundColor: cellBg,
-        borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
-        borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
-        padding: '4px 3px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-      }}
-    >
-      {/* Day number — small, top-right, muted */}
-      <span
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 11,
-          fontWeight: isToday ? 700 : 400,
-          color: isToday ? 'var(--rmg-color-text-heading)' : 'var(--rmg-color-grey-1)',
-          alignSelf: 'flex-end',
-          marginBottom: 1,
-          lineHeight: 1,
-        }}
-      >
+    <div style={{
+      minHeight: 100,
+      backgroundColor: cellBg,
+      borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
+      borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
+      padding: '4px',
+      display: 'flex',
+      flexDirection: 'column',
+    }}>
+      {/* Day number — top-right */}
+      <span style={{
+        fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500,
+        color: isToday ? 'var(--rmg-color-text-heading)' : 'var(--rmg-color-grey-1)',
+        alignSelf: 'flex-end', padding: '1px 2px 2px 0', lineHeight: 1,
+      }}>
         {dayNum}
       </span>
 
       {/* Session pills */}
-      {visible.map((s) => {
-        const { bg, fg } = statusBadgeStyle(s.status)
-        const sel = selectedId === s.id
-        return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+        {visible.map((s) => {
+          const info = s.app_group_id ? groupInfoMap.get(s.app_group_id) : undefined
+          const pillColor = info?.color ?? '#8F9495'
+          const label = info?.label ?? '—'
+          const sel = selectedId === s.id
+          const isCancelled = s.status === 'CANCELLED'
+          const isCompleted = s.status === 'COMPLETED'
+
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => onSelectSession(s.id)}
+              title={s.session_name}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                width: '100%', height: 20, padding: '0 6px',
+                borderRadius: 3, backgroundColor: pillColor,
+                color: 'white', fontSize: 11, fontWeight: 500,
+                fontFamily: 'var(--rmg-font-body)', cursor: 'pointer',
+                border: 'none',
+                boxShadow: sel ? 'inset 0 0 0 2px white' : 'none',
+                opacity: isCancelled ? 0.45 : 1,
+                flexShrink: 0, overflow: 'hidden',
+              }}
+            >
+              {isCompleted && (
+                <span style={{ fontSize: 9, flexShrink: 0, opacity: 0.9 }}>✓</span>
+              )}
+              <span style={{
+                fontSize: 9, fontWeight: 600,
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                borderRadius: 2, padding: '0 3px',
+                flexShrink: 0, lineHeight: '14px',
+              }}>
+                {label}
+              </span>
+              <span style={{
+                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap', textAlign: 'left',
+                textDecoration: isCancelled ? 'line-through' : 'none',
+              }}>
+                {s.session_name}
+              </span>
+            </button>
+          )
+        })}
+
+        {overflowCount > 0 && (
           <button
-            key={s.id}
             type="button"
-            onClick={() => onSelectSession(s.id)}
-            title={s.session_name}
+            onClick={() => setExpanded(true)}
             style={{
-              display: 'block',
-              width: '100%',
-              padding: '2px 6px',
-              borderRadius: 'var(--rmg-radius-xs)',
-              backgroundColor: sel ? 'var(--rmg-color-red)' : bg,
-              color: sel ? 'var(--rmg-color-white)' : fg,
-              fontSize: 11,
-              fontWeight: 600,
-              fontFamily: 'var(--rmg-font-body)',
-              textAlign: 'left',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              border: 'none',
-              lineHeight: 1.4,
+              fontSize: 11, fontFamily: 'var(--rmg-font-body)',
+              color: 'var(--rmg-color-grey-1)', background: 'none',
+              border: 'none', cursor: 'pointer',
+              textAlign: 'left', padding: '0 4px', lineHeight: '16px',
             }}
           >
-            {s.session_name}
+            +{overflowCount} more
           </button>
-        )
-      })}
-
-      {/* Overflow toggle */}
-      {overflowCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          style={{
-            fontSize: 10,
-            fontFamily: 'var(--rmg-font-body)',
-            color: 'var(--rmg-color-grey-1)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            textAlign: 'left',
-            padding: '0 3px',
-          }}
-        >
-          +{overflowCount} more
-        </button>
-      )}
+        )}
+      </div>
     </div>
   )
 }
