@@ -65,7 +65,7 @@ type DbLeadRow = {
 }
 
 export default async function SessionsPage() {
-  const [groupsRes, sessionsRes, leadsRes, suppliersRes] = await Promise.all([
+  const [groupsRes, sessionsRes, leadsRes, suppliersRes, peopleRes] = await Promise.all([
     supabase
       .from('tessera_app_groups')
       .select('id, group_number, group_name, category, is_active, sort_order')
@@ -86,6 +86,9 @@ export default async function SessionsPage() {
       .from('suppliers')
       .select('supplier_abbreviation, supplier_colour')
       .order('sort_order'),
+    supabase
+      .from('tessera_kt_session_resources')
+      .select('session_id'),
   ])
 
   if (groupsRes.error) console.error('[SessionsPage] groups error:', groupsRes.error)
@@ -126,6 +129,12 @@ export default async function SessionsPage() {
     })
   }
 
+  // People count per session (LEAD + PARTICIPANT combined)
+  const sessionPeopleCounts: Record<string, number> = {}
+  for (const row of (peopleRes.data ?? []) as { session_id: string }[]) {
+    sessionPeopleCounts[row.session_id] = (sessionPeopleCounts[row.session_id] ?? 0) + 1
+  }
+
   // Header metrics — exclude CANCELLED
   const activeSessions = sessions.filter((s) => s.status !== 'CANCELLED')
   const rawHours = activeSessions.reduce((sum, s) => sum + (Number(s.duration_hrs) || 0), 0)
@@ -144,6 +153,7 @@ export default async function SessionsPage() {
           sessions={sessions}
           sessionLeads={sessionLeads}
           supplierMap={supplierMap}
+          sessionPeopleCounts={sessionPeopleCounts}
           metricGroups={groups.length}
           metricSessions={activeSessions.length}
           metricHours={totalHours}

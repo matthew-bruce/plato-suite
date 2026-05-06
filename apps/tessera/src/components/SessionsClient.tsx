@@ -25,6 +25,7 @@ interface SessionsClientProps {
   sessions: KtSession[]
   sessionLeads: SessionLead[]
   supplierMap: Record<string, string>
+  sessionPeopleCounts: Record<string, number>
   metricGroups: number
   metricSessions: number
   metricHours: string | number
@@ -68,7 +69,6 @@ function formatDateShort(dateStr: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric',
   })
 }
 
@@ -204,6 +204,7 @@ export function SessionsClient({
   sessions,
   sessionLeads,
   supplierMap,
+  sessionPeopleCounts,
   metricGroups,
   metricSessions,
   metricHours,
@@ -245,8 +246,8 @@ export function SessionsClient({
       <style>{`
         .sessions-layout {
           display: grid;
-          grid-template-columns: 1fr 400px;
-          gap: 24px;
+          grid-template-columns: 2fr minmax(320px, 1fr);
+          gap: 20px;
           align-items: start;
           padding: var(--rmg-spacing-09) var(--rmg-spacing-07);
           box-sizing: border-box;
@@ -260,6 +261,7 @@ export function SessionsClient({
           .sessions-col-group,
           .sessions-col-lead,
           .sessions-col-date,
+          .sessions-col-people,
           .sessions-col-dur { display: none !important; }
         }
       `}</style>
@@ -341,6 +343,7 @@ export function SessionsClient({
               sessions={sessions}
               leadMap={leadMap}
               supplierMap={supplierMap}
+              sessionPeopleCounts={sessionPeopleCounts}
               viewMode={viewMode}
               setViewMode={setViewMode}
               search={search}
@@ -389,6 +392,7 @@ interface ProgressViewProps {
   sessions: KtSession[]
   leadMap: Map<string, SessionLead>
   supplierMap: Record<string, string>
+  sessionPeopleCounts: Record<string, number>
   viewMode: ViewMode
   setViewMode: (m: ViewMode) => void
   search: string
@@ -408,6 +412,7 @@ function ProgressView({
   sessions,
   leadMap,
   supplierMap,
+  sessionPeopleCounts,
   viewMode,
   setViewMode,
   search,
@@ -561,6 +566,7 @@ function ProgressView({
           groups={groups}
           sessions={sessions}
           leadMap={leadMap}
+          sessionPeopleCounts={sessionPeopleCounts}
           search={search}
           statusFilter={statusFilter}
           expandedGroups={expandedGroups}
@@ -574,6 +580,7 @@ function ProgressView({
           sessions={sessions}
           leadMap={leadMap}
           supplierMap={supplierMap}
+          sessionPeopleCounts={sessionPeopleCounts}
           search={search}
           statusFilter={statusFilter}
           typeFilter={typeFilter}
@@ -591,6 +598,7 @@ function ByGroupView({
   groups,
   sessions,
   leadMap,
+  sessionPeopleCounts,
   search,
   statusFilter,
   expandedGroups,
@@ -601,6 +609,7 @@ function ByGroupView({
   groups: AppGroup[]
   sessions: KtSession[]
   leadMap: Map<string, SessionLead>
+  sessionPeopleCounts: Record<string, number>
   search: string
   statusFilter: StatusFilter
   expandedGroups: Set<string>
@@ -646,6 +655,7 @@ function ByGroupView({
           group={g}
           sessions={sessions.filter((s) => s.app_group_id === g.id)}
           leadMap={leadMap}
+          sessionPeopleCounts={sessionPeopleCounts}
           search={search}
           statusFilter={statusFilter}
           expanded={expandedGroups.has(g.id)}
@@ -664,6 +674,7 @@ function GroupCard({
   group,
   sessions,
   leadMap,
+  sessionPeopleCounts,
   search,
   statusFilter,
   expanded,
@@ -674,6 +685,7 @@ function GroupCard({
   group: AppGroup
   sessions: KtSession[]
   leadMap: Map<string, SessionLead>
+  sessionPeopleCounts: Record<string, number>
   search: string
   statusFilter: StatusFilter
   expanded: boolean
@@ -900,6 +912,7 @@ function GroupCard({
                 key={s.id}
                 session={s}
                 lead={leadMap.get(s.id) ?? null}
+                peopleCount={sessionPeopleCounts[s.id] ?? 0}
                 rowIndex={i}
                 selected={selectedId === s.id}
                 onSelect={onSelectSession}
@@ -918,6 +931,7 @@ function GroupCard({
 function GroupSessionRow({
   session,
   lead,
+  peopleCount,
   rowIndex,
   selected,
   onSelect,
@@ -925,6 +939,7 @@ function GroupSessionRow({
 }: {
   session: KtSession
   lead: SessionLead | null
+  peopleCount: number
   rowIndex: number
   selected: boolean
   onSelect: (id: string) => void
@@ -1014,6 +1029,35 @@ function GroupSessionRow({
         </div>
       )}
 
+      {/* Date */}
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: session.planned_date ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+          minWidth: 52,
+        }}
+      >
+        {session.planned_date ? formatDateShort(session.planned_date) : '—'}
+      </div>
+
+      {/* People count */}
+      <div
+        style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: peopleCount > 0 ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+          minWidth: 28,
+          textAlign: 'right',
+        }}
+      >
+        {peopleCount > 0 ? peopleCount : '—'}
+      </div>
+
       {/* Duration */}
       <div
         style={{
@@ -1043,6 +1087,7 @@ function AllSessionsView({
   sessions,
   leadMap,
   supplierMap,
+  sessionPeopleCounts,
   search,
   statusFilter,
   typeFilter,
@@ -1053,6 +1098,7 @@ function AllSessionsView({
   sessions: KtSession[]
   leadMap: Map<string, SessionLead>
   supplierMap: Record<string, string>
+  sessionPeopleCounts: Record<string, number>
   search: string
   statusFilter: StatusFilter
   typeFilter: TypeFilter
@@ -1131,7 +1177,7 @@ function AllSessionsView({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 90px 160px 110px 56px 110px',
+          gridTemplateColumns: '1fr 90px 160px 110px 56px 56px 110px',
           backgroundColor: 'var(--rmg-color-grey-4)',
           borderBottom: '1px solid var(--rmg-color-grey-3)',
         }}
@@ -1145,6 +1191,9 @@ function AllSessionsView({
         </div>
         <div className="sessions-col-date" style={headerCell}>
           Date
+        </div>
+        <div className="sessions-col-people" style={{ ...headerCell, textAlign: 'right' }}>
+          People
         </div>
         <div className="sessions-col-dur" style={{ ...headerCell, textAlign: 'right' }}>
           Dur.
@@ -1169,6 +1218,7 @@ function AllSessionsView({
             group={group}
             lead={lead}
             leadColour={leadColour}
+            peopleCount={sessionPeopleCounts[session.id] ?? 0}
             rowIndex={idx}
             isLast={idx === filtered.length - 1}
             selected={selected}
@@ -1186,6 +1236,7 @@ function FlatSessionRow({
   group,
   lead,
   leadColour,
+  peopleCount,
   rowIndex,
   isLast,
   selected,
@@ -1196,6 +1247,7 @@ function FlatSessionRow({
   group: AppGroup | undefined
   lead: SessionLead | null
   leadColour: string | null
+  peopleCount: number
   rowIndex: number
   isLast: boolean
   selected: boolean
@@ -1221,7 +1273,7 @@ function FlatSessionRow({
       onMouseLeave={() => setHovered(false)}
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 90px 160px 110px 56px 110px',
+        gridTemplateColumns: '1fr 90px 160px 110px 56px 56px 110px',
         alignItems: 'center',
         borderBottom: isLast ? 'none' : '1px solid var(--rmg-color-grey-3)',
         backgroundColor: bg,
@@ -1306,6 +1358,21 @@ function FlatSessionRow({
         }}
       >
         {session.planned_date ? formatDateShort(session.planned_date) : '—'}
+      </div>
+
+      {/* People count */}
+      <div
+        className="sessions-col-people"
+        style={{
+          padding: '12px',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 12,
+          color: peopleCount > 0 ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
+          whiteSpace: 'nowrap',
+          textAlign: 'right',
+        }}
+      >
+        {peopleCount > 0 ? peopleCount : '—'}
       </div>
 
       {/* Duration */}
