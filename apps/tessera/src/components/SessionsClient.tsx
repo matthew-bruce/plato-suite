@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'progress' | 'calendar'
+type TabId = 'list' | 'calendar'
 type ViewMode = 'by-group' | 'all'
 type StatusFilter = 'ALL' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 type TypeFilter = 'all' | 'kt' | 'playback'
@@ -145,6 +145,7 @@ function FilterPill({
   )
 }
 
+// Outlined pill chip — used in AllSessionsView flat table lead column
 function SupplierChip({
   abbreviation,
   colour,
@@ -197,6 +198,32 @@ function SupplierChip({
   )
 }
 
+// Compact solid lead chip — used inline inside group session rows
+function LeadChip({ lead }: { lead: SessionLead }) {
+  const c = lead.supplier_colour ?? 'var(--rmg-color-grey-2)'
+  return (
+    <span
+      title={lead.resource_name}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        borderRadius: 'var(--rmg-radius-xl)',
+        padding: '1px 7px',
+        backgroundColor: c,
+        color: 'var(--rmg-color-white)',
+        fontSize: 10,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        fontFamily: 'var(--rmg-font-body)',
+        flexShrink: 0,
+      }}
+    >
+      {lead.resource_name}
+    </span>
+  )
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function SessionsClient({
@@ -209,7 +236,7 @@ export function SessionsClient({
   metricSessions,
   metricHours,
 }: SessionsClientProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('progress')
+  const [activeTab, setActiveTab] = useState<TabId>('list')
   const [viewMode, setViewMode] = useState<ViewMode>('by-group')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -234,7 +261,6 @@ export function SessionsClient({
     })
   }
 
-  // Build lead lookup for flat list and group session rows
   const leadMap = useMemo(() => {
     const m = new Map<string, SessionLead>()
     for (const l of sessionLeads) m.set(l.session_id, l)
@@ -306,7 +332,7 @@ export function SessionsClient({
               marginBottom: 'var(--rmg-spacing-04)',
             }}
           >
-            {(['progress', 'calendar'] as TabId[]).map((t) => {
+            {(['list', 'calendar'] as TabId[]).map((t) => {
               const active = activeTab === t
               return (
                 <button
@@ -327,17 +353,16 @@ export function SessionsClient({
                     border: 'none',
                     cursor: 'pointer',
                     outline: 'none',
-                    textTransform: 'capitalize',
                   }}
                 >
-                  {t === 'progress' ? 'Progress' : 'Calendar'}
+                  {t === 'list' ? 'List' : 'Calendar'}
                 </button>
               )
             })}
           </div>
 
           {/* Tab content */}
-          {activeTab === 'progress' && (
+          {activeTab === 'list' && (
             <ProgressView
               groups={groups}
               sessions={sessions}
@@ -426,6 +451,8 @@ function ProgressView({
   selectedId,
   onSelectSession,
 }: ProgressViewProps) {
+  const [searchFocused, setSearchFocused] = useState(false)
+
   const headerLabelStyle: React.CSSProperties = {
     fontSize: 11,
     fontWeight: 700,
@@ -437,21 +464,33 @@ function ProgressView({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--rmg-spacing-03)' }}>
-      {/* Filter bar + view toggle */}
+      {/* Filter bar */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
-          padding: '10px 20px',
-          backgroundColor: 'var(--rmg-color-surface-white)',
-          border: '1px solid var(--rmg-color-grey-3)',
-          borderRadius: 'var(--rmg-radius-m)',
+          gap: 12,
           flexWrap: 'wrap',
         }}
       >
-        {/* Search */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 160 }}>
+        {/* Search — FormField-style border with focus state */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flex: 1,
+            minWidth: 160,
+            height: 36,
+            padding: '0 10px',
+            border: searchFocused
+              ? '2px solid var(--rmg-color-blue)'
+              : '1px solid var(--rmg-color-grey-3)',
+            borderRadius: 'var(--rmg-radius-s)',
+            backgroundColor: 'var(--rmg-color-white)',
+            boxSizing: 'border-box',
+          }}
+        >
           <svg
             width="14" height="14" viewBox="0 0 24 24" fill="none"
             stroke="var(--rmg-color-grey-1)" strokeWidth="2"
@@ -465,6 +504,8 @@ function ProgressView({
             placeholder="Search sessions…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             style={{
               flex: 1,
               border: 'none',
@@ -477,12 +518,7 @@ function ProgressView({
           />
         </div>
 
-        {/* Divider */}
-        <div
-          style={{ width: 1, height: 18, backgroundColor: 'var(--rmg-color-grey-2)', flexShrink: 0 }}
-        />
-
-        {/* Status filter */}
+        {/* Status filter pills */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <span style={{ ...headerLabelStyle, flexShrink: 0 }}>Status</span>
           {(['ALL', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as StatusFilter[]).map(
@@ -500,35 +536,25 @@ function ProgressView({
 
         {/* Type filter — only in All Sessions mode */}
         {viewMode === 'all' && (
-          <>
-            <div
-              style={{
-                width: 1,
-                height: 18,
-                backgroundColor: 'var(--rmg-color-grey-2)',
-                flexShrink: 0,
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ ...headerLabelStyle, flexShrink: 0 }}>Type</span>
-              <FilterPill active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>
-                All
-              </FilterPill>
-              <FilterPill active={typeFilter === 'kt'} onClick={() => setTypeFilter('kt')}>
-                KT Only
-              </FilterPill>
-              <FilterPill
-                active={typeFilter === 'playback'}
-                onClick={() => setTypeFilter('playback')}
-              >
-                Playbacks
-              </FilterPill>
-            </div>
-          </>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ ...headerLabelStyle, flexShrink: 0 }}>Type</span>
+            <FilterPill active={typeFilter === 'all'} onClick={() => setTypeFilter('all')}>
+              All
+            </FilterPill>
+            <FilterPill active={typeFilter === 'kt'} onClick={() => setTypeFilter('kt')}>
+              KT Only
+            </FilterPill>
+            <FilterPill
+              active={typeFilter === 'playback'}
+              onClick={() => setTypeFilter('playback')}
+            >
+              Playbacks
+            </FilterPill>
+          </div>
         )}
 
-        {/* View mode toggle — right side */}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 0, flexShrink: 0 }}>
+        {/* View mode toggle — lightweight segmented control */}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexShrink: 0 }}>
           {(['by-group', 'all'] as ViewMode[]).map((mode) => {
             const active = viewMode === mode
             return (
@@ -537,19 +563,16 @@ function ProgressView({
                 type="button"
                 onClick={() => setViewMode(mode)}
                 style={{
-                  padding: '5px 14px',
+                  padding: '3px 12px',
                   fontFamily: 'var(--rmg-font-body)',
                   fontSize: 12,
-                  fontWeight: 600,
+                  fontWeight: active ? 600 : 400,
                   cursor: 'pointer',
-                  border: '1.5px solid var(--rmg-color-red)',
-                  backgroundColor: active ? 'var(--rmg-color-red)' : 'transparent',
-                  color: active ? 'var(--rmg-color-white)' : 'var(--rmg-color-red)',
-                  borderRadius:
-                    mode === 'by-group'
-                      ? 'var(--rmg-radius-xs) 0 0 var(--rmg-radius-xs)'
-                      : '0 var(--rmg-radius-xs) var(--rmg-radius-xs) 0',
-                  borderRight: mode === 'by-group' ? 'none' : '1.5px solid var(--rmg-color-red)',
+                  border: '1px solid',
+                  borderColor: active ? 'var(--rmg-color-dark-grey)' : 'var(--rmg-color-grey-3)',
+                  backgroundColor: active ? 'var(--rmg-color-dark-grey)' : 'var(--rmg-color-white)',
+                  color: active ? 'var(--rmg-color-white)' : 'var(--rmg-color-dark-grey)',
+                  borderRadius: 'var(--rmg-radius-xl)',
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -710,7 +733,6 @@ function GroupCard({
       ? Math.round((completed.length / activePlanned.length) * 100)
       : 0
 
-  // Sessions to show when expanded
   const displaySessions = useMemo(() => {
     let result = sessions.filter((s) => matchesStatus(s, statusFilter))
     if (q) {
@@ -795,14 +817,14 @@ function GroupCard({
           </span>
         )}
 
-        {/* Name + category */}
+        {/* Name + category — reduced weight for hierarchy */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              fontWeight: 700,
+              fontWeight: 500,
               fontSize: 14,
               color: group.is_active
-                ? 'var(--rmg-color-text-heading)'
+                ? 'var(--rmg-color-dark-grey)'
                 : 'var(--rmg-color-grey-1)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -815,7 +837,8 @@ function GroupCard({
             <div
               style={{
                 fontSize: 12,
-                color: 'var(--rmg-color-text-light)',
+                fontWeight: 400,
+                color: 'var(--rmg-color-grey-1)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -852,7 +875,7 @@ function GroupCard({
             </div>
           </div>
 
-          {/* Progress bar */}
+          {/* Progress bar — dark-grey fill, not red */}
           <div
             style={{
               width: 60,
@@ -867,7 +890,7 @@ function GroupCard({
               style={{
                 width: `${pct}%`,
                 height: '100%',
-                backgroundColor: 'var(--rmg-color-red)',
+                backgroundColor: 'var(--rmg-color-dark-grey)',
                 borderRadius: 100,
               }}
             />
@@ -967,7 +990,7 @@ function GroupSessionRow({
         display: 'flex',
         alignItems: 'center',
         gap: 16,
-        padding: '12px 20px',
+        padding: '10px 20px',
         borderBottom: '1px solid var(--rmg-color-grey-3)',
         backgroundColor: bg,
         cursor: 'pointer',
@@ -986,14 +1009,14 @@ function GroupSessionRow({
         }}
       />
 
-      {/* Title + type */}
+      {/* Title + type — reduced weight */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 14,
-            fontWeight: 600,
-            color: 'var(--rmg-color-text-heading)',
+            fontWeight: 500,
+            color: 'var(--rmg-color-dark-grey)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -1005,7 +1028,7 @@ function GroupSessionRow({
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 12,
-            color: 'var(--rmg-color-text-light)',
+            color: 'var(--rmg-color-grey-1)',
             marginTop: 2,
           }}
         >
@@ -1014,20 +1037,8 @@ function GroupSessionRow({
         </div>
       </div>
 
-      {/* Lead */}
-      {lead && (
-        <div
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 12,
-            color: 'var(--rmg-color-grey-1)',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
-        >
-          {lead.resource_name}
-        </div>
-      )}
+      {/* Lead — compact solid chip */}
+      {lead && <LeadChip lead={lead} />}
 
       {/* Date */}
       <div
@@ -1282,14 +1293,14 @@ function FlatSessionRow({
         borderLeft: selected ? '3px solid var(--rmg-color-red)' : '3px solid transparent',
       }}
     >
-      {/* Session name + group subtitle */}
+      {/* Session name + group subtitle — reduced weight */}
       <div style={{ padding: '12px 12px 12px 17px' }}>
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
             fontSize: 14,
-            fontWeight: 600,
-            color: 'var(--rmg-color-text-heading)',
+            fontWeight: 500,
+            color: 'var(--rmg-color-dark-grey)',
             lineHeight: 1.3,
           }}
         >
@@ -1300,7 +1311,7 @@ function FlatSessionRow({
             style={{
               fontFamily: 'var(--rmg-font-body)',
               fontSize: 12,
-              color: 'var(--rmg-color-text-light)',
+              color: 'var(--rmg-color-grey-1)',
               marginTop: 2,
             }}
           >
@@ -1435,7 +1446,6 @@ function CalendarView({
     else setCalMonth(calMonth + 1)
   }
 
-  // Group sessions by date
   const byDate = useMemo(() => {
     const m = new Map<string, KtSession[]>()
     for (const s of sessions) {
@@ -1447,9 +1457,8 @@ function CalendarView({
     return m
   }, [sessions])
 
-  // Calendar geometry
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
-  const firstDow = ((new Date(calYear, calMonth, 1).getDay() + 6) % 7) // Mon=0
+  const firstDow = ((new Date(calYear, calMonth, 1).getDay() + 6) % 7)
   const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7
 
   return (
@@ -1467,7 +1476,7 @@ function CalendarView({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '16px 20px',
+          padding: '12px 20px',
           borderBottom: '1px solid var(--rmg-color-grey-3)',
         }}
       >
@@ -1476,11 +1485,11 @@ function CalendarView({
           onClick={prevMonth}
           style={{
             background: 'none',
-            border: '1.5px solid var(--rmg-color-grey-2)',
+            border: '1px solid var(--rmg-color-grey-2)',
             borderRadius: 'var(--rmg-radius-xs)',
-            padding: '4px 10px',
+            padding: '3px 10px',
             cursor: 'pointer',
-            fontSize: 14,
+            fontSize: 13,
             color: 'var(--rmg-color-text-body)',
             fontFamily: 'var(--rmg-font-body)',
           }}
@@ -1490,7 +1499,7 @@ function CalendarView({
         <span
           style={{
             fontFamily: 'var(--rmg-font-display)',
-            fontSize: 16,
+            fontSize: 14,
             fontWeight: 700,
             color: 'var(--rmg-color-text-heading)',
           }}
@@ -1502,11 +1511,11 @@ function CalendarView({
           onClick={nextMonth}
           style={{
             background: 'none',
-            border: '1.5px solid var(--rmg-color-grey-2)',
+            border: '1px solid var(--rmg-color-grey-2)',
             borderRadius: 'var(--rmg-radius-xs)',
-            padding: '4px 10px',
+            padding: '3px 10px',
             cursor: 'pointer',
-            fontSize: 14,
+            fontSize: 13,
             color: 'var(--rmg-color-text-body)',
             fontFamily: 'var(--rmg-font-body)',
           }}
@@ -1529,9 +1538,9 @@ function CalendarView({
             key={d}
             style={{
               textAlign: 'center',
-              padding: '8px 4px',
+              padding: '5px 4px',
               fontFamily: 'var(--rmg-font-body)',
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
@@ -1557,7 +1566,7 @@ function CalendarView({
               <div
                 key={idx}
                 style={{
-                  minHeight: 88,
+                  minHeight: 64,
                   borderRight: '1px solid var(--rmg-color-grey-3)',
                   borderBottom: '1px solid var(--rmg-color-grey-3)',
                   backgroundColor: 'var(--rmg-color-grey-4)',
@@ -1629,25 +1638,26 @@ function DayCell({
   return (
     <div
       style={{
-        minHeight: 88,
+        minHeight: 64,
         backgroundColor: cellBg,
         borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
         borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
-        padding: '6px 4px',
+        padding: '4px 3px',
         display: 'flex',
         flexDirection: 'column',
         gap: 2,
       }}
     >
-      {/* Day number */}
+      {/* Day number — small, top-right, muted */}
       <span
         style={{
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: isToday ? 700 : 400,
           color: isToday ? 'var(--rmg-color-text-heading)' : 'var(--rmg-color-grey-1)',
           alignSelf: 'flex-end',
-          marginBottom: 2,
+          marginBottom: 1,
+          lineHeight: 1,
         }}
       >
         {dayNum}
@@ -1666,11 +1676,11 @@ function DayCell({
             style={{
               display: 'block',
               width: '100%',
-              padding: '2px 4px',
+              padding: '2px 6px',
               borderRadius: 'var(--rmg-radius-xs)',
               backgroundColor: sel ? 'var(--rmg-color-red)' : bg,
               color: sel ? 'var(--rmg-color-white)' : fg,
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: 600,
               fontFamily: 'var(--rmg-font-body)',
               textAlign: 'left',
@@ -1679,6 +1689,7 @@ function DayCell({
               whiteSpace: 'nowrap',
               cursor: 'pointer',
               border: 'none',
+              lineHeight: 1.4,
             }}
           >
             {s.session_name}
@@ -1699,7 +1710,7 @@ function DayCell({
             border: 'none',
             cursor: 'pointer',
             textAlign: 'left',
-            padding: '1px 4px',
+            padding: '0 3px',
           }}
         >
           +{overflowCount} more
@@ -1879,6 +1890,9 @@ function DetailPanel({
     color: 'var(--rmg-color-text-body)',
   }
 
+  // Reduce font size for very long session names to prevent awkward wrapping
+  const nameFontSize = session.session_name.length > 60 ? '1rem' : '1.1rem'
+
   return (
     <div style={panelStyle}>
       {/* Header */}
@@ -1892,11 +1906,11 @@ function DetailPanel({
           <h2
             style={{
               fontFamily: 'var(--rmg-font-display)',
-              fontSize: '1.1rem',
+              fontSize: nameFontSize,
               fontWeight: 700,
               color: 'var(--rmg-color-text-heading)',
               margin: '0 0 6px',
-              lineHeight: 1.3,
+              lineHeight: 1.4,
             }}
           >
             {session.session_name}
