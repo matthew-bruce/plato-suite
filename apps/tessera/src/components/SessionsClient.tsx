@@ -275,15 +275,12 @@ export function SessionsClient({
           grid-template-columns: 2fr minmax(320px, 1fr);
           gap: 20px;
           align-items: start;
-          padding: var(--rmg-spacing-09) var(--rmg-spacing-07);
-          box-sizing: border-box;
         }
         @media (max-width: 960px) {
           .sessions-layout { grid-template-columns: 1fr; }
           .sessions-detail-col { order: -1; }
         }
         @media (max-width: 640px) {
-          .sessions-layout { padding: var(--rmg-spacing-05) var(--rmg-spacing-04); }
           .sessions-col-group,
           .sessions-col-lead,
           .sessions-col-date,
@@ -292,118 +289,125 @@ export function SessionsClient({
         }
       `}</style>
 
-      <div className="sessions-layout">
-        {/* ── Left: main content ── */}
-        <div style={{ minWidth: 0 }}>
-          {/* Page header */}
-          <div style={{ marginBottom: 'var(--rmg-spacing-05)' }}>
-            <h1
-              style={{
-                fontFamily: 'var(--rmg-font-display)',
-                fontSize: '2rem',
-                fontWeight: 700,
-                letterSpacing: '-0.03em',
-                lineHeight: 1.1,
-                color: 'var(--rmg-color-text-heading)',
-                margin: 0,
-              }}
-            >
-              Sessions
-            </h1>
-            <p
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 14,
-                color: 'var(--rmg-color-text-light)',
-                margin: '6px 0 0',
-              }}
-            >
-              {metricGroups} application group{metricGroups === 1 ? '' : 's'} ·{' '}
-              {metricSessions} session{metricSessions === 1 ? '' : 's'} · {metricHours} hrs
-            </p>
-          </div>
-
-          {/* Tabs */}
-          <div
+      <div
+        style={{
+          width: '100%',
+          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
+          boxSizing: 'border-box',
+        }}
+      >
+        {/* Page header — full width */}
+        <div style={{ marginBottom: 'var(--rmg-spacing-05)' }}>
+          <h1
             style={{
-              display: 'flex',
-              gap: 2,
-              borderBottom: '1px solid var(--rmg-color-grey-3)',
-              marginBottom: 'var(--rmg-spacing-04)',
+              fontFamily: 'var(--rmg-font-display)',
+              fontSize: '2rem',
+              fontWeight: 700,
+              letterSpacing: '-0.03em',
+              lineHeight: 1.1,
+              color: 'var(--rmg-color-text-heading)',
+              margin: 0,
             }}
           >
-            {(['list', 'calendar'] as TabId[]).map((t) => {
-              const active = activeTab === t
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setActiveTab(t)}
-                  style={{
-                    fontFamily: 'var(--rmg-font-body)',
-                    fontSize: 14,
-                    fontWeight: active ? 700 : 500,
-                    color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-                    padding: '8px 16px',
-                    borderBottom: active
-                      ? '2px solid var(--rmg-color-red)'
-                      : '2px solid transparent',
-                    marginBottom: -1,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  {t === 'list' ? 'List' : 'Calendar'}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Tab content */}
-          {activeTab === 'list' && (
-            <ProgressView
-              groups={groups}
-              sessions={sessions}
-              leadMap={leadMap}
-              supplierMap={supplierMap}
-              sessionPeopleCounts={sessionPeopleCounts}
-              viewMode={viewMode}
-              setViewMode={setViewMode}
-              search={search}
-              setSearch={setSearch}
-              statusFilter={statusFilter}
-              setStatusFilter={setStatusFilter}
-              typeFilter={typeFilter}
-              setTypeFilter={setTypeFilter}
-              expandedGroups={expandedGroups}
-              toggleGroup={toggleGroup}
-              selectedId={selectedId}
-              onSelectSession={handleSelectSession}
-            />
-          )}
-
-          {activeTab === 'calendar' && (
-            <CalendarView
-              sessions={sessions}
-              calYear={calYear}
-              calMonth={calMonth}
-              setCalYear={setCalYear}
-              setCalMonth={setCalMonth}
-              selectedId={selectedId}
-              onSelectSession={handleSelectSession}
-            />
-          )}
+            Sessions
+          </h1>
+          <p
+            style={{
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 14,
+              color: 'var(--rmg-color-text-light)',
+              margin: '6px 0 0',
+            }}
+          >
+            {metricGroups} application group{metricGroups === 1 ? '' : 's'} ·{' '}
+            {metricSessions} session{metricSessions === 1 ? '' : 's'} · {metricHours} hrs
+          </p>
         </div>
 
-        {/* ── Right: detail panel ── */}
-        <div className="sessions-detail-col" style={{ position: 'sticky', top: 20 }}>
-          <DetailPanel
-            session={selectedSession}
-            groups={groups}
-            supplierMap={supplierMap}
-          />
+        {/* Tabs — full width */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 2,
+            borderBottom: '1px solid var(--rmg-color-grey-3)',
+            marginBottom: 'var(--rmg-spacing-04)',
+          }}
+        >
+          {(['list', 'calendar'] as TabId[]).map((t) => {
+            const active = activeTab === t
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setActiveTab(t)}
+                style={{
+                  fontFamily: 'var(--rmg-font-body)',
+                  fontSize: 14,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+                  padding: '8px 16px',
+                  borderBottom: active
+                    ? '2px solid var(--rmg-color-red)'
+                    : '2px solid transparent',
+                  marginBottom: -1,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {t === 'list' ? 'List' : 'Calendar'}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Two-column content area — list/calendar + detail panel */}
+        <div className="sessions-layout">
+          <div style={{ minWidth: 0 }}>
+            {activeTab === 'list' && (
+              <ProgressView
+                groups={groups}
+                sessions={sessions}
+                leadMap={leadMap}
+                supplierMap={supplierMap}
+                sessionPeopleCounts={sessionPeopleCounts}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                search={search}
+                setSearch={setSearch}
+                statusFilter={statusFilter}
+                setStatusFilter={setStatusFilter}
+                typeFilter={typeFilter}
+                setTypeFilter={setTypeFilter}
+                expandedGroups={expandedGroups}
+                toggleGroup={toggleGroup}
+                selectedId={selectedId}
+                onSelectSession={handleSelectSession}
+              />
+            )}
+
+            {activeTab === 'calendar' && (
+              <CalendarView
+                sessions={sessions}
+                calYear={calYear}
+                calMonth={calMonth}
+                setCalYear={setCalYear}
+                setCalMonth={setCalMonth}
+                selectedId={selectedId}
+                onSelectSession={handleSelectSession}
+              />
+            )}
+          </div>
+
+          {/* Detail panel */}
+          <div className="sessions-detail-col" style={{ position: 'sticky', top: 20 }}>
+            <DetailPanel
+              session={selectedSession}
+              groups={groups}
+              supplierMap={supplierMap}
+            />
+          </div>
         </div>
       </div>
     </>
@@ -1037,18 +1041,20 @@ function GroupSessionRow({
         </div>
       </div>
 
-      {/* Lead — compact solid chip */}
-      {lead && <LeadChip lead={lead} />}
+      {/* Lead — fixed width so column is consistent */}
+      <div style={{ width: 140, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        {lead && <LeadChip lead={lead} />}
+      </div>
 
       {/* Date */}
       <div
         style={{
+          width: 90,
+          flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
           color: session.planned_date ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
           whiteSpace: 'nowrap',
-          flexShrink: 0,
-          minWidth: 52,
         }}
       >
         {session.planned_date ? formatDateShort(session.planned_date) : '—'}
@@ -1057,12 +1063,12 @@ function GroupSessionRow({
       {/* People count */}
       <div
         style={{
+          width: 60,
+          flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
           color: peopleCount > 0 ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
           whiteSpace: 'nowrap',
-          flexShrink: 0,
-          minWidth: 28,
           textAlign: 'right',
         }}
       >
@@ -1072,21 +1078,23 @@ function GroupSessionRow({
       {/* Duration */}
       <div
         style={{
+          width: 60,
+          flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
           fontWeight: 600,
           color: 'var(--rmg-color-text-body)',
           whiteSpace: 'nowrap',
-          flexShrink: 0,
-          minWidth: 32,
           textAlign: 'right',
         }}
       >
         {session.duration_hrs != null ? `${session.duration_hrs}h` : '—'}
       </div>
 
-      {/* Status badge */}
-      <StatusBadge status={session.status} />
+      {/* Status badge — fixed width so it doesn't collapse */}
+      <div style={{ width: 100, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <StatusBadge status={session.status} />
+      </div>
     </div>
   )
 }
@@ -1188,7 +1196,7 @@ function AllSessionsView({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 90px 160px 110px 56px 56px 110px',
+          gridTemplateColumns: '1fr 90px 140px 90px 60px 60px 100px',
           backgroundColor: 'var(--rmg-color-grey-4)',
           borderBottom: '1px solid var(--rmg-color-grey-3)',
         }}
