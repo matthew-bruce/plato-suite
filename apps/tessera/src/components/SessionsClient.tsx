@@ -1465,9 +1465,28 @@ function CalendarView({
     return m
   }, [sessions])
 
+  // Build the full grid explicitly:
+  // leading empty cells → all days of the month → trailing empty cells to fill the last row
+  const mo = String(calMonth + 1).padStart(2, '0')
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
-  const firstDow = ((new Date(calYear, calMonth, 1).getDay() + 6) % 7)
-  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7
+  // getDay() is 0=Sun…6=Sat; convert to Mon-first (0=Mon…6=Sun)
+  const firstDow = (new Date(calYear, calMonth, 1).getDay() + 6) % 7
+
+  type GridCell =
+    | { kind: 'empty'; idx: number }
+    | { kind: 'day'; dayNum: number; dateStr: string; idx: number }
+
+  const cells: GridCell[] = []
+  for (let i = 0; i < firstDow; i++) cells.push({ kind: 'empty', idx: i })
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${calYear}-${mo}-${String(d).padStart(2, '0')}`
+    cells.push({ kind: 'day', dayNum: d, dateStr, idx: firstDow + d - 1 })
+  }
+  const trailingCount = (7 - (cells.length % 7)) % 7
+  for (let i = 0; i < trailingCount; i++) {
+    cells.push({ kind: 'empty', idx: cells.length })
+  }
+  const totalCells = cells.length
 
   return (
     <div
@@ -1532,7 +1551,7 @@ function CalendarView({
         </button>
       </div>
 
-      {/* Day headers */}
+      {/* Day-of-week headers */}
       <div
         style={{
           display: 'grid',
@@ -1560,23 +1579,25 @@ function CalendarView({
         ))}
       </div>
 
-      {/* Calendar grid */}
+      {/* Calendar grid — all weeks of the month */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(7, 1fr)',
         }}
       >
-        {Array.from({ length: totalCells }).map((_, idx) => {
-          const dayNum = idx - firstDow + 1
-          if (dayNum < 1 || dayNum > daysInMonth) {
+        {cells.map((cell, position) => {
+          const isLastCol = (position + 1) % 7 === 0
+          const isLastRow = position >= totalCells - 7
+
+          if (cell.kind === 'empty') {
             return (
               <div
-                key={idx}
+                key={`empty-${cell.idx}`}
                 style={{
                   minHeight: 64,
-                  borderRight: '1px solid var(--rmg-color-grey-3)',
-                  borderBottom: '1px solid var(--rmg-color-grey-3)',
+                  borderRight: isLastCol ? 'none' : '1px solid var(--rmg-color-grey-3)',
+                  borderBottom: isLastRow ? 'none' : '1px solid var(--rmg-color-grey-3)',
                   backgroundColor: 'var(--rmg-color-grey-4)',
                   opacity: 0.5,
                 }}
@@ -1584,10 +1605,7 @@ function CalendarView({
             )
           }
 
-          const y = String(calYear)
-          const mo = String(calMonth + 1).padStart(2, '0')
-          const d = String(dayNum).padStart(2, '0')
-          const dateStr = `${y}-${mo}-${d}`
+          const { dayNum, dateStr } = cell
           const daySessions = byDate.get(dateStr) ?? []
           const isToday = dateStr === today
           const isPast = dateStr < today
@@ -1595,7 +1613,7 @@ function CalendarView({
 
           return (
             <DayCell
-              key={idx}
+              key={dateStr}
               dayNum={dayNum}
               dateStr={dateStr}
               sessions={daySessions}
@@ -1603,8 +1621,8 @@ function CalendarView({
               isPastWithCompleted={isPast && hasCompleted}
               selectedId={selectedId}
               onSelectSession={onSelectSession}
-              isLastCol={(idx + 1) % 7 === 0}
-              isLastRow={idx >= totalCells - 7}
+              isLastCol={isLastCol}
+              isLastRow={isLastRow}
             />
           )
         })}
