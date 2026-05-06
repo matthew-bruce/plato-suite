@@ -6,6 +6,30 @@
 
 ---
 
+## Standard Prompt Preamble (use at the start of every Claude Code prompt)
+
+Every prompt that involves writing or modifying code must begin with the following block, verbatim:
+
+```
+Work directly on the main branch. Do not create a new branch.
+Before writing any code, read the following files in full:
+
+* docs/design/PLATO-DESIGN-SYSTEM.md
+* packages/ui/components/rmg/index.ts
+* Find and read the rmg CSS tokens file (likely packages/ui/styles/rmg.css or similar)
+
+Design system rules that apply to every line of code:
+
+* Only use --rmg-* CSS variables for colours, spacing, and typography
+* Never hardcode hex values — if a colour is needed it must exist as an --rmg-* token
+* Never use arbitrary Tailwind values (no text-[`#DA202A`], no bg-[`#F5F5F5`] etc)
+* Use existing RMG components from packages/ui/components/rmg/ wherever applicable
+* Components in packages/ui use inline styles + --rmg-* CSS variables only — Tailwind does not scan packages/ui
+* For apps/* code, Tailwind is fine but only with named tokens defined in tailwind.config.ts
+```
+
+---
+
 ## What This Project Is
 
 Plato is a modular SaaS platform for Platform Engineering teams. It provides productivity tooling for managing teams, resources, org structures, finances, roadmaps, PI planning, and knowledge management.
