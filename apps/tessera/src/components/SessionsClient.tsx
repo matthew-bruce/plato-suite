@@ -1667,8 +1667,8 @@ function DetailPanel({
     type RawRow = {
       role: string
       resources:
-        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string } | null }
-        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string } | null }[]
+        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }
+        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }[]
         | null
     }
 
