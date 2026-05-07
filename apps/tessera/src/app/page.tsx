@@ -1,13 +1,14 @@
 import Link from 'next/link'
 import { TesseraShell } from '@/components/TesseraShell'
+import { AppGroupRow } from '@/components/AppGroupRow'
 import { supabase } from '@/lib/supabase'
-import { RISK_COLOURS } from '@plato/ui/tokens'
 
 export const dynamic = 'force-dynamic'
 
 const KT_START = new Date('2026-04-01T00:00:00Z')
-const KT_END = new Date('2026-07-03T23:59:59Z')
-const INDIA_DEPARTURE = new Date('2026-04-26T00:00:00Z')
+const KT_END   = new Date('2026-07-03T23:59:59Z')
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 type KtSession = {
   id: string
@@ -37,8 +38,73 @@ type Domain = {
 
 type RagScore = {
   domain_id: string
+  dimension: string
   score: 'RED' | 'AMBER' | 'GREEN'
 }
+
+type DomainLink = {
+  domain_id: string
+  session_id: string
+}
+
+type DomainSession = {
+  id: string
+  status: string
+  planned_date: string | null
+  outcome_score: number | null
+  is_playback: boolean | null
+}
+
+type ChipState = 'done' | 'progress' | 'none'
+
+// ── Chip state derivation ──────────────────────────────────────────────────────
+
+function getChipStates(
+  domainId: string,
+  ragScores: RagScore[],
+  links: DomainLink[],
+  domainSessions: DomainSession[],
+): Record<string, ChipState> {
+  const linkedIds = new Set(links.filter(l => l.domain_id === domainId).map(l => l.session_id))
+  const linked = domainSessions.filter(s => linkedIds.has(s.id))
+
+  // PEOPLE — from RAG score
+  const peopleRag = ragScores.find(r => r.domain_id === domainId && r.dimension === 'PEOPLE')
+  const people: ChipState = peopleRag?.score === 'GREEN' ? 'done' : peopleRag?.score === 'AMBER' ? 'progress' : 'none'
+
+  // SESSIONS — ≥1 KT + ≥1 playback linked = done; any linked = progress; none = none
+  let sessions: ChipState = 'none'
+  if (linked.length > 0) {
+    const hasKt = linked.some(s => !s.is_playback)
+    const hasPlayback = linked.some(s => s.is_playback)
+    sessions = (hasKt && hasPlayback) ? 'done' : 'progress'
+  }
+
+  // SCHEDULE — all have planned_date = done; some = progress; none = none
+  let schedule: ChipState = 'none'
+  if (linked.length > 0) {
+    const allHaveDates = linked.every(s => s.planned_date != null)
+    const someHaveDates = linked.some(s => s.planned_date != null)
+    schedule = allHaveDates ? 'done' : someHaveDates ? 'progress' : 'none'
+  }
+
+  // KT — all sessions complete and/or have outcome_score = done; some = progress; none = none
+  let kt: ChipState = 'none'
+  if (linked.length > 0) {
+    const allQualify = linked.every(s => s.status === 'COMPLETED' || s.outcome_score != null)
+    const someQualify = linked.some(s => s.status === 'COMPLETED' || s.outcome_score != null)
+    kt = allQualify ? 'done' : someQualify ? 'progress' : 'none'
+  }
+
+  // DEMO — binary: any is_playback COMPLETED session = done
+  const demoSession = linked.find(s => s.is_playback && s.status === 'COMPLETED')
+  const demo: ChipState = demoSession ? 'done' : 'none'
+
+  // DOCS and SIGN-OFF — manually set (not yet built, always none)
+  return { people, sessions, schedule, kt, demo, docs: 'none', signoff: 'none' }
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
 
 export default async function Home() {
   const today = new Date()
@@ -48,7 +114,7 @@ export default async function Home() {
   nextWeek.setUTCDate(nextWeek.getUTCDate() + 7)
   const nextWeekStr = nextWeek.toISOString().slice(0, 10)
 
-  const [sessionsRes, appGroupsRes, domainsRes, ragRes] = await Promise.all([
+  const [sessionsRes, appGroupsRes, domainsRes, ragRes, domainLinksRes] = await Promise.all([
     supabase
       .from('tessera_kt_sessions')
       .select('id, status, duration_hrs, app_group_id, planned_date'),
@@ -62,13 +128,32 @@ export default async function Home() {
       .from('tessera_domains')
       .select('id, name, slug, risk_level, display_order')
       .order('display_order'),
-    supabase.from('tessera_rag_scores').select('domain_id, score'),
+    supabase
+      .from('tessera_rag_scores')
+      .select('domain_id, dimension, score'),
+    supabase
+      .from('tessera_kt_session_domain_links')
+      .select('domain_id, session_id'),
   ])
 
-  const sessions = (sessionsRes.data ?? []) as KtSession[]
-  const appGroups = (appGroupsRes.data ?? []) as AppGroup[]
-  const domains = (domainsRes.data ?? []) as Domain[]
-  const ragScores = (ragRes.data ?? []) as RagScore[]
+  const sessions    = (sessionsRes.data    ?? []) as KtSession[]
+  const appGroups   = (appGroupsRes.data   ?? []) as AppGroup[]
+  const domains     = (domainsRes.data     ?? []) as Domain[]
+  const ragScores   = (ragRes.data         ?? []) as RagScore[]
+  const domainLinks = (domainLinksRes.data ?? []) as DomainLink[]
+
+  // Fetch sessions needed for domain chip derivation
+  const linkedSessionIds = [...new Set(domainLinks.map(l => l.session_id))]
+  let domainSessions: DomainSession[] = []
+  if (linkedSessionIds.length > 0) {
+    const { data: ds } = await supabase
+      .from('tessera_kt_sessions')
+      .select('id, status, planned_date, outcome_score, is_playback')
+      .in('id', linkedSessionIds)
+    domainSessions = (ds ?? []) as DomainSession[]
+  }
+
+  // ── Stat card calculations ──────────────────────────────────────────────────
 
   const groupActiveMap: Record<string, boolean> = {}
   for (const g of appGroups) groupActiveMap[g.id] = g.is_active
@@ -85,42 +170,31 @@ export default async function Home() {
   const plannedHours = Number.isInteger(rawPlannedHours) ? rawPlannedHours : rawPlannedHours.toFixed(1)
 
   const completedSessions = sessions.filter((s) => s.status === 'COMPLETED')
-  const completedCount = completedSessions.length
-  const hoursDelivered = completedSessions.reduce(
-    (sum, s) => sum + (s.duration_hrs ?? 0),
-    0,
-  )
+  const completedCount    = completedSessions.length
+  const hoursDelivered    = completedSessions.reduce((sum, s) => sum + (s.duration_hrs ?? 0), 0)
+
   const upcomingCount = sessions.filter(
     (s) =>
       s.planned_date != null &&
       s.planned_date >= todayStr &&
       s.planned_date <= nextWeekStr,
   ).length
+  void upcomingCount
 
   const completedByGroup = new Map<string, number>()
   for (const s of completedSessions) {
     if (s.app_group_id) {
-      completedByGroup.set(
-        s.app_group_id,
-        (completedByGroup.get(s.app_group_id) ?? 0) + 1,
-      )
+      completedByGroup.set(s.app_group_id, (completedByGroup.get(s.app_group_id) ?? 0) + 1)
     }
   }
 
-  const timelinePct = Math.min(
-    100,
-    Math.max(
-      0,
-      ((today.getTime() - KT_START.getTime()) /
-        (KT_END.getTime() - KT_START.getTime())) *
-        100,
-    ),
-  )
+  const sessionsPct = plannedSessionsCount > 0
+    ? Math.round((completedCount / plannedSessionsCount) * 100)
+    : 0
+  const hoursPct = Number(plannedHours) > 0
+    ? Math.round((Math.round(hoursDelivered) / Number(plannedHours)) * 100)
+    : 0
 
-  const sessionsPct = plannedSessionsCount > 0 ? Math.round((completedCount / plannedSessionsCount) * 100) : 0
-  const sessionsRag = getProgressRag(sessionsPct)
-  const hoursPct = Number(plannedHours) > 0 ? Math.round((Math.round(hoursDelivered) / Number(plannedHours)) * 100) : 0
-  const hoursRag = getProgressRag(hoursPct)
   const totalDays = Math.round(
     (KT_END.getTime() - KT_START.getTime()) / (1000 * 60 * 60 * 24),
   )
@@ -128,50 +202,63 @@ export default async function Home() {
     0,
     Math.floor((today.getTime() - KT_START.getTime()) / (1000 * 60 * 60 * 24)),
   )
+  const timelinePct = Math.min(100, Math.max(0, Math.round((elapsedDays / totalDays) * 100)))
 
-  const daysToIndia = Math.ceil(
-    (INDIA_DEPARTURE.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-  )
+  // ── Domain readiness: confidence badge + chip states ───────────────────────
 
-  // Count GREEN rag scores per domain (readiness out of 6 sub-areas)
-  const readinessByDomain = new Map<string, number>()
-  for (const score of ragScores) {
-    if (score.score === 'GREEN') {
-      readinessByDomain.set(
-        score.domain_id,
-        (readinessByDomain.get(score.domain_id) ?? 0) + 1,
-      )
+  const confidenceByDomain = new Map<string, number | null>()
+  const chipStatesByDomain  = new Map<string, Record<string, ChipState>>()
+
+  for (const domain of domains) {
+    // Confidence: avg outcome_score of COMPLETED sessions linked to this domain
+    const domainLinkedIds = domainLinks
+      .filter(l => l.domain_id === domain.id)
+      .map(l => l.session_id)
+    const completedWithScore = domainSessions.filter(
+      s => domainLinkedIds.includes(s.id) && s.status === 'COMPLETED' && s.outcome_score != null,
+    )
+    if (completedWithScore.length === 0) {
+      confidenceByDomain.set(domain.id, null)
+    } else {
+      const avg = completedWithScore.reduce((sum, s) => sum + s.outcome_score!, 0) / completedWithScore.length
+      confidenceByDomain.set(domain.id, avg)
     }
+
+    chipStatesByDomain.set(domain.id, getChipStates(domain.id, ragScores, domainLinks, domainSessions))
   }
 
   return (
     <TesseraShell activeRoute="/">
       <style>{`
+        .ds-page-grid {
+          display: grid;
+          grid-template-columns: 65fr 35fr;
+          gap: 20px;
+          align-items: start;
+        }
         .ds-stat-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: var(--rmg-spacing-05);
-          margin-bottom: var(--rmg-spacing-04);
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
         }
         .ds-domain-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: var(--rmg-spacing-04);
-          margin-top: var(--rmg-spacing-04);
-          margin-bottom: var(--rmg-spacing-08);
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+        }
+        @media (max-width: 1024px) {
+          .ds-page-grid   { grid-template-columns: 1fr; }
         }
         @media (max-width: 768px) {
           .ds-stat-grid   { grid-template-columns: repeat(2, 1fr); }
-          .ds-domain-grid { grid-template-columns: repeat(2, 1fr); }
+          .ds-domain-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 375px) {
           .ds-stat-grid   { grid-template-columns: 1fr; }
-          .ds-domain-grid { grid-template-columns: 1fr; }
         }
         .ds-domain-card:hover { opacity: 0.92; }
       `}</style>
 
-      {/* Page shell — surface-light */}
       <div
         style={{
           minHeight: '100vh',
@@ -187,67 +274,20 @@ export default async function Home() {
         >
           {/* ── Header ── */}
           <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
-            {/* Eyebrow */}
-            <div
+            <h1
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
+                fontFamily: 'var(--rmg-font-display)',
+                fontSize: '2rem',
+                fontWeight: 700,
+                color: 'var(--rmg-color-text-heading)',
+                letterSpacing: '-0.03em',
+                margin: 0,
+                lineHeight: 1.2,
                 marginBottom: 'var(--rmg-spacing-02)',
               }}
             >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: 'var(--rmg-color-green-contrast)',
-                  flexShrink: 0,
-                  display: 'inline-block',
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.07em',
-                  color: 'var(--rmg-color-grey-1)',
-                }}
-              >
-                Pre-departure state (current)
-              </span>
-            </div>
-
-            {/* Title row */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 'var(--rmg-spacing-05)',
-                flexWrap: 'wrap',
-                marginBottom: 'var(--rmg-spacing-02)',
-              }}
-            >
-              <h1
-                style={{
-                  fontFamily: 'var(--rmg-font-display)',
-                  fontSize: '2rem',
-                  fontWeight: 700,
-                  color: 'var(--rmg-color-text-heading)',
-                  letterSpacing: '-0.03em',
-                  margin: 0,
-                  lineHeight: 1.2,
-                }}
-              >
-                KT Programme Dashboard
-              </h1>
-              <CountdownChip daysToIndia={daysToIndia} />
-            </div>
-
-            {/* Subtitle */}
+              KT Programme Dashboard
+            </h1>
             <p
               style={{
                 fontFamily: 'var(--rmg-font-body)',
@@ -261,130 +301,121 @@ export default async function Home() {
             </p>
           </div>
 
-          {/* ── Stat cards ── */}
-          <div className="ds-stat-grid">
-            <StatCard
-              label="Sessions Completed"
-              number={String(completedCount)}
-              subLabel={`of ${plannedSessionsCount} planned`}
-              progressPct={sessionsPct}
-              progressColour={sessionsRag.colour}
-              progressLabel={sessionsRag.label}
-            />
-            <StatCard
-              label="Hours Delivered"
-              number={String(Math.round(hoursDelivered))}
-              subLabel={`of ${plannedHours} planned`}
-              progressPct={hoursPct}
-              progressColour={hoursRag.colour}
-              progressLabel={hoursRag.label}
-            />
-            <StatCard
-              label="KT Timeline"
-              number={`${Math.round(timelinePct)}%`}
-              subLabel="1 Apr → 3 Jul 2026"
-              progressPct={Math.round(timelinePct)}
-              progressColour="var(--rmg-color-blue)"
-              progressLabel={`${elapsedDays} of ${totalDays} days elapsed`}
-            />
-            <BrandMomentCard daysToIndia={daysToIndia} />
-          </div>
-
-          {/* ── RAG key ── */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 16,
-              flexWrap: 'wrap',
-              marginBottom: 'var(--rmg-spacing-06)',
-            }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--rmg-color-grey-1)',
-              }}
-            >
-              KT progress key:
-            </span>
-            {(
-              [
-                {
-                  colour: 'var(--rmg-color-green-contrast)',
-                  label: 'Green',
-                  text: '80%+ complete',
-                },
-                {
-                  colour: 'var(--rmg-color-orange)',
-                  label: 'Amber',
-                  text: '30–79% complete',
-                },
-                {
-                  colour: 'var(--rmg-color-red)',
-                  label: 'Red',
-                  text: '< 30% complete',
-                },
-              ] as const
-            ).map(({ colour, label, text }) => (
-              <span
-                key={label}
+          {/* ── Two-column layout ── */}
+          <div className="ds-page-grid">
+            {/* LEFT COLUMN */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Container 1 — Stat cards */}
+              <div
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 11,
-                  color: 'var(--rmg-color-grey-1)',
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
                 }}
               >
-                <span style={{ color: colour }}>●</span>
-                <span>
-                  {label} — {text}
+                <div className="ds-stat-grid">
+                  <StatCard
+                    label="Sessions Completed"
+                    colour="#DA202A"
+                    number={String(completedCount)}
+                    subtext={`of ${plannedSessionsCount} non-cancelled`}
+                    pct={sessionsPct}
+                  />
+                  <StatCard
+                    label="Hours Delivered"
+                    colour="#F3920D"
+                    number={String(Math.round(hoursDelivered))}
+                    subtext={`of ${plannedHours} planned hours`}
+                    pct={hoursPct}
+                  />
+                  <StatCard
+                    label="KT Timeline"
+                    colour="#0892CB"
+                    number={String(elapsedDays)}
+                    subtext={`of ${totalDays} days elapsed`}
+                    pct={timelinePct}
+                  />
+                </div>
+              </div>
+
+              {/* Container 2 — Domain Readiness */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
+                }}
+              >
+                <div>
+                  <span
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 700,
+                      color: '#2A2A2D',
+                      display: 'inline-block',
+                      marginBottom: 16,
+                      paddingBottom: '10px',
+                      borderBottom: '3px solid #DA202A',
+                    }}
+                  >
+                    Domain Readiness
+                  </span>
+                </div>
+                <div className="ds-domain-grid">
+                  {domains.map((d) => (
+                    <DomainCard
+                      key={d.id}
+                      domain={d}
+                      chipStates={chipStatesByDomain.get(d.id) ?? { people: 'none', sessions: 'none', schedule: 'none', kt: 'none', demo: 'none', docs: 'none', signoff: 'none' }}
+                      confidence={confidenceByDomain.get(d.id) ?? null}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN — Container 3: Application Group */}
+            <div
+              style={{
+                background: '#ffffff',
+                borderRadius: '12px',
+                padding: '20px',
+                boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
+              }}
+            >
+              <div>
+                <span
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: '#2A2A2D',
+                    display: 'inline-block',
+                    marginBottom: 16,
+                    paddingBottom: '10px',
+                    borderBottom: '3px solid #DA202A',
+                  }}
+                >
+                  Application Group
                 </span>
-              </span>
-            ))}
-          </div>
-
-          {/* ── Domain Readiness ── */}
-          <SectionHeader
-            title="Domain Readiness"
-            linkHref="/domains"
-            linkLabel="View all domains →"
-          />
-          <div className="ds-domain-grid">
-            {domains.map((d) => (
-              <DomainCard
-                key={d.id}
-                domain={d}
-                readinessCount={readinessByDomain.get(d.id) ?? 0}
-              />
-            ))}
-          </div>
-
-          {/* ── App Group Progress ── */}
-          <SectionHeader
-            title="Application Group Progress"
-            linkHref="/sessions"
-            linkLabel="View all sessions →"
-          />
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--rmg-spacing-03)',
-              marginTop: 'var(--rmg-spacing-04)',
-            }}
-          >
-            {appGroups.map((g) => (
-              <AppGroupRow
-                key={g.id}
-                group={g}
-                completedCount={completedByGroup.get(g.id) ?? 0}
-              />
-            ))}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {appGroups.map((g) => (
+                  <AppGroupRow
+                    key={g.id}
+                    group={{
+                      id: g.id,
+                      name: g.group_name,
+                      group_number: g.group_number,
+                      is_active: g.is_active,
+                    }}
+                    completedCount={completedByGroup.get(g.id) ?? 0}
+                    totalCount={g.total_planned_sessions}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -392,280 +423,171 @@ export default async function Home() {
   )
 }
 
-// ── RAG progress helper ────────────────────────────────────────────────────────
+// ── Stat card — circle SVG ring design ────────────────────────────────────────
 
-function getProgressRag(pct: number): { colour: string; label: string } {
-  if (pct >= 80) return { colour: 'var(--rmg-color-green-contrast)', label: `${pct}% complete` }
-  if (pct >= 30) return { colour: 'var(--rmg-color-orange)', label: `${pct}% complete` }
-  return { colour: 'var(--rmg-color-red)', label: `${pct}% complete` }
-}
-
-// ── Countdown chip (header, Section 8) ────────────────────────────────────────
-
-function CountdownChip({ daysToIndia }: { daysToIndia: number }) {
-  const label =
-    daysToIndia > 0
-      ? `${daysToIndia} DAY${daysToIndia === 1 ? '' : 'S'} TO DEPARTURE`
-      : daysToIndia === 0
-        ? 'DEPARTS TODAY'
-        : 'IN INDIA'
-
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '8px 20px',
-        backgroundColor: 'var(--rmg-color-red)',
-        color: 'var(--rmg-color-yellow)',
-        borderRadius: 'var(--rmg-radius-m)',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 12,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.07em',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </span>
-  )
-}
-
-// ── Standard stat card (Section 10) ───────────────────────────────────────────
+const CIRC = 175.9 // 2π × r=28
 
 function StatCard({
   label,
+  colour,
   number,
-  subLabel,
-  progressPct = 0,
-  progressColour = 'var(--rmg-color-grey-3)',
-  progressLabel,
+  subtext,
+  pct,
 }: {
   label: string
+  colour: string
   number: string
-  subLabel: string
-  progressPct?: number
-  progressColour?: string
-  progressLabel?: string
+  subtext: string
+  pct: number
 }) {
+  const filled = (pct / 100) * CIRC
+  const empty  = CIRC - filled
+
   return (
     <div
       style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        padding: '20px 24px 16px',
+        background: '#fff',
+        borderRadius: 10,
+        padding: '18px 18px 14px',
+        borderTop: `4px solid ${colour}`,
+        position: 'relative',
+        minHeight: 116,
       }}
     >
+      {/* Circle progress ring */}
+      <svg
+        width="72"
+        height="72"
+        viewBox="0 0 72 72"
+        style={{ position: 'absolute', top: 14, right: 14 }}
+      >
+        <circle cx="36" cy="36" r="28" fill="none" stroke="#EEEEEE" strokeWidth="7" />
+        <circle
+          cx="36"
+          cy="36"
+          r="28"
+          fill="none"
+          stroke={colour}
+          strokeWidth="7"
+          strokeDasharray={`${filled} ${empty}`}
+          strokeLinecap="round"
+          strokeDashoffset="44.0"
+        />
+        <text
+          x="36"
+          y="41"
+          textAnchor="middle"
+          fontSize="13"
+          fontWeight="700"
+          fill={colour}
+        >
+          {pct}%
+        </text>
+      </svg>
+
+      {/* Label */}
       <div
         style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: 700,
           textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          color: 'var(--rmg-color-grey-1)',
-          marginBottom: 8,
+          letterSpacing: '0.08em',
+          color: '#8F9495',
+          paddingRight: 68,
+          marginBottom: 6,
         }}
       >
         {label}
       </div>
+
+      {/* Big number */}
       <div
         style={{
-          fontFamily: 'var(--rmg-font-display)',
-          fontSize: '1.75rem',
+          fontSize: 38,
           fontWeight: 700,
-          color: 'var(--rmg-color-text-heading)',
-          letterSpacing: '-0.02em',
-          lineHeight: 1.1,
+          letterSpacing: '-0.03em',
+          color: colour,
+          lineHeight: 1,
           marginBottom: 4,
         }}
       >
         {number}
       </div>
+
+      {/* Subtext */}
       <div
         style={{
-          fontFamily: 'var(--rmg-font-body)',
           fontSize: 12,
-          color: 'var(--rmg-color-grey-1)',
+          color: '#8F9495',
+          marginBottom: 12,
         }}
       >
-        {subLabel}
+        {subtext}
       </div>
 
-      {/* Progress section */}
-      <div style={{ marginTop: 12 }}>
-        {progressLabel && (
+      {/* Progress bar */}
+      <div
+        style={{
+          height: 3,
+          background: '#EEEEEE',
+          borderRadius: 100,
+        }}
+      >
+        {pct > 0 && (
           <div
             style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 11,
-              fontWeight: 600,
-              color: progressColour,
-              marginBottom: 5,
+              height: 3,
+              borderRadius: 100,
+              width: `${pct}%`,
+              background: colour,
             }}
-          >
-            {progressLabel}
-          </div>
+          />
         )}
-        <div
-          style={{
-            height: 5,
-            borderRadius: 100,
-            backgroundColor: 'var(--rmg-color-grey-3)',
-            overflow: 'hidden',
-          }}
-        >
-          {progressPct > 0 && (
-            <div
-              style={{
-                width: `${progressPct}%`,
-                height: '100%',
-                backgroundColor: progressColour,
-              }}
-            />
-          )}
-        </div>
       </div>
     </div>
   )
 }
 
-// ── Brand-moment departure card (Section 10) ──────────────────────────────────
+// ── Domain card — chips + confidence badge ─────────────────────────────────────
 
-function BrandMomentCard({ daysToIndia }: { daysToIndia: number }) {
-  const number =
-    daysToIndia > 0 ? String(daysToIndia) : daysToIndia === 0 ? '0' : '✓'
-  const label =
-    daysToIndia > 0
-      ? `Day${daysToIndia === 1 ? '' : 's'} to Departure`
-      : daysToIndia === 0
-        ? 'Departs Today'
-        : 'In India'
+const CHIP_DONE = { background: '#C1E3C1', color: '#1A6B00' }
+const CHIP_PROG = { background: '#BEE0F5', color: '#005F8A' }
+const CHIP_NONE = { background: '#EEEEEE', color: '#8F9495' }
 
-  return (
-    <div
-      style={{
-        backgroundColor: 'var(--rmg-color-red)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        padding: '20px 24px',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          color: 'rgba(253,218,36,0.75)', // --rmg-color-yellow at 75% opacity
-          marginBottom: 8,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-display)',
-          fontSize: '1.75rem',
-          fontWeight: 700,
-          color: 'var(--rmg-color-yellow)',
-          letterSpacing: '-0.02em',
-          lineHeight: 1.1,
-          marginBottom: 4,
-        }}
-      >
-        {number}
-      </div>
-      <div
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
-          color: 'rgba(255,255,255,0.8)', // white at 80% opacity
-          marginBottom: 16,
-        }}
-      >
-        Sunday 26 April · Heathrow
-      </div>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 3,
-          backgroundColor: 'var(--rmg-color-grey-3)',
-        }}
-      />
-    </div>
-  )
+const DOMAIN_CHIPS: Array<{ label: string; key: string }> = [
+  { label: 'PEOPLE',    key: 'people'   },
+  { label: 'SESSIONS',  key: 'sessions' },
+  { label: 'SCHEDULE',  key: 'schedule' },
+  { label: 'KT',        key: 'kt'       },
+  { label: 'DEMO',      key: 'demo'     },
+  { label: 'DOCS',      key: 'docs'     },
+  { label: 'SIGN-OFF',  key: 'signoff'  },
+]
+
+function confidenceColour(score: number | null): string {
+  if (score == null) return '#D5D5D5'
+  if (score < 2.5)   return '#DA202A'
+  if (score < 4.0)   return '#F3920D'
+  return '#008A00'
 }
-
-// ── Section header ─────────────────────────────────────────────────────────────
-
-function SectionHeader({
-  title,
-  linkHref,
-  linkLabel,
-}: {
-  title: string
-  linkHref: string
-  linkLabel: string
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}
-    >
-      <h2
-        style={{
-          fontFamily: 'var(--rmg-font-display)',
-          fontSize: 'var(--rmg-text-h5)',
-          lineHeight: 'var(--rmg-leading-h5)',
-          color: 'var(--rmg-color-text-heading)',
-          margin: 0,
-          fontWeight: 700,
-        }}
-      >
-        {title}
-      </h2>
-      <Link
-        href={linkHref}
-        style={{
-          fontFamily: 'var(--rmg-font-body)',
-          fontSize: 'var(--rmg-text-c1)',
-          color: 'var(--rmg-color-blue)',
-          textDecoration: 'none',
-        }}
-      >
-        {linkLabel}
-      </Link>
-    </div>
-  )
-}
-
-// ── Domain card (Section 9) ────────────────────────────────────────────────────
 
 function DomainCard({
   domain,
-  readinessCount,
+  chipStates,
+  confidence,
 }: {
   domain: Domain
-  readinessCount: number
+  chipStates: Record<string, ChipState>
+  confidence: number | null
 }) {
-  const riskColour =
-    domain.risk_level != null
-      ? RISK_COLOURS[domain.risk_level]
-      : 'var(--rmg-color-grey-2)'
-  const readinessPct = Math.min(100, (readinessCount / 6) * 100)
+  const doneCount  = DOMAIN_CHIPS.filter(c => chipStates[c.key] === 'done').length
+  const progressPct = (doneCount / 7) * 100
+  const barColour   = doneCount === 7 ? '#62A531' : '#0892CB'
+  const confColour  = confidenceColour(confidence)
+  const confDisplay = confidence == null ? '—' : confidence.toFixed(1)
+
+  const statusColour = doneCount === 0 ? '#8F9495' : doneCount === 7 ? '#62A531' : '#0892CB'
+  const statusLabel  = doneCount === 0 ? 'Not started' : doneCount === 7 ? 'Done' : 'In progress'
 
   return (
     <Link
@@ -675,89 +597,107 @@ function DomainCard({
       <div
         className="ds-domain-card"
         style={{
-          backgroundColor: 'var(--rmg-color-surface-white)',
-          borderRadius: 'var(--rmg-radius-s)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          padding: 16,
+          background: 'white',
+          borderLeft: '3px solid #EEEEEE',
+          borderRadius: 8,
+          padding: '12px 14px',
+          position: 'relative',
           cursor: 'pointer',
-          borderLeft: `4px solid ${riskColour}`,
           height: '100%',
           boxSizing: 'border-box',
         }}
       >
+        {/* Confidence badge — top right */}
+        <div style={{ position: 'absolute', top: 12, right: 12, textAlign: 'center' }}>
+          <div
+            style={{
+              fontSize: '28px',
+              fontWeight: 700,
+              color: confColour,
+              lineHeight: 1,
+            }}
+          >
+            {confDisplay}
+          </div>
+          <div
+            style={{
+              fontSize: '9px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: '#8F9495',
+              marginTop: '3px',
+            }}
+          >
+            Confidence Score
+          </div>
+        </div>
+
         {/* Domain name */}
         <div
           style={{
-            fontFamily: 'var(--rmg-font-body)',
             fontSize: 14,
             fontWeight: 600,
-            color: 'var(--rmg-color-text-heading)',
-            marginBottom: 8,
+            color: '#2A2A2D',
+            marginBottom: 6,
+            paddingRight: 84,
             lineHeight: 1.3,
           }}
         >
           {domain.name}
         </div>
 
-        {/* Badge row: risk badge left, readiness fraction right */}
+        {/* Status + count */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 10,
             gap: 8,
+            marginBottom: 8,
           }}
         >
-          {domain.risk_level != null ? (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '2px 8px',
-                backgroundColor: riskColour,
-                color: 'var(--rmg-color-white)',
-                borderRadius: 'var(--rmg-radius-xs)',
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.07em',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {domain.risk_level}
-            </span>
-          ) : (
-            <span />
-          )}
-          <span
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 11,
-              color: 'var(--rmg-color-grey-1)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {readinessCount}/6
+          <span style={{ fontSize: 11, fontWeight: 600, color: statusColour }}>
+            {statusLabel}
+          </span>
+          <span style={{ fontSize: 11, color: '#8F9495' }}>
+            {doneCount} / 7
           </span>
         </div>
 
-        {/* Readiness progress bar */}
-        <div
-          style={{
-            height: 4,
-            backgroundColor: 'var(--rmg-color-grey-3)',
-            borderRadius: 100,
-            overflow: 'hidden',
-          }}
-        >
-          {readinessPct > 0 && (
+        {/* Dimension chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 8 }}>
+          {DOMAIN_CHIPS.map(({ label, key }) => {
+            const state = chipStates[key] as ChipState
+            const cs = state === 'done' ? CHIP_DONE : state === 'progress' ? CHIP_PROG : CHIP_NONE
+            return (
+              <span
+                key={key}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '2px 5px',
+                  borderRadius: 3,
+                  background: cs.background,
+                  color: cs.color,
+                  letterSpacing: '0.02em',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </span>
+            )
+          })}
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ height: 3, background: '#EEEEEE', borderRadius: 100 }}>
+          {progressPct > 0 && (
             <div
               style={{
-                width: `${readinessPct}%`,
-                height: '100%',
-                backgroundColor: riskColour,
+                width: `${progressPct}%`,
+                height: 3,
+                borderRadius: 100,
+                background: barColour,
               }}
             />
           )}
@@ -767,105 +707,3 @@ function DomainCard({
   )
 }
 
-// ── App group row ──────────────────────────────────────────────────────────────
-
-function AppGroupRow({
-  group,
-  completedCount,
-}: {
-  group: AppGroup
-  completedCount: number
-}) {
-  const total = group.total_planned_sessions
-  const pct = total > 0 ? Math.min(100, (completedCount / total) * 100) : 0
-
-  return (
-    <div
-      style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-s)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        padding: 'var(--rmg-spacing-04) var(--rmg-spacing-05)',
-        display: 'grid',
-        gridTemplateColumns: '220px 1fr 72px',
-        gap: 'var(--rmg-spacing-05)',
-        alignItems: 'center',
-      }}
-    >
-      <div style={{ minWidth: 0, overflow: 'hidden' }}>
-        <span
-          style={{
-            fontFamily: 'monospace',
-            fontSize: 'var(--rmg-text-c2)',
-            color: 'var(--rmg-color-text-light)',
-            marginRight: 'var(--rmg-spacing-02)',
-          }}
-        >
-          G{group.group_number}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 'var(--rmg-text-c1)',
-            color: 'var(--rmg-color-text-body)',
-            fontWeight: 600,
-          }}
-        >
-          {group.group_name}
-        </span>
-      </div>
-
-      <div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginBottom: 4,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'monospace',
-              fontSize: 'var(--rmg-text-c2)',
-              color: 'var(--rmg-color-text-light)',
-            }}
-          >
-            {completedCount} / {total} sessions
-          </span>
-        </div>
-        <div
-          style={{
-            height: 4,
-            backgroundColor: 'var(--rmg-color-grey-3)',
-            borderRadius: 2,
-            overflow: 'hidden',
-          }}
-        >
-          {pct > 0 && (
-            <div
-              style={{
-                width: `${pct}%`,
-                height: '100%',
-                backgroundColor: 'var(--rmg-color-green-contrast)',
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      <span
-        style={{
-          fontFamily: 'monospace',
-          fontSize: 'var(--rmg-text-c2)',
-          color: 'var(--rmg-color-text-light)',
-          whiteSpace: 'nowrap',
-          textAlign: 'right',
-        }}
-      >
-        {group.total_planned_hours != null
-          ? `${group.total_planned_hours} hrs`
-          : '—'}
-      </span>
-    </div>
-  )
-}

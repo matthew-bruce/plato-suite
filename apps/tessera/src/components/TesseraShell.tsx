@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import {
-  LayoutGrid,
   BookOpen,
   ClipboardList,
   Users,
@@ -38,30 +37,56 @@ type NavSectionDef = {
   }>
 }
 
+// Inline SVG matching Tabler outline gauge icon (ti-gauge)
+function GaugeIcon({ size = 16, color = 'currentColor', strokeWidth = 1.75 }: { size?: number; color?: string; strokeWidth?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+      <path d="M12 7v-4" />
+      <path d="M6.457 10.197l-2.83 -1.631" />
+      <path d="M17.543 10.197l2.83 -1.631" />
+      <path d="M5 12a7 7 0 1 1 14 0" />
+      <path d="M18 11.03l-5.97 2.427" />
+    </svg>
+  )
+}
+
 const NAV_SECTIONS: ReadonlyArray<NavSectionDef> = [
   {
     label: 'KT Framework',
     items: [
-      { label: 'Dashboard', icon: LayoutGrid, href: '/' },
-      { label: 'Domains',  icon: BookOpen,         href: '/domains' },
-      { label: 'Timeline', icon: GanttChartSquare, href: '/timeline' },
-      { label: 'Sessions', icon: ClipboardList,    href: '/sessions' },
-      { label: 'People', icon: Users, href: '/people' },
+      { label: 'Dashboard', icon: GaugeIcon as LucideIcon, href: '/' },
+      { label: 'Domains',   icon: BookOpen,                href: '/domains' },
+      { label: 'Timeline',  icon: GanttChartSquare,        href: '/timeline' },
+      { label: 'Sessions',  icon: ClipboardList,           href: '/sessions' },
+      { label: 'People',    icon: Users,                   href: '/people' },
     ],
   },
   {
     label: 'Reference',
     items: [
-      { label: 'Nuggets', icon: Star, href: '/nuggets' },
-      { label: 'Itinerary', icon: Calendar, href: '/itinerary' },
-      { label: "Parker's 7", icon: HelpCircle, href: '/parker' },
+      { label: 'Nuggets',    icon: Star,        href: '/nuggets' },
+      { label: 'Itinerary',  icon: Calendar,    href: '/itinerary' },
+      { label: "Parker's 7", icon: HelpCircle,  href: '/parker' },
     ],
   },
 ]
 
 const PLATO_APPS = [
-  { id: 'nucleus', label: 'Nucleus', url: 'https://plato-nucleus.vercel.app', enabled: true },
-  { id: 'tessera', label: 'Tessera', url: 'https://plato-tessera.vercel.app', enabled: true },
+  { id: 'nucleus',   label: 'Nucleus',   url: 'https://plato-nucleus.vercel.app',   enabled: true },
+  { id: 'tessera',   label: 'Tessera',   url: 'https://plato-tessera.vercel.app',   enabled: true },
+  { id: 'despatch',  label: 'Despatch',  url: '#',                                  enabled: false },
+  { id: 'chronicle', label: 'Chronicle', url: '#',                                  enabled: false },
+  { id: 'cursus',    label: 'Cursus',    url: '#',                                  enabled: false },
 ]
 
 export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
@@ -130,12 +155,12 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* ── Global top header ── */}
+      {/* ── Global top bar ── */}
       <div
         style={{
           height: 40,
           flexShrink: 0,
-          backgroundColor: 'var(--rmg-color-red)',
+          backgroundColor: '#2A2A2D',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -152,7 +177,8 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             userSelect: 'none',
           }}
         >
-          Plato
+          Plato{' '}
+          <span style={{ color: '#DA202A' }}>Suite</span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           {PLATO_APPS.map((app) => {
@@ -163,11 +189,14 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
                 href={app.url}
                 style={{
                   fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 13,
+                  fontSize: 11,
                   fontWeight: active ? 700 : 400,
-                  color: active ? '#ffffff' : 'rgba(255,255,255,0.7)',
+                  color: active ? '#ffffff' : '#8F9495',
                   textDecoration: 'none',
                   whiteSpace: 'nowrap',
+                  borderBottom: active ? '2px solid #DA202A' : 'none',
+                  paddingBottom: active ? 2 : 0,
+                  lineHeight: '18px',
                 }}
               >
                 {app.label}
@@ -185,22 +214,24 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             flexShrink: 0,
             display: 'flex',
             flexDirection: 'column',
-            backgroundColor: 'var(--rmg-color-surface-white)',
-            borderRight: '1px solid var(--rmg-color-grey-3)',
+            backgroundColor: '#ffffff',
+            borderRight: '1px solid #EEEEEE',
             transition: 'width 200ms ease',
             overflow: 'hidden',
             height: '100%',
           }}
         >
-          {/* ── Identity block ── */}
+          {/* ── Brand header ── */}
           <div
             style={{
-              paddingLeft: 16,
-              paddingRight: 16,
-              paddingTop: 20,
+              paddingLeft: 14,
+              paddingRight: 14,
+              paddingTop: 16,
+              paddingBottom: 14,
               overflow: 'hidden',
               whiteSpace: 'nowrap',
               flexShrink: 0,
+              borderBottom: '1px solid #EEEEEE',
             }}
           >
             {!isCollapsed ? (
@@ -208,32 +239,25 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
                 <div
                   style={{
                     fontFamily: 'var(--rmg-font-display)',
-                    fontSize: '1.5rem',
+                    fontSize: 13,
                     fontWeight: 700,
-                    color: 'var(--rmg-color-red)',
+                    color: '#2A2A2D',
                     marginBottom: 2,
+                    lineHeight: 1.2,
                   }}
                 >
-                  Tessera
+                  Tessera{' '}
+                  <span style={{ color: '#DA202A' }}>KT</span>
                 </div>
                 <div
                   style={{
                     fontFamily: 'var(--rmg-font-body)',
-                    fontSize: 12,
-                    color: 'var(--rmg-color-text-light)',
-                    marginBottom: 12,
+                    fontSize: 10,
+                    color: '#8F9495',
                   }}
                 >
-                  KT Operating System
+                  eBusiness Platform
                 </div>
-                <div
-                  style={{
-                    height: 3,
-                    borderRadius: 100,
-                    background: 'linear-gradient(to right, #DA202A, #0892CB)',
-                    marginBottom: 20,
-                  }}
-                />
               </>
             ) : (
               <div
@@ -241,7 +265,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
                   width: 28,
                   height: 28,
                   borderRadius: 'var(--rmg-radius-s)',
-                  backgroundColor: 'var(--rmg-color-red)',
+                  backgroundColor: '#DA202A',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -249,7 +273,6 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
                   fontFamily: 'var(--rmg-font-display)',
                   fontSize: 14,
                   fontWeight: 700,
-                  marginBottom: 20,
                 }}
               >
                 T
@@ -262,35 +285,17 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             style={{
               flex: 1,
               overflow: 'hidden',
-              paddingLeft: 8,
-              paddingRight: 8,
+              paddingTop: 6,
             }}
           >
             {NAV_SECTIONS.map((section, idx) => (
               <div key={section.label}>
-                {!isCollapsed && (
-                  <div
-                    style={{
-                      paddingLeft: 4,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.1em',
-                      color: 'var(--rmg-color-grey-1)',
-                      marginBottom: 4,
-                      marginTop: idx === 0 ? 0 : 20,
-                      fontFamily: 'var(--rmg-font-body)',
-                    }}
-                  >
-                    {section.label}
-                  </div>
-                )}
-                {isCollapsed && idx > 0 && (
+                {idx > 0 && (
                   <div
                     style={{
                       height: 1,
-                      backgroundColor: 'var(--rmg-color-grey-3)',
-                      margin: '8px 4px',
+                      backgroundColor: '#EEEEEE',
+                      margin: '6px 10px',
                     }}
                   />
                 )}
@@ -311,8 +316,6 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
           {/* ── Bottom: settings + collapse toggle ── */}
           <div
             style={{
-              paddingLeft: 8,
-              paddingRight: 8,
               paddingBottom: 8,
               flexShrink: 0,
             }}
@@ -320,10 +323,10 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             <div
               style={{
                 height: 1,
-                backgroundColor: 'var(--rmg-color-grey-3)',
-                marginBottom: 8,
-                marginLeft: 4,
-                marginRight: 4,
+                backgroundColor: '#EEEEEE',
+                marginBottom: 6,
+                marginLeft: 10,
+                marginRight: 10,
               }}
             />
             <NavItem
@@ -347,7 +350,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: 'var(--rmg-color-grey-1)',
+                  color: '#8F9495',
                   marginTop: 2,
                 }}
               >
@@ -383,8 +386,8 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             zIndex: 40,
             width: 28,
             height: 72,
-            backgroundColor: 'var(--rmg-color-surface-white)',
-            border: '1px solid var(--rmg-color-grey-3)',
+            backgroundColor: '#ffffff',
+            border: '1px solid #EEEEEE',
             borderRight: 'none',
             borderRadius: 'var(--rmg-radius-s) 0 0 var(--rmg-radius-s)',
             boxShadow: '-2px 0 6px rgba(0,0,0,0.08)',
@@ -395,7 +398,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
             padding: 0,
           }}
         >
-          <Calendar size={14} color="var(--rmg-color-grey-1)" />
+          <Calendar size={14} color="#8F9495" />
         </button>
       )}
 
@@ -443,16 +446,16 @@ function NavItem({
   const [hovered, setHovered] = useState(false)
 
   let bg = 'transparent'
-  let color = 'var(--rmg-color-text-body)'
+  let color = '#666666'
   let fontWeight = 500
 
   if (active) {
-    bg = 'var(--rmg-color-red)'
-    color = '#ffffff'
+    bg = '#F8E7E7'
+    color = '#DA202A'
     fontWeight = 600
   } else if (hovered) {
-    bg = 'var(--rmg-color-grey-4)'
-    color = 'var(--rmg-color-text-heading)'
+    bg = '#F5F5F5'
+    color = '#2A2A2D'
   }
 
   return (
@@ -466,12 +469,13 @@ function NavItem({
         alignItems: 'center',
         gap: collapsed ? 0 : 10,
         padding: '8px 12px',
-        borderRadius: 'var(--rmg-radius-m)',
+        borderRadius: 6,
         cursor: 'pointer',
         fontFamily: 'var(--rmg-font-body)',
-        fontSize: 14,
+        fontSize: 12,
         fontWeight,
-        width: '100%',
+        width: 'calc(100% - 12px)',
+        margin: '1px 6px',
         backgroundColor: bg,
         color,
         textDecoration: 'none',
