@@ -6,7 +6,6 @@ export const dynamic = 'force-dynamic'
 
 const KT_START = new Date('2026-04-01T00:00:00Z')
 const KT_END   = new Date('2026-07-03T23:59:59Z')
-const INDIA_DEPARTURE = new Date('2026-04-26T00:00:00Z')
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -231,10 +230,6 @@ export default async function Home() {
   )
   const timelinePct = Math.min(100, Math.max(0, Math.round((elapsedDays / totalDays) * 100)))
 
-  const daysToIndia = Math.ceil(
-    (INDIA_DEPARTURE.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-  )
-
   // ── Domain readiness: confidence badge + chip states ───────────────────────
 
   const confidenceByDomain = new Map<string, number | null>()
@@ -299,64 +294,20 @@ export default async function Home() {
         >
           {/* ── Header ── */}
           <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
-            <div
+            <h1
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
+                fontFamily: 'var(--rmg-font-display)',
+                fontSize: '2rem',
+                fontWeight: 700,
+                color: 'var(--rmg-color-text-heading)',
+                letterSpacing: '-0.03em',
+                margin: 0,
+                lineHeight: 1.2,
                 marginBottom: 'var(--rmg-spacing-02)',
               }}
             >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  backgroundColor: 'var(--rmg-color-green-contrast)',
-                  flexShrink: 0,
-                  display: 'inline-block',
-                }}
-              />
-              <span
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.07em',
-                  color: 'var(--rmg-color-grey-1)',
-                }}
-              >
-                Pre-departure state (current)
-              </span>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 'var(--rmg-spacing-05)',
-                flexWrap: 'wrap',
-                marginBottom: 'var(--rmg-spacing-02)',
-              }}
-            >
-              <h1
-                style={{
-                  fontFamily: 'var(--rmg-font-display)',
-                  fontSize: '2rem',
-                  fontWeight: 700,
-                  color: 'var(--rmg-color-text-heading)',
-                  letterSpacing: '-0.03em',
-                  margin: 0,
-                  lineHeight: 1.2,
-                }}
-              >
-                KT Programme Dashboard
-              </h1>
-              <CountdownChip daysToIndia={daysToIndia} />
-            </div>
-
+              KT Programme Dashboard
+            </h1>
             <p
               style={{
                 fontFamily: 'var(--rmg-font-body)',
@@ -399,13 +350,13 @@ export default async function Home() {
           <div>
             <span
               style={{
-                fontSize: 13,
+                fontSize: '15px',
                 fontWeight: 700,
                 color: '#2A2A2D',
                 display: 'inline-block',
                 marginBottom: 12,
-                paddingBottom: 8,
-                borderBottom: '2px solid #DA202A',
+                paddingBottom: '10px',
+                borderBottom: '3px solid #DA202A',
                 marginTop: 22,
               }}
             >
@@ -427,13 +378,13 @@ export default async function Home() {
           <div>
             <span
               style={{
-                fontSize: 13,
+                fontSize: '15px',
                 fontWeight: 700,
                 color: '#2A2A2D',
                 display: 'inline-block',
                 marginBottom: 12,
-                paddingBottom: 8,
-                borderBottom: '2px solid #DA202A',
+                paddingBottom: '10px',
+                borderBottom: '3px solid #DA202A',
                 marginTop: 22,
               }}
             >
@@ -461,42 +412,9 @@ export default async function Home() {
   )
 }
 
-// ── Countdown chip (unchanged) ─────────────────────────────────────────────────
-
-function CountdownChip({ daysToIndia }: { daysToIndia: number }) {
-  const label =
-    daysToIndia > 0
-      ? `${daysToIndia} DAY${daysToIndia === 1 ? '' : 'S'} TO DEPARTURE`
-      : daysToIndia === 0
-        ? 'DEPARTS TODAY'
-        : 'IN INDIA'
-
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '8px 20px',
-        backgroundColor: 'var(--rmg-color-red)',
-        color: 'var(--rmg-color-yellow)',
-        borderRadius: 'var(--rmg-radius-m)',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 12,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.07em',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-      }}
-    >
-      {label}
-    </span>
-  )
-}
-
 // ── Stat card — circle SVG ring design ────────────────────────────────────────
 
-const CIRC = 138.2 // 2π × r=22
+const CIRC = 175.9 // 2π × r=28
 
 function StatCard({
   label,
@@ -527,28 +445,28 @@ function StatCard({
     >
       {/* Circle progress ring */}
       <svg
-        width="56"
-        height="56"
-        viewBox="0 0 56 56"
+        width="72"
+        height="72"
+        viewBox="0 0 72 72"
         style={{ position: 'absolute', top: 14, right: 14 }}
       >
-        <circle cx="28" cy="28" r="22" fill="none" stroke="#EEEEEE" strokeWidth="6" />
+        <circle cx="36" cy="36" r="28" fill="none" stroke="#EEEEEE" strokeWidth="7" />
         <circle
-          cx="28"
-          cy="28"
-          r="22"
+          cx="36"
+          cy="36"
+          r="28"
           fill="none"
           stroke={colour}
-          strokeWidth="6"
+          strokeWidth="7"
           strokeDasharray={`${filled} ${empty}`}
           strokeLinecap="round"
-          strokeDashoffset="34.5"
+          strokeDashoffset="44.0"
         />
         <text
-          x="28"
-          y="32"
+          x="36"
+          y="41"
           textAnchor="middle"
-          fontSize="11"
+          fontSize="13"
           fontWeight="700"
           fill={colour}
         >
@@ -793,8 +711,9 @@ function AppGroupRow({
   const total    = group.total_planned_sessions
   const pct      = total > 0 ? Math.min(100, Math.round((completedCount / total) * 100)) : 0
   const inactive = !group.is_active
-  const ragColor = inactive ? '#D5D5D5' : groupRagColour(pct)
-  const badgeBg  = GROUP_COLOURS[group.group_number] ?? '#8F9495'
+  const barColour = pct <= 32 ? '#DA202A' : pct <= 65 ? '#F3920D' : '#008A00'
+  const pctColour = (inactive || pct === 0) ? '#D5D5D5' : barColour
+  const badgeBg   = GROUP_COLOURS[group.group_number] ?? '#8F9495'
 
   return (
     <div
@@ -803,8 +722,8 @@ function AppGroupRow({
         borderRadius: 'var(--rmg-radius-s)',
         boxShadow: 'var(--rmg-shadow-card)',
         display: 'grid',
-        gridTemplateColumns: '26px 1fr 80px 36px',
-        gap: 8,
+        gridTemplateColumns: '26px 160px 1fr 72px 44px',
+        gap: 12,
         padding: '8px 12px',
         alignItems: 'center',
         opacity: inactive ? 0.4 : 1,
@@ -829,39 +748,32 @@ function AppGroupRow({
         {group.group_number}
       </div>
 
-      {/* Group name + progress bar */}
-      <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: '#2A2A2D',
-            marginBottom: 4,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {group.group_name}
-        </div>
-        <div
-          style={{
-            height: 3,
-            background: '#EEEEEE',
-            borderRadius: 100,
-          }}
-        >
-          {!inactive && pct > 0 && (
-            <div
-              style={{
-                width: `${pct}%`,
-                height: 3,
-                borderRadius: 100,
-                background: ragColor,
-              }}
-            />
-          )}
-        </div>
+      {/* Group name */}
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 500,
+          color: '#2A2A2D',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {group.group_name}
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ height: '8px', background: '#EEEEEE', borderRadius: '100px', overflow: 'hidden' }}>
+        {pct > 0 && !inactive && (
+          <div
+            style={{
+              height: '100%',
+              width: `${pct}%`,
+              borderRadius: '100px',
+              background: barColour,
+            }}
+          />
+        )}
       </div>
 
       {/* Session count */}
@@ -879,9 +791,9 @@ function AppGroupRow({
       {/* Percentage */}
       <div
         style={{
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: 700,
-          color: ragColor,
+          color: pctColour,
           whiteSpace: 'nowrap',
           textAlign: 'right',
         }}
