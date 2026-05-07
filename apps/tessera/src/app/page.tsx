@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { TesseraShell } from '@/components/TesseraShell'
+import { AppGroupRow } from '@/components/AppGroupRow'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -101,33 +102,6 @@ function getChipStates(
 
   // DOCS and SIGN-OFF — manually set (not yet built, always none)
   return { people, sessions, schedule, kt, demo, docs: 'none', signoff: 'none' }
-}
-
-// ── Group colours ──────────────────────────────────────────────────────────────
-
-const GROUP_COLOURS: Record<number, string> = {
-  0:  '#1A2B5B',
-  1:  '#DA202A',
-  2:  '#E2611A',
-  3:  '#7C3AED',
-  4:  '#0892CB',
-  5:  '#008A00',
-  6:  '#9B0A6E',
-  7:  '#3ABFB8',
-  8:  '#FF8C00',
-  9:  '#3D3D3D',
-  10: '#8F9495',
-  11: '#1976F2',
-  12: '#8F9495',
-}
-
-// ── RAG colour for app group progress bars ─────────────────────────────────────
-
-function groupRagColour(pct: number): string {
-  if (pct === 0) return '#D5D5D5'
-  if (pct <= 32) return '#DA202A'
-  if (pct <= 65) return '#F3920D'
-  return '#008A00'
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
@@ -256,25 +230,31 @@ export default async function Home() {
   return (
     <TesseraShell activeRoute="/">
       <style>{`
+        .ds-page-grid {
+          display: grid;
+          grid-template-columns: 65fr 35fr;
+          gap: 20px;
+          align-items: start;
+        }
         .ds-stat-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-          margin-bottom: 22px;
+          gap: 12px;
         }
         .ds-domain-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(2, 1fr);
           gap: 10px;
-          margin-bottom: var(--rmg-spacing-08);
+        }
+        @media (max-width: 1024px) {
+          .ds-page-grid   { grid-template-columns: 1fr; }
         }
         @media (max-width: 768px) {
           .ds-stat-grid   { grid-template-columns: repeat(2, 1fr); }
-          .ds-domain-grid { grid-template-columns: repeat(2, 1fr); }
+          .ds-domain-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 375px) {
           .ds-stat-grid   { grid-template-columns: 1fr; }
-          .ds-domain-grid { grid-template-columns: 1fr; }
         }
         .ds-domain-card:hover { opacity: 0.92; }
       `}</style>
@@ -321,90 +301,121 @@ export default async function Home() {
             </p>
           </div>
 
-          {/* ── Stat cards ── */}
-          <div className="ds-stat-grid">
-            <StatCard
-              label="Sessions Completed"
-              colour="#DA202A"
-              number={String(completedCount)}
-              subtext={`of ${plannedSessionsCount} non-cancelled`}
-              pct={sessionsPct}
-            />
-            <StatCard
-              label="Hours Delivered"
-              colour="#F3920D"
-              number={String(Math.round(hoursDelivered))}
-              subtext={`of ${plannedHours} planned hours`}
-              pct={hoursPct}
-            />
-            <StatCard
-              label="KT Timeline"
-              colour="#0892CB"
-              number={String(elapsedDays)}
-              subtext={`of ${totalDays} days elapsed`}
-              pct={timelinePct}
-            />
-          </div>
+          {/* ── Two-column layout ── */}
+          <div className="ds-page-grid">
+            {/* LEFT COLUMN */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Container 1 — Stat cards */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
+                }}
+              >
+                <div className="ds-stat-grid">
+                  <StatCard
+                    label="Sessions Completed"
+                    colour="#DA202A"
+                    number={String(completedCount)}
+                    subtext={`of ${plannedSessionsCount} non-cancelled`}
+                    pct={sessionsPct}
+                  />
+                  <StatCard
+                    label="Hours Delivered"
+                    colour="#F3920D"
+                    number={String(Math.round(hoursDelivered))}
+                    subtext={`of ${plannedHours} planned hours`}
+                    pct={hoursPct}
+                  />
+                  <StatCard
+                    label="KT Timeline"
+                    colour="#0892CB"
+                    number={String(elapsedDays)}
+                    subtext={`of ${totalDays} days elapsed`}
+                    pct={timelinePct}
+                  />
+                </div>
+              </div>
 
-          {/* ── Domain Readiness ── */}
-          <div>
-            <span
+              {/* Container 2 — Domain Readiness */}
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
+                }}
+              >
+                <div>
+                  <span
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 700,
+                      color: '#2A2A2D',
+                      display: 'inline-block',
+                      marginBottom: 16,
+                      paddingBottom: '10px',
+                      borderBottom: '3px solid #DA202A',
+                    }}
+                  >
+                    Domain Readiness
+                  </span>
+                </div>
+                <div className="ds-domain-grid">
+                  {domains.map((d) => (
+                    <DomainCard
+                      key={d.id}
+                      domain={d}
+                      chipStates={chipStatesByDomain.get(d.id) ?? { people: 'none', sessions: 'none', schedule: 'none', kt: 'none', demo: 'none', docs: 'none', signoff: 'none' }}
+                      confidence={confidenceByDomain.get(d.id) ?? null}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN — Container 3: Application Group */}
+            <div
               style={{
-                fontSize: '15px',
-                fontWeight: 700,
-                color: '#2A2A2D',
-                display: 'inline-block',
-                marginBottom: 12,
-                paddingBottom: '10px',
-                borderBottom: '3px solid #DA202A',
-                marginTop: 22,
+                background: '#ffffff',
+                borderRadius: '12px',
+                padding: '20px',
+                boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
               }}
             >
-              Domain Readiness
-            </span>
-          </div>
-          <div className="ds-domain-grid">
-            {domains.map((d) => (
-              <DomainCard
-                key={d.id}
-                domain={d}
-                chipStates={chipStatesByDomain.get(d.id) ?? { people: 'none', sessions: 'none', schedule: 'none', kt: 'none', demo: 'none', docs: 'none', signoff: 'none' }}
-                confidence={confidenceByDomain.get(d.id) ?? null}
-              />
-            ))}
-          </div>
-
-          {/* ── Application Group ── */}
-          <div>
-            <span
-              style={{
-                fontSize: '15px',
-                fontWeight: 700,
-                color: '#2A2A2D',
-                display: 'inline-block',
-                marginBottom: 12,
-                paddingBottom: '10px',
-                borderBottom: '3px solid #DA202A',
-                marginTop: 22,
-              }}
-            >
-              Application Group
-            </span>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
-            {appGroups.map((g) => (
-              <AppGroupRow
-                key={g.id}
-                group={g}
-                completedCount={completedByGroup.get(g.id) ?? 0}
-              />
-            ))}
+              <div>
+                <span
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: '#2A2A2D',
+                    display: 'inline-block',
+                    marginBottom: 16,
+                    paddingBottom: '10px',
+                    borderBottom: '3px solid #DA202A',
+                  }}
+                >
+                  Application Group
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {appGroups.map((g) => (
+                  <AppGroupRow
+                    key={g.id}
+                    group={{
+                      id: g.id,
+                      name: g.group_name,
+                      group_number: g.group_number,
+                      is_active: g.is_active,
+                    }}
+                    completedCount={completedByGroup.get(g.id) ?? 0}
+                    totalCount={g.total_planned_sessions}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -597,32 +608,29 @@ function DomainCard({
         }}
       >
         {/* Confidence badge — top right */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 12,
-            right: 14,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            lineHeight: 1,
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 700, color: confColour }}>
-            {confDisplay}
-          </span>
-          <span
+        <div style={{ position: 'absolute', top: 12, right: 12, textAlign: 'center' }}>
+          <div
             style={{
-              fontSize: 8,
+              fontSize: '28px',
               fontWeight: 700,
-              textTransform: 'uppercase',
-              color: '#8F9495',
-              letterSpacing: '0.05em',
-              marginTop: 2,
+              color: confColour,
+              lineHeight: 1,
             }}
           >
-            Conf.
-          </span>
+            {confDisplay}
+          </div>
+          <div
+            style={{
+              fontSize: '9px',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: '#8F9495',
+              marginTop: '3px',
+            }}
+          >
+            Confidence Score
+          </div>
         </div>
 
         {/* Domain name */}
@@ -632,7 +640,7 @@ function DomainCard({
             fontWeight: 600,
             color: '#2A2A2D',
             marginBottom: 6,
-            paddingRight: 52,
+            paddingRight: 84,
             lineHeight: 1.3,
           }}
         >
@@ -699,107 +707,3 @@ function DomainCard({
   )
 }
 
-// ── App group row ──────────────────────────────────────────────────────────────
-
-function AppGroupRow({
-  group,
-  completedCount,
-}: {
-  group: AppGroup
-  completedCount: number
-}) {
-  const total    = group.total_planned_sessions
-  const pct      = total > 0 ? Math.min(100, Math.round((completedCount / total) * 100)) : 0
-  const inactive = !group.is_active
-  const barColour = pct <= 32 ? '#DA202A' : pct <= 65 ? '#F3920D' : '#008A00'
-  const pctColour = (inactive || pct === 0) ? '#D5D5D5' : barColour
-  const badgeBg   = GROUP_COLOURS[group.group_number] ?? '#8F9495'
-
-  return (
-    <div
-      style={{
-        backgroundColor: '#ffffff',
-        borderRadius: 'var(--rmg-radius-s)',
-        boxShadow: 'var(--rmg-shadow-card)',
-        display: 'grid',
-        gridTemplateColumns: '26px 160px 1fr 72px 44px',
-        gap: 12,
-        padding: '8px 12px',
-        alignItems: 'center',
-        opacity: inactive ? 0.4 : 1,
-      }}
-    >
-      {/* Group badge */}
-      <div
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: 4,
-          backgroundColor: badgeBg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 9,
-          fontWeight: 700,
-          color: '#ffffff',
-          flexShrink: 0,
-        }}
-      >
-        {group.group_number}
-      </div>
-
-      {/* Group name */}
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 500,
-          color: '#2A2A2D',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {group.group_name}
-      </div>
-
-      {/* Progress bar */}
-      <div style={{ height: '8px', background: '#EEEEEE', borderRadius: '100px', overflow: 'hidden' }}>
-        {pct > 0 && !inactive && (
-          <div
-            style={{
-              height: '100%',
-              width: `${pct}%`,
-              borderRadius: '100px',
-              background: barColour,
-            }}
-          />
-        )}
-      </div>
-
-      {/* Session count */}
-      <div
-        style={{
-          fontSize: 11,
-          color: '#8F9495',
-          whiteSpace: 'nowrap',
-          textAlign: 'right',
-        }}
-      >
-        {inactive ? '—' : `${completedCount} / ${total}`}
-      </div>
-
-      {/* Percentage */}
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 700,
-          color: pctColour,
-          whiteSpace: 'nowrap',
-          textAlign: 'right',
-        }}
-      >
-        {inactive ? '—' : `${pct}%`}
-      </div>
-    </div>
-  )
-}

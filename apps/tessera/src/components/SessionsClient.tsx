@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { AppGroup, KtSession, SessionLead } from '@/app/sessions/page'
 import { TRACK_COLOURS, getSupplierColour } from '@plato/ui/tokens'
 import { highlightMatch } from '@/lib/highlightMatch'
@@ -236,10 +237,15 @@ export function SessionsClient({
   metricSessions,
   metricHours,
 }: SessionsClientProps) {
+  const searchParams = useSearchParams()
+  const groupParam = searchParams.get('group')
+
   const [activeTab, setActiveTab] = useState<TabId>('list')
   const [viewMode, setViewMode] = useState<ViewMode>('by-group')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() =>
+    groupParam ? new Set([groupParam]) : new Set()
+  )
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
@@ -248,6 +254,15 @@ export function SessionsClient({
   const [calMonth, setCalMonth] = useState(today.getMonth())
 
   const selectedSession = sessions.find((s) => s.id === selectedId) ?? null
+
+  useEffect(() => {
+    if (!groupParam) return
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`group-${groupParam}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [groupParam])
 
   function handleSelectSession(id: string) {
     setSelectedId((prev) => (prev === id ? null : id))
@@ -761,6 +776,7 @@ function GroupCard({
     >
       {/* Header */}
       <div
+        id={`group-${group.id}`}
         role="button"
         tabIndex={0}
         onClick={onToggle}
