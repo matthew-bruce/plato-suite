@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import type { AppGroup, KtSession, SessionLead } from '@/app/sessions/page'
 import { TRACK_COLOURS, getSupplierColour } from '@plato/ui/tokens'
 import { highlightMatch } from '@/lib/highlightMatch'
@@ -16,6 +16,7 @@ type TypeFilter = 'all' | 'kt' | 'playback'
 
 type DetailResource = {
   role: string
+  resource_id: string | null
   resource_name: string
   supplier_abbreviation: string | null
   supplier_colour: string | null
@@ -34,7 +35,8 @@ interface SessionsClientProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function statusLabel(status: KtSession['status'] | string): string {
+function statusLabel(status: KtSession['status'] | string, plannedDate?: string | null): string {
+  if (status === 'SCHEDULED' && !plannedDate) return 'Planned'
   const map: Record<string, string> = {
     SCHEDULED: 'Scheduled',
     COMPLETED: 'Completed',
@@ -89,7 +91,7 @@ function todayStr(): string {
 
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, plannedDate }: { status: string; plannedDate?: string | null }) {
   const { bg, fg } = statusBadgeStyle(status)
   return (
     <span
@@ -106,7 +108,7 @@ function StatusBadge({ status }: { status: string }) {
         color: fg,
       }}
     >
-      {statusLabel(status)}
+      {statusLabel(status, plannedDate)}
     </span>
   )
 }
@@ -1110,7 +1112,7 @@ function GroupSessionRow({
 
       {/* Status badge — fixed width so it doesn't collapse */}
       <div style={{ width: 100, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-        <StatusBadge status={session.status} />
+        <StatusBadge status={session.status} plannedDate={session.planned_date} />
       </div>
     </div>
   )
@@ -1441,7 +1443,7 @@ function FlatSessionRow({
 
       {/* Status badge */}
       <div style={{ width: 100, flexShrink: 0, padding: '12px', display: 'flex', alignItems: 'center' }}>
-        <StatusBadge status={session.status} />
+        <StatusBadge status={session.status} plannedDate={session.planned_date} />
       </div>
     </div>
   )
@@ -1748,17 +1750,20 @@ function DetailPanel({
 }) {
   const [resources, setResources] = useState<DetailResource[]>([])
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const [hoveredResourceId, setHoveredResourceId] = useState<string | null>(null)
 
   const fetchResources = useCallback(async (sessionId: string) => {
     setLoading(true)
     setResources([])
     const { data } = await supabase
       .from('tessera_kt_session_resources')
-      .select('role, resources(resource_name, suppliers(supplier_abbreviation, supplier_colour))')
+      .select('role, resource_id, resources(resource_name, suppliers(supplier_abbreviation, supplier_colour))')
       .eq('session_id', sessionId)
 
     type RawRow = {
       role: string
+      resource_id: string | null
       resources:
         | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }
         | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }[]
@@ -1772,6 +1777,7 @@ function DetailPanel({
       const sup = Array.isArray(r.suppliers) ? r.suppliers[0] : r.suppliers
       parsed.push({
         role: row.role,
+        resource_id: row.resource_id ?? null,
         resource_name: r.resource_name,
         supplier_abbreviation: sup?.supplier_abbreviation ?? null,
         supplier_colour: sup?.supplier_colour ?? null,
@@ -1790,51 +1796,44 @@ function DetailPanel({
   }, [session?.id, fetchResources])
 
   const panelStyle: React.CSSProperties = {
-    backgroundColor: 'var(--rmg-color-surface-white)',
-    borderRadius: 'var(--rmg-radius-m)',
-    boxShadow: 'var(--rmg-shadow-card)',
+    width: 360,
+    flexShrink: 0,
+    margin: '16px 28px 16px 0',
+    border: '1px solid #E4E4E4',
+    borderRadius: 8,
+    background: '#ffffff',
+    display: 'flex',
+    flexDirection: 'column',
     overflow: 'hidden',
+    boxShadow: '0 4px 56px 0 rgba(0,0,0,0.07)',
   }
 
   if (!session) {
     return (
-      <div
-        style={{
-          ...panelStyle,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '48px 24px',
-          gap: 12,
-          minHeight: 240,
-        }}
-      >
-        <svg
-          width="36"
-          height="36"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--rmg-color-grey-2)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <line x1="9" y1="9" x2="15" y2="9" />
-          <line x1="9" y1="13" x2="13" y2="13" />
+      <div style={{
+        width: 360,
+        flexShrink: 0,
+        margin: '16px 28px 16px 0',
+        border: '1px solid #E4E4E4',
+        borderRadius: 8,
+        background: '#ffffff',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 4px 56px 0 rgba(0,0,0,0.07)',
+        color: '#8F9495',
+        gap: 10,
+        padding: 32,
+        textAlign: 'center' as const,
+      }}>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#D5D5D5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/>
+          <path d="M16 2v4M8 2v4M3 10h18"/>
+          <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>
         </svg>
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 13,
-            color: 'var(--rmg-color-grey-1)',
-            textAlign: 'center',
-          }}
-        >
-          Select a session to view details
-        </span>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#8F9495' }}>No session selected</div>
+        <div style={{ fontSize: 11, color: '#D5D5D5', lineHeight: 1.5 }}>Select a session from the list to view its details</div>
       </div>
     )
   }
@@ -1850,6 +1849,9 @@ function DetailPanel({
         : 'var(--rmg-color-grey-1)'
     return (
       <span
+        onClick={() => { if (res.resource_id) router.push(`/people?resource=${res.resource_id}`) }}
+        onMouseEnter={() => { if (res.resource_id) setHoveredResourceId(res.resource_id) }}
+        onMouseLeave={() => setHoveredResourceId(null)}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -1863,6 +1865,8 @@ function DetailPanel({
           fontWeight: 600,
           fontFamily: 'var(--rmg-font-body)',
           whiteSpace: 'nowrap',
+          cursor: res.resource_id ? 'pointer' : 'default',
+          opacity: res.resource_id != null && hoveredResourceId === res.resource_id ? 0.82 : 1,
         }}
       >
         {res.supplier_abbreviation && (
@@ -1967,7 +1971,7 @@ function DetailPanel({
             </div>
           )}
 
-          <StatusBadge status={session.status} />
+          <StatusBadge status={session.status} plannedDate={session.planned_date} />
         </div>
       </div>
 
