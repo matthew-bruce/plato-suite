@@ -259,7 +259,7 @@ export default async function Home() {
           .dom-grid { grid-template-columns: repeat(2, 1fr); }
           .grp-grid { grid-template-columns: 1fr; }
         }
-        @media (max-width: 420px) {
+        @media (max-width: 520px) {
           .dom-grid { grid-template-columns: 1fr; }
         }
       `}</style>
