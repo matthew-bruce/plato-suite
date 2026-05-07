@@ -365,7 +365,7 @@ export function TesseraShell({ children, activeRoute }: TesseraShellProps) {
           style={{
             flex: 1,
             overflow: 'auto',
-            backgroundColor: 'var(--rmg-color-surface-light)',
+            backgroundColor: '#ffffff',
           }}
         >
           {children}
