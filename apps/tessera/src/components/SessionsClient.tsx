@@ -1694,12 +1694,12 @@ function CalendarView({
   const totalCells = cells.length
 
   return (
-    <div style={{ border: '1px solid var(--rmg-color-grey-3)', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ border: '1px solid #E4E4E4', borderRadius: 8, overflow: 'hidden', background: '#ffffff', marginRight: 28 }}>
       {/* Month navigation */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 20px', borderBottom: '1px solid var(--rmg-color-grey-3)',
-        backgroundColor: 'var(--rmg-color-surface-white)',
+        padding: '12px 20px', borderBottom: '1px solid #E4E4E4',
+        backgroundColor: '#ffffff',
       }}>
         <button type="button" onClick={prevMonth} aria-label="Previous month" style={{
           background: 'none', border: 'none', cursor: 'pointer',
@@ -1717,7 +1717,7 @@ function CalendarView({
       </div>
 
       {/* Day-of-week headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--rmg-color-grey-3)', backgroundColor: 'var(--rmg-color-grey-4)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid #E4E4E4', backgroundColor: '#F5F5F5' }}>
         {DAY_NAMES.map((d) => (
           <div key={d} style={{ textAlign: 'center', padding: '6px 4px', fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--rmg-color-grey-1)' }}>
             {d}
@@ -1791,7 +1791,7 @@ function DayCell({
   const visible = isOverflowing ? sessions.slice(0, MAX_COLLAPSED) : sessions
   const overflowCount = isOverflowing ? sessions.length - MAX_COLLAPSED : 0
 
-  const cellBg = isToday ? 'var(--rmg-color-tint-yellow)' : 'var(--rmg-color-surface-white)'
+  const cellBg = isToday ? '#FFFBEA' : '#ffffff'
 
   return (
     <div style={{
@@ -1805,8 +1805,9 @@ function DayCell({
     }}>
       {/* Day number — top-right */}
       <span style={{
-        fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500,
-        color: isToday ? 'var(--rmg-color-text-heading)' : 'var(--rmg-color-grey-1)',
+        fontFamily: 'var(--rmg-font-body)', fontSize: 12,
+        fontWeight: isToday ? 700 : 500,
+        color: isToday ? '#DA202A' : '#8F9495',
         alignSelf: 'flex-end', padding: '1px 2px 2px 0', lineHeight: 1,
       }}>
         {dayNum}
