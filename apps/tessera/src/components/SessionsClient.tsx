@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import type { AppGroup, KtSession, SessionLead } from '@/app/sessions/page'
 import { TRACK_COLOURS, getSupplierColour } from '@plato/ui/tokens'
 import { highlightMatch } from '@/lib/highlightMatch'
@@ -16,9 +16,27 @@ type TypeFilter = 'all' | 'kt' | 'playback'
 
 type DetailResource = {
   role: string
+  resource_id: string | null
   resource_name: string
+  resource_function: string | null
   supplier_abbreviation: string | null
   supplier_colour: string | null
+}
+
+const GROUP_COLOURS: Record<number, string> = {
+  0:  '#1A2B5B',
+  1:  '#DA202A',
+  2:  '#E2611A',
+  3:  '#7C3AED',
+  4:  '#0892CB',
+  5:  '#008A00',
+  6:  '#9B0A6E',
+  7:  '#3ABFB8',
+  8:  '#FF8C00',
+  9:  '#3D3D3D',
+  10: '#8F9495',
+  11: '#1976F2',
+  12: '#8F9495',
 }
 
 interface SessionsClientProps {
@@ -34,7 +52,8 @@ interface SessionsClientProps {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function statusLabel(status: KtSession['status'] | string): string {
+function statusLabel(status: KtSession['status'] | string, plannedDate?: string | null): string {
+  if (status === 'SCHEDULED' && !plannedDate) return 'Planned'
   const map: Record<string, string> = {
     SCHEDULED: 'Scheduled',
     COMPLETED: 'Completed',
@@ -65,12 +84,23 @@ function matchesStatus(s: KtSession, f: StatusFilter): boolean {
   return s.status === f
 }
 
-function formatDateShort(dateStr: string): string {
+function ordinalSuffix(n: number): string {
+  const v = n % 100
+  if (v >= 11 && v <= 13) return 'th'
+  switch (n % 10) {
+    case 1: return 'st'
+    case 2: return 'nd'
+    case 3: return 'rd'
+    default: return 'th'
+  }
+}
+
+function formatDateFull(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-  })
+  const date = new Date(y, m - 1, d)
+  const weekday = date.toLocaleDateString('en-GB', { weekday: 'long' })
+  const month = date.toLocaleDateString('en-GB', { month: 'long' })
+  return `${weekday}, ${d}${ordinalSuffix(d)} ${month}`
 }
 
 function formatDateLong(dateStr: string): string {
@@ -107,6 +137,40 @@ function StatusBadge({ status }: { status: string }) {
       }}
     >
       {statusLabel(status)}
+    </span>
+  )
+}
+
+function StatusChip({ status, plannedDate }: { status: string; plannedDate?: string | null }) {
+  let bg: string
+  let fg: string
+  switch (status) {
+    case 'COMPLETED':
+      bg = 'var(--rmg-color-tint-green)'; fg = '#1A6B00'; break
+    case 'CANCELLED':
+      bg = 'var(--rmg-color-tint-pink)'; fg = 'var(--rmg-color-warm-red)'; break
+    case 'IN_PROGRESS':
+    case 'RESCHEDULED':
+      bg = '#BEE0F5'; fg = '#005F8A'; break
+    default:
+      bg = 'var(--rmg-color-grey-3)'; fg = 'var(--rmg-color-dark-grey)'
+  }
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 7px',
+      borderRadius: 3,
+      fontFamily: 'var(--rmg-font-body)',
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase' as const,
+      whiteSpace: 'nowrap',
+      backgroundColor: bg,
+      color: fg,
+    }}>
+      {statusLabel(status, plannedDate)}
     </span>
   )
 }
@@ -285,146 +349,272 @@ export function SessionsClient({
   return (
     <>
       <style>{`
-        .sessions-layout {
-          display: grid;
-          grid-template-columns: 2fr minmax(320px, 1fr);
-          gap: 20px;
-          align-items: start;
+        .sess-main { display: flex; flex: 1; overflow: hidden; }
+        .sess-list { flex: 6; overflow-y: auto; overflow-x: hidden; padding: 16px 0 24px 28px; min-width: 0; }
+        .sess-panel { flex: 4; overflow: hidden; display: flex; flex-direction: column; }
+        @media (max-width: 900px) {
+          .sess-panel { display: none; }
+          .sess-list { padding-left: 20px; }
         }
-        @media (max-width: 960px) {
-          .sessions-layout { grid-template-columns: 1fr; }
-          .sessions-detail-col { order: -1; }
-        }
-        @media (max-width: 640px) {
-          .sessions-col-group,
-          .sessions-col-lead,
-          .sessions-col-date,
-          .sessions-col-people,
-          .sessions-col-dur { display: none !important; }
+        @media (max-width: 700px) {
+          .sess-list { padding-left: 16px; }
         }
       `}</style>
 
-      <div
-        style={{
-          width: '100%',
-          padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
-          boxSizing: 'border-box',
-        }}
-      >
-        {/* Page header — full width */}
-        <div style={{ marginBottom: 'var(--rmg-spacing-05)' }}>
-          <h1
-            style={{
-              fontFamily: 'var(--rmg-font-display)',
-              fontSize: '2rem',
-              fontWeight: 700,
-              letterSpacing: '-0.03em',
-              lineHeight: 1.1,
-              color: 'var(--rmg-color-text-heading)',
-              margin: 0,
-            }}
-          >
-            Sessions
-          </h1>
-          <p
-            style={{
-              fontFamily: 'var(--rmg-font-body)',
-              fontSize: 14,
-              color: 'var(--rmg-color-text-light)',
-              margin: '6px 0 0',
-            }}
-          >
-            {metricGroups} application group{metricGroups === 1 ? '' : 's'} ·{' '}
-            {metricSessions} session{metricSessions === 1 ? '' : 's'} · {metricHours} hrs
-          </p>
-        </div>
+      {/* Page header */}
+      <div style={{ padding: '24px 28px 0', flexShrink: 0 }}>
+        <h1 style={{
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: 22,
+          fontWeight: 700,
+          letterSpacing: '-0.02em',
+          lineHeight: 1.2,
+          color: 'var(--rmg-color-text-heading)',
+          margin: 0,
+        }}>
+          Sessions
+        </h1>
+        <p style={{
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 11,
+          color: 'var(--rmg-color-grey-1)',
+          margin: '4px 0 0',
+          fontWeight: 400,
+        }}>
+          {metricGroups} application group{metricGroups === 1 ? '' : 's'}
+          <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
+          {metricSessions} session{metricSessions === 1 ? '' : 's'}
+          <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
+          {metricHours} hrs
+        </p>
+      </div>
 
-        {/* Two-column layout — tabs+list on left, detail panel on right */}
-        <div className="sessions-layout">
-          {/* Left column: tabs + list or calendar */}
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                display: 'flex',
-                gap: 2,
-                borderBottom: '1px solid var(--rmg-color-grey-3)',
-                marginBottom: 'var(--rmg-spacing-04)',
-              }}
+      {/* Controls strip — dark top tier + grey bottom tier */}
+      <div style={{
+        margin: '16px 28px 0',
+        border: '1px solid #E4E4E4',
+        borderRadius: 10,
+        overflow: 'hidden',
+        flexShrink: 0,
+      }}>
+        {/* Top tier — dark */}
+        <div style={{
+          background: '#2A2A2D',
+          padding: '7px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap' as const,
+          rowGap: 6,
+        }}>
+          {/* Search */}
+          <div style={{ position: 'relative', flex: 1, minWidth: 140, maxWidth: 280 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+              stroke="#8F9495" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
             >
-              {(['list', 'calendar'] as TabId[]).map((t) => {
-                const active = activeTab === t
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setActiveTab(t)}
-                    style={{
-                      fontFamily: 'var(--rmg-font-body)',
-                      fontSize: 14,
-                      fontWeight: active ? 700 : 500,
-                      color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-                      padding: '8px 16px',
-                      borderBottom: active
-                        ? '2px solid var(--rmg-color-red)'
-                        : '2px solid transparent',
-                      marginBottom: -1,
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      outline: 'none',
-                    }}
-                  >
-                    {t === 'list' ? 'List' : 'Calendar'}
-                  </button>
-                )
-              })}
-            </div>
-
-            {activeTab === 'list' && (
-              <ProgressView
-                groups={groups}
-                sessions={sessions}
-                leadMap={leadMap}
-                supplierMap={supplierMap}
-                sessionPeopleCounts={sessionPeopleCounts}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-                search={search}
-                setSearch={setSearch}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
-                typeFilter={typeFilter}
-                setTypeFilter={setTypeFilter}
-                expandedGroups={expandedGroups}
-                toggleGroup={toggleGroup}
-                selectedId={selectedId}
-                onSelectSession={handleSelectSession}
-              />
-            )}
-
-            {activeTab === 'calendar' && (
-              <CalendarView
-                sessions={sessions}
-                groups={groups}
-                calYear={calYear}
-                calMonth={calMonth}
-                setCalYear={setCalYear}
-                setCalMonth={setCalMonth}
-                selectedId={selectedId}
-                onSelectSession={handleSelectSession}
-              />
-            )}
-          </div>
-
-          {/* Right column: detail panel — sticky alongside the full left column */}
-          <div className="sessions-detail-col" style={{ position: 'sticky', top: 20 }}>
-            <DetailPanel
-              session={selectedSession}
-              groups={groups}
-              supplierMap={supplierMap}
+              <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search sessions…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                height: 32,
+                padding: '0 10px 0 30px',
+                border: '1px solid #D5D5D5',
+                borderRadius: 4,
+                background: '#ffffff',
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 12,
+                color: '#2A2A2D',
+                outline: 'none',
+              }}
             />
           </div>
+
+          {/* Status filter pills */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' as const }}>
+            {(['ALL', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as StatusFilter[]).map((v) => {
+              const active = statusFilter === v
+              const label = v === 'ALL' ? 'All' : v === 'IN_PROGRESS' ? 'In Progress' : v === 'SCHEDULED' ? 'Scheduled' : v.charAt(0) + v.slice(1).toLowerCase()
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setStatusFilter(v)}
+                  style={{
+                    height: 26,
+                    padding: '0 11px',
+                    borderRadius: 100,
+                    fontFamily: 'var(--rmg-font-body)',
+                    fontSize: 11,
+                    fontWeight: active ? 700 : 500,
+                    border: `1.5px solid ${active ? '#ffffff' : 'rgba(255,255,255,0.25)'}`,
+                    background: active ? '#ffffff' : 'transparent',
+                    color: active ? '#2A2A2D' : 'rgba(255,255,255,0.7)',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* List / Calendar view toggle */}
+          <div style={{
+            display: 'flex',
+            marginLeft: 'auto',
+            background: 'rgba(255,255,255,0.1)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 6,
+            padding: 2,
+            flexShrink: 0,
+          }}>
+            {(['list', 'calendar'] as TabId[]).map((t) => {
+              const active = activeTab === t
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setActiveTab(t)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '3px 9px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: active ? 700 : 500,
+                    color: active ? '#2A2A2D' : 'rgba(255,255,255,0.65)',
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: active ? '#ffffff' : 'transparent',
+                    fontFamily: 'var(--rmg-font-body)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {t === 'list' ? 'List' : 'Calendar'}
+                </button>
+              )
+            })}
+          </div>
         </div>
+
+        {/* Bottom tier — grey, By Group / All Sessions tabs */}
+        <div style={{
+          background: '#F5F5F5',
+          padding: '0 14px',
+          display: 'flex',
+          alignItems: 'center',
+          borderTop: '1px solid #E4E4E4',
+        }}>
+          {([['by-group', 'By Group', metricGroups], ['all', 'All Sessions', metricSessions]] as [ViewMode, string, number][]).map(([mode, label, count]) => {
+            const active = viewMode === mode
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setViewMode(mode)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '9px 14px 9px 0',
+                  fontSize: 12,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? '#DA202A' : '#8F9495',
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: 'transparent',
+                  fontFamily: 'var(--rmg-font-body)',
+                  borderBottom: `2px solid ${active ? '#DA202A' : 'transparent'}`,
+                  whiteSpace: 'nowrap',
+                  marginRight: 6,
+                }}
+              >
+                {label}
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: 18,
+                  height: 18,
+                  padding: '0 5px',
+                  borderRadius: 100,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  background: active ? '#F8E7E7' : '#EEEEEE',
+                  color: active ? '#DA202A' : '#8F9495',
+                }}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Main area */}
+      <div className="sess-main">
+
+        {/* Session list */}
+        <div className="sess-list">
+          {activeTab === 'list' && viewMode === 'by-group' && (
+            <ByGroupView
+              groups={groups}
+              sessions={sessions}
+              leadMap={leadMap}
+              sessionPeopleCounts={sessionPeopleCounts}
+              search={search}
+              statusFilter={statusFilter}
+              expandedGroups={expandedGroups}
+              toggleGroup={toggleGroup}
+              selectedId={selectedId}
+              onSelectSession={handleSelectSession}
+            />
+          )}
+          {activeTab === 'list' && viewMode === 'all' && (
+            <AllSessionsView
+              groups={groups}
+              sessions={sessions}
+              leadMap={leadMap}
+              supplierMap={supplierMap}
+              sessionPeopleCounts={sessionPeopleCounts}
+              search={search}
+              statusFilter={statusFilter}
+              typeFilter={typeFilter}
+              selectedId={selectedId}
+              onSelectSession={handleSelectSession}
+            />
+          )}
+          {activeTab === 'calendar' && (
+            <CalendarView
+              sessions={sessions}
+              groups={groups}
+              calYear={calYear}
+              calMonth={calMonth}
+              setCalYear={setCalYear}
+              setCalMonth={setCalMonth}
+              selectedId={selectedId}
+              onSelectSession={handleSelectSession}
+            />
+          )}
+        </div>
+
+        {/* Detail panel */}
+        <div className="sess-panel">
+          <DetailPanel
+            session={selectedSession}
+            groups={groups}
+            supplierMap={supplierMap}
+          />
+        </div>
+
       </div>
     </>
   )
@@ -738,6 +928,8 @@ function GroupCard({
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const q = search.trim().toLowerCase()
+  const groupColour = GROUP_COLOURS[group.group_number] ?? '#DA202A'
+  const headerBg = group.is_active ? groupColour : (headerHovered ? '#EBEBEB' : '#F5F5F5')
 
   const activePlanned = sessions.filter((s) => s.status !== 'CANCELLED')
   const completed = sessions.filter((s) => s.status === 'COMPLETED')
@@ -766,12 +958,14 @@ function GroupCard({
   return (
     <div
       style={{
-        backgroundColor: 'var(--rmg-color-surface-white)',
-        borderRadius: 'var(--rmg-radius-m)',
-        boxShadow: 'var(--rmg-shadow-card)',
+        backgroundColor: '#ffffff',
+        border: '1px solid #E4E4E4',
+        borderRadius: 8,
         overflow: 'hidden',
         opacity: hasNoMatches ? 0.35 : 1,
         transition: 'opacity 150ms ease',
+        marginBottom: 4,
+        marginRight: 28,
       }}
     >
       {/* Header */}
@@ -788,35 +982,33 @@ function GroupCard({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 12,
-          padding: '14px 20px',
+          gap: 10,
+          padding: '10px 12px',
           cursor: 'pointer',
           outline: 'none',
-          ...(group.is_active
-            ? {
-                backgroundColor: headerHovered ? 'var(--rmg-color-grey-4)' : 'var(--rmg-color-white)',
-                borderLeft: '3px solid var(--rmg-color-red)',
-              }
-            : {
-                backgroundColor: headerHovered ? '#EBEBEB' : 'var(--rmg-color-grey-4)',
-              }),
+          backgroundColor: headerBg,
+          transition: 'background 0.1s',
+          userSelect: 'none' as const,
         }}
       >
         {/* Group number badge */}
         <span
           style={{
-            fontFamily: 'monospace',
-            fontSize: 11,
+            width: 26,
+            height: 26,
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 9,
             fontWeight: 700,
-            color: group.is_active ? 'var(--rmg-color-white)' : 'var(--rmg-color-grey-1)',
-            backgroundColor: group.is_active ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-3)',
-            borderRadius: 'var(--rmg-radius-xs)',
-            padding: '2px 6px',
-            whiteSpace: 'nowrap',
+            color: '#ffffff',
             flexShrink: 0,
+            backgroundColor: group.is_active ? 'rgba(0,0,0,0.2)' : '#D5D5D5',
+            fontFamily: 'monospace',
           }}
         >
-          G{String(group.group_number).padStart(2, '0')}
+          {group.group_number}
         </span>
 
         {/* Inactive badge */}
@@ -838,15 +1030,13 @@ function GroupCard({
           </span>
         )}
 
-        {/* Name + category — reduced weight for hierarchy */}
+        {/* Name + category */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
-              fontWeight: 500,
-              fontSize: 14,
-              color: group.is_active
-                ? 'var(--rmg-color-dark-grey)'
-                : 'var(--rmg-color-grey-1)',
+              fontWeight: 600,
+              fontSize: 13,
+              color: group.is_active ? '#ffffff' : 'var(--rmg-color-grey-1)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -857,9 +1047,9 @@ function GroupCard({
           {group.category && (
             <div
               style={{
-                fontSize: 12,
+                fontSize: 10,
                 fontWeight: 400,
-                color: 'var(--rmg-color-grey-1)',
+                color: group.is_active ? 'rgba(255,255,255,0.7)' : 'var(--rmg-color-grey-1)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -876,9 +1066,9 @@ function GroupCard({
             <div
               style={{
                 fontFamily: 'var(--rmg-font-body)',
-                fontSize: 13,
-                fontWeight: 700,
-                color: 'var(--rmg-color-text-heading)',
+                fontSize: 11,
+                fontWeight: 600,
+                color: group.is_active ? '#ffffff' : 'var(--rmg-color-text-heading)',
                 whiteSpace: 'nowrap',
               }}
             >
@@ -887,8 +1077,8 @@ function GroupCard({
             <div
               style={{
                 fontFamily: 'var(--rmg-font-body)',
-                fontSize: 12,
-                color: 'var(--rmg-color-text-light)',
+                fontSize: 11,
+                color: group.is_active ? 'rgba(255,255,255,0.75)' : 'var(--rmg-color-text-light)',
                 whiteSpace: 'nowrap',
               }}
             >
@@ -896,48 +1086,40 @@ function GroupCard({
             </div>
           </div>
 
-          {/* Progress bar — dark-grey fill, not red */}
+          {/* Progress bar */}
           <div
             style={{
               width: 60,
               height: 4,
               borderRadius: 100,
-              backgroundColor: 'var(--rmg-color-grey-3)',
+              backgroundColor: group.is_active ? 'rgba(0,0,0,0.2)' : 'var(--rmg-color-grey-3)',
               overflow: 'hidden',
               flexShrink: 0,
             }}
           >
-            <div
-              style={{
-                width: `${pct}%`,
-                height: '100%',
-                backgroundColor: 'var(--rmg-color-dark-grey)',
-                borderRadius: 100,
-              }}
-            />
+            {pct > 0 && (
+              <div
+                style={{
+                  width: `${pct}%`,
+                  height: '100%',
+                  backgroundColor: group.is_active ? '#ffffff' : 'var(--rmg-color-dark-grey)',
+                  borderRadius: 100,
+                }}
+              />
+            )}
           </div>
 
           {/* Chevron */}
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 16,
-              color: 'var(--rmg-color-grey-1)',
-              fontSize: 10,
-              transition: 'transform 200ms ease',
-              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            }}
-          >
-            ▼
-          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={group.is_active ? 'rgba(255,255,255,0.8)' : '#8F9495'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
         </div>
       </div>
 
       {/* Session list */}
       {expanded && (
-        <div style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
+        <div style={{ borderTop: '1px solid #EEEEEE' }}>
           {displaySessions.length === 0 ? (
             <div
               style={{
@@ -961,6 +1143,7 @@ function GroupCard({
                 selected={selectedId === s.id}
                 onSelect={onSelectSession}
                 search={search}
+                groupColour={GROUP_COLOURS[group.group_number] ?? '#DA202A'}
               />
             ))
           )}
@@ -980,6 +1163,7 @@ function GroupSessionRow({
   selected,
   onSelect,
   search,
+  groupColour,
 }: {
   session: KtSession
   lead: SessionLead | null
@@ -988,14 +1172,13 @@ function GroupSessionRow({
   selected: boolean
   onSelect: (id: string) => void
   search: string
+  groupColour: string
 }) {
   const [hovered, setHovered] = useState(false)
-  const zebraBg = rowIndex % 2 === 0 ? 'var(--rmg-color-white)' : 'var(--rmg-color-grey-4)'
-  const trackColour = session.track ? TRACK_COLOURS[session.track] : 'var(--rmg-color-grey-3)'
 
-  let bg = zebraBg
-  if (selected) bg = 'var(--rmg-color-tint-red)'
-  else if (hovered) bg = 'var(--rmg-color-grey-4)'
+  let bg = '#ffffff'
+  if (selected) bg = '#F8E7E7'
+  else if (hovered) bg = '#FAFAFA'
 
   return (
     <div
@@ -1010,32 +1193,21 @@ function GroupSessionRow({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 16,
-        padding: '10px 20px',
-        borderBottom: '1px solid var(--rmg-color-grey-3)',
+        gap: 10,
+        padding: '8px 12px',
+        borderBottom: '1px solid #F8F8F8',
         backgroundColor: bg,
         cursor: 'pointer',
         outline: 'none',
-        borderLeft: selected ? '3px solid var(--rmg-color-red)' : '3px solid transparent',
+        borderLeft: `4px solid ${groupColour}`,
       }}
     >
-      {/* Track bar */}
-      <div
-        style={{
-          width: 3,
-          alignSelf: 'stretch',
-          borderRadius: 100,
-          backgroundColor: trackColour,
-          flexShrink: 0,
-        }}
-      />
-
-      {/* Title + type — reduced weight */}
+      {/* Title + type */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
-            fontSize: 14,
+            fontSize: 12,
             fontWeight: 500,
             color: 'var(--rmg-color-dark-grey)',
             whiteSpace: 'nowrap',
@@ -1048,8 +1220,8 @@ function GroupSessionRow({
         <div
           style={{
             fontFamily: 'var(--rmg-font-body)',
-            fontSize: 12,
-            color: 'var(--rmg-color-grey-1)',
+            fontSize: 10,
+            color: '#8F9495',
             marginTop: 2,
           }}
         >
@@ -1058,33 +1230,28 @@ function GroupSessionRow({
         </div>
       </div>
 
-      {/* Lead — fixed width so column is consistent */}
-      <div style={{ width: 140, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-        {lead && <LeadChip lead={lead} />}
-      </div>
-
       {/* Date */}
       <div
         style={{
-          width: 90,
+          width: 140,
           flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
-          color: session.planned_date ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
+          fontSize: 11,
+          color: '#8F9495',
           whiteSpace: 'nowrap',
         }}
       >
-        {session.planned_date ? formatDateShort(session.planned_date) : '—'}
+        {session.planned_date ? formatDateFull(session.planned_date) : '—'}
       </div>
 
       {/* People count */}
       <div
         style={{
-          width: 60,
+          width: 30,
           flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
-          color: peopleCount > 0 ? 'var(--rmg-color-text-body)' : 'var(--rmg-color-grey-1)',
+          fontSize: 11,
+          color: '#8F9495',
           whiteSpace: 'nowrap',
           textAlign: 'right',
         }}
@@ -1095,12 +1262,11 @@ function GroupSessionRow({
       {/* Duration */}
       <div
         style={{
-          width: 60,
+          width: 28,
           flexShrink: 0,
           fontFamily: 'var(--rmg-font-body)',
-          fontSize: 12,
-          fontWeight: 600,
-          color: 'var(--rmg-color-text-body)',
+          fontSize: 11,
+          color: '#8F9495',
           whiteSpace: 'nowrap',
           textAlign: 'right',
         }}
@@ -1108,9 +1274,9 @@ function GroupSessionRow({
         {session.duration_hrs != null ? `${session.duration_hrs}h` : '—'}
       </div>
 
-      {/* Status badge — fixed width so it doesn't collapse */}
-      <div style={{ width: 100, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-        <StatusBadge status={session.status} />
+      {/* Status chip */}
+      <div style={{ width: 84, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+        <StatusChip status={session.status} plannedDate={session.planned_date} />
       </div>
     </div>
   )
@@ -1291,11 +1457,10 @@ function FlatSessionRow({
   search: string
 }) {
   const [hovered, setHovered] = useState(false)
-  const zebraBg = rowIndex % 2 === 0 ? 'var(--rmg-color-white)' : 'var(--rmg-color-grey-4)'
 
-  let bg = zebraBg
+  let bg = '#ffffff'
   if (selected) bg = 'var(--rmg-color-tint-red)'
-  else if (hovered) bg = 'var(--rmg-color-grey-4)'
+  else if (hovered) bg = '#FAFAFA'
 
   return (
     <div
@@ -1315,7 +1480,7 @@ function FlatSessionRow({
         backgroundColor: bg,
         cursor: 'pointer',
         outline: 'none',
-        borderLeft: selected ? '3px solid var(--rmg-color-red)' : '3px solid transparent',
+        borderLeft: selected ? '2px solid #DA202A' : '2px solid transparent',
       }}
     >
       {/* Session name + group subtitle */}
@@ -1401,7 +1566,7 @@ function FlatSessionRow({
           whiteSpace: 'nowrap',
         }}
       >
-        {session.planned_date ? formatDateShort(session.planned_date) : '—'}
+        {session.planned_date ? formatDateFull(session.planned_date) : '—'}
       </div>
 
       {/* People count */}
@@ -1439,9 +1604,9 @@ function FlatSessionRow({
         {session.duration_hrs != null ? `${session.duration_hrs}h` : '—'}
       </div>
 
-      {/* Status badge */}
+      {/* Status chip */}
       <div style={{ width: 100, flexShrink: 0, padding: '12px', display: 'flex', alignItems: 'center' }}>
-        <StatusBadge status={session.status} />
+        <StatusChip status={session.status} plannedDate={session.planned_date} />
       </div>
     </div>
   )
@@ -1454,23 +1619,6 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-// App group colours — specified by programme, intentional Tessera hardcoded exceptions
-const GROUP_COLOURS: Record<number, string> = {
-  0: '#1A2B5B',
-  1: '#DA202A',
-  2: '#E2611A',
-  3: '#7C3AED',
-  4: '#0892CB',
-  5: '#008A00',
-  6: '#9B0A6E',
-  7: '#3ABFB8',
-  8: '#FF8C00',
-  9: '#3D3D3D',
-  10: '#8F9495',
-  11: '#1976F2',
-  12: '#8F9495',
-}
 
 type GroupInfo = { groupNum: number; label: string; color: string }
 
@@ -1548,12 +1696,12 @@ function CalendarView({
   const totalCells = cells.length
 
   return (
-    <div style={{ border: '1px solid var(--rmg-color-grey-3)', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ border: '1px solid #E4E4E4', borderRadius: 8, overflow: 'hidden', background: '#ffffff', marginRight: 28 }}>
       {/* Month navigation */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 20px', borderBottom: '1px solid var(--rmg-color-grey-3)',
-        backgroundColor: 'var(--rmg-color-surface-white)',
+        padding: '12px 20px', borderBottom: '1px solid #E4E4E4',
+        backgroundColor: '#ffffff',
       }}>
         <button type="button" onClick={prevMonth} aria-label="Previous month" style={{
           background: 'none', border: 'none', cursor: 'pointer',
@@ -1571,7 +1719,7 @@ function CalendarView({
       </div>
 
       {/* Day-of-week headers */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--rmg-color-grey-3)', backgroundColor: 'var(--rmg-color-grey-4)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid #E4E4E4', backgroundColor: '#F5F5F5' }}>
         {DAY_NAMES.map((d) => (
           <div key={d} style={{ textAlign: 'center', padding: '6px 4px', fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--rmg-color-grey-1)' }}>
             {d}
@@ -1645,7 +1793,7 @@ function DayCell({
   const visible = isOverflowing ? sessions.slice(0, MAX_COLLAPSED) : sessions
   const overflowCount = isOverflowing ? sessions.length - MAX_COLLAPSED : 0
 
-  const cellBg = isToday ? 'var(--rmg-color-tint-yellow)' : 'var(--rmg-color-surface-white)'
+  const cellBg = isToday ? '#FFFBEA' : '#ffffff'
 
   return (
     <div style={{
@@ -1659,8 +1807,9 @@ function DayCell({
     }}>
       {/* Day number — top-right */}
       <span style={{
-        fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 500,
-        color: isToday ? 'var(--rmg-color-text-heading)' : 'var(--rmg-color-grey-1)',
+        fontFamily: 'var(--rmg-font-body)', fontSize: 12,
+        fontWeight: isToday ? 700 : 500,
+        color: isToday ? '#DA202A' : '#8F9495',
         alignSelf: 'flex-end', padding: '1px 2px 2px 0', lineHeight: 1,
       }}>
         {dayNum}
@@ -1671,10 +1820,7 @@ function DayCell({
         {visible.map((s) => {
           const info = s.app_group_id ? groupInfoMap.get(s.app_group_id) : undefined
           const pillColor = info?.color ?? '#8F9495'
-          const label = info?.label ?? '—'
           const sel = selectedId === s.id
-          const isCancelled = s.status === 'CANCELLED'
-          const isCompleted = s.status === 'COMPLETED'
 
           return (
             <button
@@ -1683,35 +1829,38 @@ function DayCell({
               onClick={() => onSelectSession(s.id)}
               title={s.session_name}
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                width: '100%', height: 20, padding: '0 6px',
-                borderRadius: 3, backgroundColor: pillColor,
-                color: 'white', fontSize: 11, fontWeight: 500,
-                fontFamily: 'var(--rmg-font-body)', cursor: 'pointer',
-                border: 'none',
-                boxShadow: sel ? 'inset 0 0 0 2px white' : 'none',
-                opacity: isCancelled ? 0.45 : 1,
-                flexShrink: 0, overflow: 'hidden',
+                display: 'flex', alignItems: 'flex-start', gap: 5,
+                padding: '5px 7px',
+                borderRadius: 5, border: 'none',
+                background: pillColor,
+                cursor: 'pointer', width: '100%', minWidth: 0, overflow: 'hidden',
+                textAlign: 'left' as const,
+                opacity: s.status === 'CANCELLED' ? 0.38 : 1,
+                transition: 'filter 0.12s',
+                filter: sel ? 'brightness(1.15)' : 'brightness(1)',
               }}
             >
-              {isCompleted && (
-                <span style={{ fontSize: 9, flexShrink: 0, opacity: 0.9 }}>✓</span>
-              )}
               <span style={{
-                fontSize: 9, fontWeight: 600,
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 2, padding: '0 3px',
-                flexShrink: 0, lineHeight: '14px',
-              }}>
-                {label}
-              </span>
-              <span style={{
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap', textAlign: 'left',
-                textDecoration: isCancelled ? 'line-through' : 'none',
+                fontSize: 11, fontWeight: 500, color: '#ffffff',
+                lineHeight: 1.35,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical' as const,
+                overflow: 'hidden',
+                flex: 1, minWidth: 0,
+                textDecoration: s.status === 'CANCELLED' ? 'line-through' : 'none',
               }}>
                 {s.session_name}
               </span>
+              {s.duration_hrs != null && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  color: 'rgba(255,255,255,0.75)',
+                  flexShrink: 0, whiteSpace: 'nowrap', marginTop: 2,
+                }}>
+                  {s.duration_hrs}h
+                </span>
+              )}
             </button>
           )
         })}
@@ -1748,20 +1897,22 @@ function DetailPanel({
 }) {
   const [resources, setResources] = useState<DetailResource[]>([])
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const [hoveredResourceId, setHoveredResourceId] = useState<string | null>(null)
 
   const fetchResources = useCallback(async (sessionId: string) => {
     setLoading(true)
     setResources([])
     const { data } = await supabase
       .from('tessera_kt_session_resources')
-      .select('role, resources(resource_name, suppliers(supplier_abbreviation, supplier_colour))')
+      .select('role, resources(resource_id, resource_name, resource_function, suppliers(supplier_abbreviation, supplier_colour))')
       .eq('session_id', sessionId)
 
     type RawRow = {
       role: string
       resources:
-        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }
-        | { resource_name: string; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }[]
+        | { resource_id: string; resource_name: string; resource_function: string | null; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }
+        | { resource_id: string; resource_name: string; resource_function: string | null; suppliers: { supplier_abbreviation: string; supplier_colour: string }[] | null }[]
         | null
     }
 
@@ -1772,7 +1923,9 @@ function DetailPanel({
       const sup = Array.isArray(r.suppliers) ? r.suppliers[0] : r.suppliers
       parsed.push({
         role: row.role,
+        resource_id: r.resource_id,
         resource_name: r.resource_name,
+        resource_function: r.resource_function ?? null,
         supplier_abbreviation: sup?.supplier_abbreviation ?? null,
         supplier_colour: sup?.supplier_colour ?? null,
       })
@@ -1789,52 +1942,46 @@ function DetailPanel({
     void fetchResources(session.id)
   }, [session?.id, fetchResources])
 
+  const functionGroups = useMemo(() => {
+    const grouped: Record<string, DetailResource[]> = {}
+    for (const p of resources) {
+      if (p.role !== 'PARTICIPANT') continue
+      const key = p.resource_function ?? 'Other'
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push(p)
+    }
+    return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b))
+  }, [resources])
+
   const panelStyle: React.CSSProperties = {
-    backgroundColor: 'var(--rmg-color-surface-white)',
-    borderRadius: 'var(--rmg-radius-m)',
-    boxShadow: 'var(--rmg-shadow-card)',
+    margin: '16px 28px 16px 0',
+    border: '1px solid #E4E4E4',
+    borderRadius: 8,
+    background: '#ffffff',
+    display: 'flex',
+    flexDirection: 'column',
     overflow: 'hidden',
+    boxShadow: '0 4px 56px 0 rgba(0,0,0,0.07)',
+    flex: 1,
   }
 
   if (!session) {
     return (
-      <div
-        style={{
-          ...panelStyle,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '48px 24px',
-          gap: 12,
-          minHeight: 240,
-        }}
-      >
-        <svg
-          width="36"
-          height="36"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--rmg-color-grey-2)"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <line x1="9" y1="9" x2="15" y2="9" />
-          <line x1="9" y1="13" x2="13" y2="13" />
+      <div style={{
+        ...panelStyle,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 32,
+        textAlign: 'center' as const,
+      }}>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#D5D5D5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2"/>
+          <path d="M16 2v4M8 2v4M3 10h18"/>
+          <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>
         </svg>
-        <span
-          style={{
-            fontFamily: 'var(--rmg-font-body)',
-            fontSize: 13,
-            color: 'var(--rmg-color-grey-1)',
-            textAlign: 'center',
-          }}
-        >
-          Select a session to view details
-        </span>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#8F9495' }}>No session selected</div>
+        <div style={{ fontSize: 11, color: '#D5D5D5', lineHeight: 1.5 }}>Select a session from the list to view its details</div>
       </div>
     )
   }
@@ -1850,40 +1997,24 @@ function DetailPanel({
         : 'var(--rmg-color-grey-1)'
     return (
       <span
+        onClick={() => { if (res.resource_id) router.push(`/people?resource=${res.resource_id}`) }}
+        onMouseEnter={() => { if (res.resource_id) setHoveredResourceId(res.resource_id) }}
+        onMouseLeave={() => setHoveredResourceId(null)}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 6,
-          borderRadius: 'var(--rmg-radius-xl)',
-          padding: '3px 10px',
-          border: `1.5px solid ${colour}`,
-          background: `${colour}18`,
-          color: colour,
-          fontSize: 12,
+          padding: '2px 8px',
+          borderRadius: 100,
+          fontSize: 10,
           fontWeight: 600,
-          fontFamily: 'var(--rmg-font-body)',
+          color: '#ffffff',
           whiteSpace: 'nowrap',
+          backgroundColor: colour,
+          fontFamily: 'var(--rmg-font-body)',
+          cursor: res.resource_id ? 'pointer' : 'default',
+          opacity: res.resource_id != null && hoveredResourceId === res.resource_id ? 0.82 : 1,
         }}
       >
-        {res.supplier_abbreviation && (
-          <span
-            style={{
-              width: 16,
-              height: 16,
-              borderRadius: '50%',
-              backgroundColor: colour,
-              color: 'var(--rmg-color-white)',
-              fontSize: 8,
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {res.supplier_abbreviation.slice(0, 1)}
-          </span>
-        )}
         {res.resource_name}
       </span>
     )
@@ -1891,11 +2022,11 @@ function DetailPanel({
 
   const sectionLabel: React.CSSProperties = {
     fontFamily: 'var(--rmg-font-body)',
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: 700,
     textTransform: 'uppercase',
-    letterSpacing: '0.07em',
-    color: 'var(--rmg-color-grey-1)',
+    letterSpacing: '0.1em',
+    color: '#8F9495',
     marginBottom: 8,
   }
 
@@ -1905,81 +2036,78 @@ function DetailPanel({
     color: 'var(--rmg-color-text-body)',
   }
 
-  // Reduce font size for very long session names to prevent awkward wrapping
-  const nameFontSize = session.session_name.length > 60 ? '1rem' : '1.1rem'
-
   return (
     <div style={panelStyle}>
       {/* Header */}
       <div
         style={{
-          padding: '20px 24px',
-          borderBottom: '1px solid var(--rmg-color-grey-3)',
+          padding: '16px 20px 14px',
+          borderBottom: '1px solid #EEEEEE',
+          flexShrink: 0,
         }}
       >
-        <div style={{ marginBottom: 8 }}>
-          <h2
+        <h2
+          style={{
+            fontFamily: 'var(--rmg-font-display)',
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: '-0.01em',
+            color: 'var(--rmg-color-text-heading)',
+            margin: '0 0 8px',
+            lineHeight: 1.35,
+          }}
+        >
+          {session.session_name}
+        </h2>
+
+        {group && (
+          <div
             style={{
-              fontFamily: 'var(--rmg-font-display)',
-              fontSize: nameFontSize,
-              fontWeight: 700,
-              color: 'var(--rmg-color-text-heading)',
-              margin: '0 0 6px',
-              lineHeight: 1.4,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 8,
             }}
           >
-            {session.session_name}
-          </h2>
-
-          {group && (
-            <div
+            <span
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                marginBottom: 8,
+                fontFamily: 'monospace',
+                fontSize: 10,
+                fontWeight: 700,
+                color: group.is_active ? '#ffffff' : 'var(--rmg-color-grey-1)',
+                backgroundColor: group.is_active
+                  ? '#DA202A'
+                  : 'var(--rmg-color-grey-3)',
+                borderRadius: 100,
+                padding: '2px 8px',
               }}
             >
-              <span
-                style={{
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: group.is_active ? 'var(--rmg-color-white)' : 'var(--rmg-color-grey-1)',
-                  backgroundColor: group.is_active
-                    ? 'var(--rmg-color-red)'
-                    : 'var(--rmg-color-grey-3)',
-                  borderRadius: 'var(--rmg-radius-xs)',
-                  padding: '2px 6px',
-                }}
-              >
-                G{String(group.group_number).padStart(2, '0')}
-              </span>
-              <span
-                style={{
-                  fontFamily: 'var(--rmg-font-body)',
-                  fontSize: 13,
-                  color: 'var(--rmg-color-text-light)',
-                }}
-              >
-                {group.group_name}
-              </span>
-            </div>
-          )}
+              {group.group_number}
+            </span>
+            <span
+              style={{
+                fontFamily: 'var(--rmg-font-body)',
+                fontSize: 12,
+                color: '#8F9495',
+              }}
+            >
+              {group.group_name}
+            </span>
+          </div>
+        )}
 
-          <StatusBadge status={session.status} />
-        </div>
+        <StatusChip status={session.status} plannedDate={session.planned_date} />
       </div>
 
       {/* Body */}
       <div
         style={{
-          padding: '20px 24px',
+          padding: '16px 20px',
           display: 'flex',
           flexDirection: 'column',
           gap: 20,
           overflowY: 'auto',
-          maxHeight: 'calc(100vh - 280px)',
+          flex: 1,
         }}
       >
         {/* Schedule section */}
@@ -2008,7 +2136,7 @@ function DetailPanel({
               >
                 {session.planned_date
                   ? formatDateLong(session.planned_date)
-                  : 'Not yet scheduled'}
+                  : 'No date set'}
               </span>
             </div>
             {session.duration_hrs != null && (
@@ -2141,13 +2269,27 @@ function DetailPanel({
           )}
         </div>
 
-        {/* Participants section */}
+        {/* Participants section — grouped by resource_function */}
         {participants.length > 0 && (
           <div>
             <div style={sectionLabel}>Participants</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {participants.map((r, i) => (
-                <ResourceChip key={i} res={r} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {functionGroups.map(([fn, people]) => (
+                <div key={fn}>
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const,
+                    letterSpacing: '0.09em', color: '#404044',
+                    display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7,
+                  }}>
+                    <span>{fn}</span>
+                    <span style={{ color: '#8F9495', fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, fontSize: 10 }}>
+                      · {people.length}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                    {people.map((r, i) => <ResourceChip key={i} res={r} />)}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

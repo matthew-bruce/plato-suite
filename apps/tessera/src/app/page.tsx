@@ -230,321 +230,195 @@ export default async function Home() {
   return (
     <TesseraShell activeRoute="/">
       <style>{`
-        .ds-page-grid {
-          display: grid;
-          grid-template-columns: 65fr 35fr;
-          gap: 20px;
-          align-items: start;
-        }
-        .ds-stat-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 12px;
-        }
-        .ds-domain-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-        }
-        @media (max-width: 1024px) {
-          .ds-page-grid   { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 768px) {
-          .ds-stat-grid   { grid-template-columns: repeat(2, 1fr); }
-          .ds-domain-grid { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 375px) {
-          .ds-stat-grid   { grid-template-columns: 1fr; }
-        }
+        .pulse-tracks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+        .pulse-tr { display: grid; grid-template-columns: 72px 1fr 44px 180px; align-items: center; gap: 10px; min-width: 0; }
+        .pulse-tr-lbl { font-size: 10px; font-weight: 600; color: #666666; text-align: right; white-space: nowrap; }
+        .pulse-tr-bar { height: 10px; background: #EEEEEE; border-radius: 100px; overflow: hidden; min-width: 0; }
+        .pulse-tr-pct { font-size: 13px; font-weight: 700; text-align: right; white-space: nowrap; }
+        .pulse-tr-detail { font-size: 10px; color: #666666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pulse-stats { display: flex; align-items: center; flex-wrap: wrap; border-top: 1px solid #EEEEEE; padding-top: 12px; }
+        .ps-item { padding-right: 24px; margin-bottom: 4px; }
+        .ps-div { width: 1px; height: 30px; background: #EEEEEE; margin-right: 24px; flex-shrink: 0; align-self: center; }
+        .dom-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .grp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; }
         .ds-domain-card:hover { opacity: 0.92; }
+        @media (max-width: 1200px) {
+          .dom-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 900px) {
+          .pulse-tr { grid-template-columns: 64px 1fr 40px; }
+          .pulse-tr-detail { display: none; }
+          .dom-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 600px) {
+          .pulse-tr { grid-template-columns: 56px 1fr 40px; }
+          .pulse-tr-detail { display: none; }
+          .pulse-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 0; }
+          .ps-div { display: none; }
+          .ps-item { padding-right: 0; }
+          .dom-grid { grid-template-columns: repeat(2, 1fr); }
+          .grp-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 520px) {
+          .dom-grid { grid-template-columns: 1fr; }
+        }
       `}</style>
 
-      <div
-        style={{
-          minHeight: '100vh',
-          backgroundColor: 'var(--rmg-color-surface-light)',
-        }}
-      >
-        <div
-          style={{
-            width: '100%',
-            padding: 'var(--rmg-spacing-09) var(--rmg-spacing-07)',
-            boxSizing: 'border-box',
-          }}
-        >
-          {/* ── Header ── */}
-          <div style={{ marginBottom: 'var(--rmg-spacing-08)' }}>
-            <h1
-              style={{
-                fontFamily: 'var(--rmg-font-display)',
-                fontSize: '2rem',
-                fontWeight: 700,
-                color: 'var(--rmg-color-text-heading)',
-                letterSpacing: '-0.03em',
-                margin: 0,
-                lineHeight: 1.2,
-                marginBottom: 'var(--rmg-spacing-02)',
-              }}
-            >
-              KT Programme Dashboard
-            </h1>
-            <p
-              style={{
-                fontFamily: 'var(--rmg-font-body)',
-                fontSize: 14,
-                color: 'var(--rmg-color-text-light)',
-                margin: 0,
-                lineHeight: 1.5,
-              }}
-            >
-              eBusiness Platform · CG → TCS transition · 1 Apr → 3 Jul 2026
-            </p>
+      {/* ── Page header ── */}
+      <div style={{ padding: '24px 28px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#2A2A2D', letterSpacing: '-0.02em', lineHeight: 1.2, margin: 0 }}>
+            KT Programme Dashboard
+          </h1>
+          <p style={{ fontSize: 11, color: '#8F9495', marginTop: 4, fontWeight: 400, margin: '4px 0 0' }}>
+            eBusiness Platform
+            <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
+            CG → TCS transition
+            <span style={{ margin: '0 4px', opacity: 0.5 }}>·</span>
+            1 Apr — 3 Jul 2026
+          </p>
+        </div>
+        <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 20px', borderRadius: 100, background: '#DA202A', color: '#fff', fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
+          Export
+        </button>
+      </div>
+
+      {/* ── Programme Status Strip ── */}
+      <div style={{ margin: '20px 28px 0', background: '#F5F5F5', borderRadius: 12, border: '1px solid #EEEEEE', padding: '16px 22px 14px' }}>
+
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', rowGap: 8 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.12em', color: '#404044', whiteSpace: 'nowrap' }}>
+            Programme Status
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 100, background: '#E4F2DF', fontSize: 11, fontWeight: 600, color: '#008A00', whiteSpace: 'nowrap' }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#008A00', flexShrink: 0 }} />
+            On track
           </div>
-
-          {/* ── Two-column layout ── */}
-          <div className="ds-page-grid">
-            {/* LEFT COLUMN */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Container 1 — Stat cards */}
-              <div
-                style={{
-                  background: '#ffffff',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
-                }}
-              >
-                <div className="ds-stat-grid">
-                  <StatCard
-                    label="Sessions Completed"
-                    colour="#DA202A"
-                    number={String(completedCount)}
-                    subtext={`of ${plannedSessionsCount} non-cancelled`}
-                    pct={sessionsPct}
-                  />
-                  <StatCard
-                    label="Hours Delivered"
-                    colour="#F3920D"
-                    number={String(Math.round(hoursDelivered))}
-                    subtext={`of ${plannedHours} planned hours`}
-                    pct={hoursPct}
-                  />
-                  <StatCard
-                    label="KT Timeline"
-                    colour="#0892CB"
-                    number={String(elapsedDays)}
-                    subtext={`of ${totalDays} days elapsed`}
-                    pct={timelinePct}
-                  />
-                </div>
-              </div>
-
-              {/* Container 2 — Domain Readiness */}
-              <div
-                style={{
-                  background: '#ffffff',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
-                }}
-              >
-                <div>
-                  <span
-                    style={{
-                      fontSize: '15px',
-                      fontWeight: 700,
-                      color: '#2A2A2D',
-                      display: 'inline-block',
-                      marginBottom: 16,
-                      paddingBottom: '10px',
-                      borderBottom: '3px solid #DA202A',
-                    }}
-                  >
-                    Domain Readiness
-                  </span>
-                </div>
-                <div className="ds-domain-grid">
-                  {domains.map((d) => (
-                    <DomainCard
-                      key={d.id}
-                      domain={d}
-                      chipStates={chipStatesByDomain.get(d.id) ?? { people: 'none', sessions: 'none', schedule: 'none', kt: 'none', demo: 'none', docs: 'none', signoff: 'none' }}
-                      confidence={confidenceByDomain.get(d.id) ?? null}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* RIGHT COLUMN — Container 3: Application Group */}
-            <div
-              style={{
-                background: '#ffffff',
-                borderRadius: '12px',
-                padding: '20px',
-                boxShadow: '0 4px 56px rgba(0,0,0,0.08)',
-              }}
-            >
-              <div>
-                <span
-                  style={{
-                    fontSize: '15px',
-                    fontWeight: 700,
-                    color: '#2A2A2D',
-                    display: 'inline-block',
-                    marginBottom: 16,
-                    paddingBottom: '10px',
-                    borderBottom: '3px solid #DA202A',
-                  }}
-                >
-                  Application Group
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {appGroups.map((g) => (
-                  <AppGroupRow
-                    key={g.id}
-                    group={{
-                      id: g.id,
-                      name: g.group_name,
-                      group_number: g.group_number,
-                      is_active: g.is_active,
-                    }}
-                    completedCount={completedByGroup.get(g.id) ?? 0}
-                    totalCount={g.total_planned_sessions}
-                  />
-                ))}
-              </div>
-            </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#666666', flexWrap: 'wrap' }}>
+            <span>1 Apr 2026</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#2A2A2D', background: '#ffffff', border: '1px solid #EEEEEE', padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+              Day {elapsedDays} of {totalDays}
+            </span>
+            <span>3 Jul 2026</span>
           </div>
         </div>
+
+        {/* Three progress tracks */}
+        <div className="pulse-tracks">
+          <div className="pulse-tr">
+            <div className="pulse-tr-lbl">Timeline</div>
+            <div className="pulse-tr-bar">
+              <div style={{ height: '100%', borderRadius: 100, width: `${timelinePct}%`, background: '#0892CB' }} />
+            </div>
+            <div className="pulse-tr-pct" style={{ color: '#0892CB' }}>{timelinePct}%</div>
+            <div className="pulse-tr-detail">{elapsedDays} of {totalDays} days elapsed</div>
+          </div>
+          <div className="pulse-tr">
+            <div className="pulse-tr-lbl">Sessions</div>
+            <div className="pulse-tr-bar">
+              <div style={{ height: '100%', borderRadius: 100, width: `${sessionsPct}%`, background: '#DA202A' }} />
+            </div>
+            <div className="pulse-tr-pct" style={{ color: '#DA202A' }}>{sessionsPct}%</div>
+            <div className="pulse-tr-detail">{completedCount} of {plannedSessionsCount} delivered</div>
+          </div>
+          <div className="pulse-tr">
+            <div className="pulse-tr-lbl">Hours</div>
+            <div className="pulse-tr-bar">
+              <div style={{ height: '100%', borderRadius: 100, width: `${hoursPct}%`, background: '#F3920D' }} />
+            </div>
+            <div className="pulse-tr-pct" style={{ color: '#F3920D' }}>{hoursPct}%</div>
+            <div className="pulse-tr-detail">{Math.round(hoursDelivered)} of {plannedHours} hrs delivered</div>
+          </div>
+        </div>
+
+        {/* Summary stats */}
+        <div className="pulse-stats">
+          <div className="ps-item">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: '#DA202A' }}>{completedCount}</span>
+              <span style={{ fontSize: 10, color: '#666666', whiteSpace: 'nowrap' }}>of {plannedSessionsCount} sessions</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#404044', display: 'block', marginTop: 2 }}>Completed</span>
+          </div>
+          <div className="ps-div" />
+          <div className="ps-item">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: '#F3920D' }}>{Math.round(hoursDelivered)}</span>
+              <span style={{ fontSize: 10, color: '#666666', whiteSpace: 'nowrap' }}>of {plannedHours} hrs</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#404044', display: 'block', marginTop: 2 }}>Hours delivered</span>
+          </div>
+          <div className="ps-div" />
+          <div className="ps-item">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: '#2A2A2D' }}>{domains.length}</span>
+              <span style={{ fontSize: 10, color: '#666666', whiteSpace: 'nowrap' }}>domains</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#404044', display: 'block', marginTop: 2 }}>In programme</span>
+          </div>
+          <div className="ps-div" />
+          <div className="ps-item">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, color: '#0892CB' }}>{Math.max(0, totalDays - elapsedDays)}</span>
+              <span style={{ fontSize: 10, color: '#666666', whiteSpace: 'nowrap' }}>days</span>
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#404044', display: 'block', marginTop: 2 }}>Remaining</span>
+          </div>
+        </div>
+
       </div>
+
+      {/* ── Main stacked content ── */}
+      <div style={{ padding: '0 28px 48px' }}>
+
+        {/* Domain Readiness heading */}
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 32, marginBottom: 14, paddingBottom: 10, borderBottom: '2px solid #DA202A' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#2A2A2D' }}>Domain Readiness</span>
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495' }}>{domains.length} domains</span>
+        </div>
+
+        {/* Domain grid */}
+        <div className="dom-grid">
+          {domains.map((domain) => (
+            <DomainCard
+              key={domain.id}
+              domain={domain}
+              chipStates={chipStatesByDomain.get(domain.id) ?? { people: 'none', sessions: 'none', schedule: 'none', kt: 'none', demo: 'none', docs: 'none', signoff: 'none' }}
+              confidence={confidenceByDomain.get(domain.id) ?? null}
+            />
+          ))}
+        </div>
+
+        {/* Application Group heading */}
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 32, marginBottom: 14, paddingBottom: 10, borderBottom: '2px solid #DA202A' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#2A2A2D' }}>Application Group</span>
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495' }}>{appGroups.length} groups</span>
+        </div>
+
+        {/* App groups grid */}
+        <div className="grp-grid">
+          {appGroups.map((group) => {
+            const completed = completedByGroup.get(group.id) ?? 0
+            return (
+              <AppGroupRow
+                key={group.id}
+                group={{
+                  id: group.id,
+                  name: group.group_name,
+                  group_number: group.group_number,
+                  is_active: group.is_active,
+                }}
+                completedCount={completed}
+                totalCount={group.total_planned_sessions ?? 0}
+              />
+            )
+          })}
+        </div>
+
+      </div>
+
     </TesseraShell>
-  )
-}
-
-// ── Stat card — circle SVG ring design ────────────────────────────────────────
-
-const CIRC = 175.9 // 2π × r=28
-
-function StatCard({
-  label,
-  colour,
-  number,
-  subtext,
-  pct,
-}: {
-  label: string
-  colour: string
-  number: string
-  subtext: string
-  pct: number
-}) {
-  const filled = (pct / 100) * CIRC
-  const empty  = CIRC - filled
-
-  return (
-    <div
-      style={{
-        background: '#fff',
-        borderRadius: 10,
-        padding: '18px 18px 14px',
-        borderTop: `4px solid ${colour}`,
-        position: 'relative',
-        minHeight: 116,
-      }}
-    >
-      {/* Circle progress ring */}
-      <svg
-        width="72"
-        height="72"
-        viewBox="0 0 72 72"
-        style={{ position: 'absolute', top: 14, right: 14 }}
-      >
-        <circle cx="36" cy="36" r="28" fill="none" stroke="#EEEEEE" strokeWidth="7" />
-        <circle
-          cx="36"
-          cy="36"
-          r="28"
-          fill="none"
-          stroke={colour}
-          strokeWidth="7"
-          strokeDasharray={`${filled} ${empty}`}
-          strokeLinecap="round"
-          strokeDashoffset="44.0"
-        />
-        <text
-          x="36"
-          y="41"
-          textAnchor="middle"
-          fontSize="13"
-          fontWeight="700"
-          fill={colour}
-        >
-          {pct}%
-        </text>
-      </svg>
-
-      {/* Label */}
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          color: '#8F9495',
-          paddingRight: 68,
-          marginBottom: 6,
-        }}
-      >
-        {label}
-      </div>
-
-      {/* Big number */}
-      <div
-        style={{
-          fontSize: 38,
-          fontWeight: 700,
-          letterSpacing: '-0.03em',
-          color: colour,
-          lineHeight: 1,
-          marginBottom: 4,
-        }}
-      >
-        {number}
-      </div>
-
-      {/* Subtext */}
-      <div
-        style={{
-          fontSize: 12,
-          color: '#8F9495',
-          marginBottom: 12,
-        }}
-      >
-        {subtext}
-      </div>
-
-      {/* Progress bar */}
-      <div
-        style={{
-          height: 3,
-          background: '#EEEEEE',
-          borderRadius: 100,
-        }}
-      >
-        {pct > 0 && (
-          <div
-            style={{
-              height: 3,
-              borderRadius: 100,
-              width: `${pct}%`,
-              background: colour,
-            }}
-          />
-        )}
-      </div>
-    </div>
   )
 }
 
@@ -598,7 +472,8 @@ function DomainCard({
         className="ds-domain-card"
         style={{
           background: 'white',
-          borderLeft: '3px solid #EEEEEE',
+          border: '1px solid #E4E4E4',
+          borderLeft: `3px solid ${confidence != null ? confidenceColour(confidence) : '#EEEEEE'}`,
           borderRadius: 8,
           padding: '12px 14px',
           position: 'relative',
@@ -611,7 +486,7 @@ function DomainCard({
         <div style={{ position: 'absolute', top: 12, right: 12, textAlign: 'center' }}>
           <div
             style={{
-              fontSize: '28px',
+              fontSize: '22px',
               fontWeight: 700,
               color: confColour,
               lineHeight: 1,
@@ -619,24 +494,14 @@ function DomainCard({
           >
             {confDisplay}
           </div>
-          <div
-            style={{
-              fontSize: '9px',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: '#8F9495',
-              marginTop: '3px',
-            }}
-          >
-            Confidence Score
-          </div>
+          <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8F9495', marginTop: 3, lineHeight: 1.3 }}>Confidence</div>
+          <div style={{ fontSize: 7, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8F9495', lineHeight: 1.3 }}>Score</div>
         </div>
 
         {/* Domain name */}
         <div
           style={{
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: 600,
             color: '#2A2A2D',
             marginBottom: 6,
@@ -648,20 +513,8 @@ function DomainCard({
         </div>
 
         {/* Status + count */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 8,
-          }}
-        >
-          <span style={{ fontSize: 11, fontWeight: 600, color: statusColour }}>
-            {statusLabel}
-          </span>
-          <span style={{ fontSize: 11, color: '#8F9495' }}>
-            {doneCount} / 7
-          </span>
+        <div style={{ fontSize: 11, fontWeight: 400, color: statusColour, marginBottom: 12 }}>
+          {statusLabel} · {doneCount} / 7
         </div>
 
         {/* Dimension chips */}
@@ -706,4 +559,3 @@ function DomainCard({
     </Link>
   )
 }
-
