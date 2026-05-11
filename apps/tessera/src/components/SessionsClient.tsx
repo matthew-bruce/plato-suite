@@ -23,6 +23,22 @@ type DetailResource = {
   supplier_colour: string | null
 }
 
+const GROUP_COLOURS: Record<number, string> = {
+  0:  '#1A2B5B',
+  1:  '#DA202A',
+  2:  '#E2611A',
+  3:  '#7C3AED',
+  4:  '#0892CB',
+  5:  '#008A00',
+  6:  '#9B0A6E',
+  7:  '#3ABFB8',
+  8:  '#FF8C00',
+  9:  '#3D3D3D',
+  10: '#8F9495',
+  11: '#1976F2',
+  12: '#8F9495',
+}
+
 interface SessionsClientProps {
   groups: AppGroup[]
   sessions: KtSession[]
@@ -912,6 +928,8 @@ function GroupCard({
 }) {
   const [headerHovered, setHeaderHovered] = useState(false)
   const q = search.trim().toLowerCase()
+  const groupColour = GROUP_COLOURS[group.group_number] ?? '#DA202A'
+  const headerBg = group.is_active ? groupColour : (headerHovered ? '#EBEBEB' : '#F5F5F5')
 
   const activePlanned = sessions.filter((s) => s.status !== 'CANCELLED')
   const completed = sessions.filter((s) => s.status === 'COMPLETED')
@@ -968,7 +986,7 @@ function GroupCard({
           padding: '10px 12px',
           cursor: 'pointer',
           outline: 'none',
-          backgroundColor: headerHovered ? '#FAFAFA' : '#ffffff',
+          backgroundColor: headerBg,
           transition: 'background 0.1s',
           userSelect: 'none' as const,
         }}
@@ -986,7 +1004,7 @@ function GroupCard({
             fontWeight: 700,
             color: '#ffffff',
             flexShrink: 0,
-            backgroundColor: group.is_active ? '#DA202A' : '#D5D5D5',
+            backgroundColor: group.is_active ? 'rgba(0,0,0,0.2)' : '#D5D5D5',
             fontFamily: 'monospace',
           }}
         >
@@ -1018,9 +1036,7 @@ function GroupCard({
             style={{
               fontWeight: 600,
               fontSize: 13,
-              color: group.is_active
-                ? 'var(--rmg-color-dark-grey)'
-                : 'var(--rmg-color-grey-1)',
+              color: group.is_active ? '#ffffff' : 'var(--rmg-color-grey-1)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -1033,7 +1049,7 @@ function GroupCard({
               style={{
                 fontSize: 10,
                 fontWeight: 400,
-                color: '#8F9495',
+                color: group.is_active ? 'rgba(255,255,255,0.7)' : 'var(--rmg-color-grey-1)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -1052,7 +1068,7 @@ function GroupCard({
                 fontFamily: 'var(--rmg-font-body)',
                 fontSize: 11,
                 fontWeight: 600,
-                color: '#8F9495',
+                color: group.is_active ? '#ffffff' : 'var(--rmg-color-text-heading)',
                 whiteSpace: 'nowrap',
               }}
             >
@@ -1062,7 +1078,7 @@ function GroupCard({
               style={{
                 fontFamily: 'var(--rmg-font-body)',
                 fontSize: 11,
-                color: '#8F9495',
+                color: group.is_active ? 'rgba(255,255,255,0.75)' : 'var(--rmg-color-text-light)',
                 whiteSpace: 'nowrap',
               }}
             >
@@ -1076,7 +1092,7 @@ function GroupCard({
               width: 60,
               height: 4,
               borderRadius: 100,
-              backgroundColor: 'var(--rmg-color-grey-3)',
+              backgroundColor: group.is_active ? 'rgba(0,0,0,0.2)' : 'var(--rmg-color-grey-3)',
               overflow: 'hidden',
               flexShrink: 0,
             }}
@@ -1086,7 +1102,7 @@ function GroupCard({
                 style={{
                   width: `${pct}%`,
                   height: '100%',
-                  backgroundColor: '#DA202A',
+                  backgroundColor: group.is_active ? '#ffffff' : 'var(--rmg-color-dark-grey)',
                   borderRadius: 100,
                 }}
               />
@@ -1094,7 +1110,7 @@ function GroupCard({
           </div>
 
           {/* Chevron */}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8F9495" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={group.is_active ? 'rgba(255,255,255,0.8)' : '#8F9495'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}>
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -1127,6 +1143,7 @@ function GroupCard({
                 selected={selectedId === s.id}
                 onSelect={onSelectSession}
                 search={search}
+                groupColour={GROUP_COLOURS[group.group_number] ?? '#DA202A'}
               />
             ))
           )}
@@ -1146,6 +1163,7 @@ function GroupSessionRow({
   selected,
   onSelect,
   search,
+  groupColour,
 }: {
   session: KtSession
   lead: SessionLead | null
@@ -1154,6 +1172,7 @@ function GroupSessionRow({
   selected: boolean
   onSelect: (id: string) => void
   search: string
+  groupColour: string
 }) {
   const [hovered, setHovered] = useState(false)
 
@@ -1180,7 +1199,7 @@ function GroupSessionRow({
         backgroundColor: bg,
         cursor: 'pointer',
         outline: 'none',
-        borderLeft: selected ? '2px solid #DA202A' : '2px solid transparent',
+        borderLeft: `4px solid ${groupColour}`,
       }}
     >
       {/* Title + type */}
@@ -1601,23 +1620,6 @@ const MONTH_NAMES = [
 ]
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-// App group colours — specified by programme, intentional Tessera hardcoded exceptions
-const GROUP_COLOURS: Record<number, string> = {
-  0: '#1A2B5B',
-  1: '#DA202A',
-  2: '#E2611A',
-  3: '#7C3AED',
-  4: '#0892CB',
-  5: '#008A00',
-  6: '#9B0A6E',
-  7: '#3ABFB8',
-  8: '#FF8C00',
-  9: '#3D3D3D',
-  10: '#8F9495',
-  11: '#1976F2',
-  12: '#8F9495',
-}
-
 type GroupInfo = { groupNum: number; label: string; color: string }
 
 function CalendarView({
@@ -1818,10 +1820,8 @@ function DayCell({
         {visible.map((s) => {
           const info = s.app_group_id ? groupInfoMap.get(s.app_group_id) : undefined
           const pillColor = info?.color ?? '#8F9495'
-          const label = info?.label ?? '—'
           const sel = selectedId === s.id
           const isCancelled = s.status === 'CANCELLED'
-          const isCompleted = s.status === 'COMPLETED'
 
           return (
             <button
@@ -1830,31 +1830,36 @@ function DayCell({
               onClick={() => onSelectSession(s.id)}
               title={s.session_name}
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                width: '100%', height: 20, padding: '0 6px',
-                borderRadius: 3, backgroundColor: pillColor,
-                color: 'white', fontSize: 11, fontWeight: 500,
-                fontFamily: 'var(--rmg-font-body)', cursor: 'pointer',
-                border: 'none',
-                boxShadow: sel ? 'inset 0 0 0 2px white' : 'none',
-                opacity: isCancelled ? 0.45 : 1,
-                flexShrink: 0, overflow: 'hidden',
+                display: 'flex', alignItems: 'flex-start', gap: 5,
+                padding: '4px 7px 4px 0',
+                borderRadius: 4, border: 'none',
+                borderLeft: `3px solid ${pillColor}`,
+                background: sel ? '#F8E7E7' : '#ffffff',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                cursor: 'pointer', width: '100%', minWidth: 0, overflow: 'hidden',
+                textAlign: 'left' as const,
+                opacity: isCancelled ? 0.4 : 1,
               }}
             >
-              {isCompleted && (
-                <span style={{ fontSize: 9, flexShrink: 0, opacity: 0.9 }}>✓</span>
-              )}
-              <span style={{
-                fontSize: 9, fontWeight: 600,
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 2, padding: '0 3px',
-                flexShrink: 0, lineHeight: '14px',
+              <div style={{
+                width: 16, height: 16,
+                borderRadius: 3,
+                backgroundColor: pillColor,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 8, fontWeight: 700, color: '#ffffff',
+                flexShrink: 0, marginTop: 1,
+                fontFamily: 'monospace',
               }}>
-                {label}
-              </span>
+                {info?.groupNum ?? ''}
+              </div>
               <span style={{
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap', textAlign: 'left',
+                fontSize: 11, fontWeight: 500, color: '#2A2A2D',
+                lineHeight: 1.35,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical' as const,
+                overflow: 'hidden',
+                flex: 1, minWidth: 0,
                 textDecoration: isCancelled ? 'line-through' : 'none',
               }}>
                 {s.session_name}
