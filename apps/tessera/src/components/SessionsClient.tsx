@@ -1821,7 +1821,6 @@ function DayCell({
           const info = s.app_group_id ? groupInfoMap.get(s.app_group_id) : undefined
           const pillColor = info?.color ?? '#8F9495'
           const sel = selectedId === s.id
-          const isCancelled = s.status === 'CANCELLED'
 
           return (
             <button
@@ -1831,39 +1830,37 @@ function DayCell({
               title={s.session_name}
               style={{
                 display: 'flex', alignItems: 'flex-start', gap: 5,
-                padding: '4px 7px 4px 0',
-                borderRadius: 4, border: 'none',
-                borderLeft: `3px solid ${pillColor}`,
-                background: sel ? '#F8E7E7' : '#ffffff',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                padding: '5px 7px',
+                borderRadius: 5, border: 'none',
+                background: pillColor,
                 cursor: 'pointer', width: '100%', minWidth: 0, overflow: 'hidden',
                 textAlign: 'left' as const,
-                opacity: isCancelled ? 0.4 : 1,
+                opacity: s.status === 'CANCELLED' ? 0.38 : 1,
+                transition: 'filter 0.12s',
+                filter: sel ? 'brightness(1.15)' : 'brightness(1)',
               }}
             >
-              <div style={{
-                width: 16, height: 16,
-                borderRadius: 3,
-                backgroundColor: pillColor,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 8, fontWeight: 700, color: '#ffffff',
-                flexShrink: 0, marginTop: 1,
-                fontFamily: 'monospace',
-              }}>
-                {info?.groupNum ?? ''}
-              </div>
               <span style={{
-                fontSize: 11, fontWeight: 500, color: '#2A2A2D',
+                fontSize: 11, fontWeight: 500, color: '#ffffff',
                 lineHeight: 1.35,
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical' as const,
                 overflow: 'hidden',
                 flex: 1, minWidth: 0,
-                textDecoration: isCancelled ? 'line-through' : 'none',
+                textDecoration: s.status === 'CANCELLED' ? 'line-through' : 'none',
               }}>
                 {s.session_name}
               </span>
+              {s.duration_hrs != null && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  color: 'rgba(255,255,255,0.75)',
+                  flexShrink: 0, whiteSpace: 'nowrap', marginTop: 2,
+                }}>
+                  {s.duration_hrs}h
+                </span>
+              )}
             </button>
           )
         })}
