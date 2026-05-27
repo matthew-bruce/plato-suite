@@ -94,6 +94,11 @@ Each module is a Next.js 16+ App Router application. They share packages but dep
 - Theme switching via token file swap — zero component changes
 - WCAG AA accessibility as standard
 
+#### Shell
+The `PlatoShell` component (`packages/ui/components/shell/PlatoShell.tsx`) provides the global header and sidebar for all Plato Suite apps. Every app imports `<PlatoShell>` from `@plato/ui` and passes its own nav configuration as props. No app has its own shell implementation.
+
+Adding a new app to the suite: add its key to the `activeApp` union type in `PlatoShellProps`, and add its link to the app switcher in the `PlatoShell` component.
+
 ### `@plato/schema` — Database Abstraction
 - All Supabase/Postgres types
 - Database client abstraction (application code imports from here, not from `@supabase/supabase-js` directly)

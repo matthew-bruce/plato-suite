@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 
 // Blue badge colours specified in design brief (no --rmg-* token exists)
 const BLUE_BADGE_BG = '#E6F1FB'
@@ -8,7 +7,6 @@ export const dynamic = 'force-dynamic'
 
 export default function SettingsPage() {
   return (
-    <TesseraShell activeRoute="/settings">
       <div
         style={{
           maxWidth: 720,
@@ -89,7 +87,6 @@ export default function SettingsPage() {
           feature.
         </p>
       </div>
-    </TesseraShell>
   )
 }
 

@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { RISK_COLOURS, RISK_TINTS } from '@plato/ui/tokens'
 import type { RiskLevel } from '@plato/ui/tokens'
@@ -66,7 +65,6 @@ export default async function ParkerPage() {
   }
 
   return (
-    <TesseraShell activeRoute="/parker">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -187,7 +185,6 @@ export default async function ParkerPage() {
           })}
         </div>
       </div>
-    </TesseraShell>
   )
 }
 

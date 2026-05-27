@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { DomainsClient } from '@/components/DomainsClient'
 
@@ -122,7 +121,6 @@ export default async function DomainsPage() {
     })
 
   return (
-    <TesseraShell activeRoute="/domains">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -167,6 +165,5 @@ export default async function DomainsPage() {
           <DomainsClient domains={domains} />
         </div>
       </div>
-    </TesseraShell>
   )
 }

@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { TesseraShell } from '@/components/TesseraShell'
 import { AppGroupRow } from '@/components/AppGroupRow'
 import { supabase } from '@/lib/supabase'
 
@@ -228,7 +227,7 @@ export default async function Home() {
   }
 
   return (
-    <TesseraShell activeRoute="/">
+    <>
       <style>{`
         .pulse-tracks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
         .pulse-tr { display: grid; grid-template-columns: 72px 1fr 44px 180px; align-items: center; gap: 10px; min-width: 0; }
@@ -417,8 +416,7 @@ export default async function Home() {
         </div>
 
       </div>
-
-    </TesseraShell>
+  </>
   )
 }
 

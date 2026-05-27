@@ -7,6 +7,63 @@
 
 ---
 
+## Shell Component
+
+The shell is a shared component. It lives in `packages/ui/components/shell/PlatoShell.tsx` and is exported from `@plato/ui`. It is the single source of truth for global header and sidebar layout across the entire Plato Suite.
+
+**Never re-implement the shell in an app. Import from `@plato/ui`.**
+
+### Global header
+- Height: **40px**, background `#2A2A2D`
+- Spans the **full viewport width** — it sits above and across the top of the sidebar. The sidebar starts below the header.
+- Left side: red square logo mark ("P", `#DA202A` background) + "Plato Suite" wordmark ("Plato" white, "Suite" `#DA202A`)
+- Right side (flex row, right-aligned): app switcher links + user avatar
+
+### App switcher links (right side of header)
+- Nucleus · Tessera · Despatch · Chronicle · Cursus
+- Inactive: `rgba(255,255,255,0.55)` text
+- Active: `#ffffff` text + `2px solid #DA202A` bottom border
+- **Hover: `rgba(255,255,255,0.85)` text + `rgba(255,255,255,0.08)` background + `150ms ease` transition — required on all switcher links**
+- Avatar: circle, `#DA202A` background, white initials, fixed far right
+
+### Sidebar
+- Position: fixed left, below the global header, full height
+- Background: `#ffffff`, `border-right: 1px solid #EEEEEE`
+- Width expanded: **220px** — Width collapsed: **56px** (icon-only)
+- Collapse transition: `width 200ms ease`, triggered by toggle button at bottom
+- Mobile breakpoint: 768px (auto-collapses, no toggle button shown)
+
+### Active nav item state
+- Background: `#F8E7E7` (= `--rmg-color-tint-red`)
+- Text and icon: `#DA202A` (= `--rmg-color-red`), `fontWeight: 600`
+- Left border accent: `2px solid #DA202A` (transparent when inactive — no layout shift)
+
+### Inactive nav item state
+- Text: `#666666` (= `--rmg-color-text-body`)
+
+### Hover nav item state
+- Background: `#F5F5F5` (= `--rmg-color-grey-4`)
+- Text: `#2A2A2D` (= `--rmg-color-text-heading`)
+
+### Section headings
+- 9px, 700 weight, uppercase, `#8F9495` (= `--rmg-color-grey-1`), `letter-spacing: 0.08em`
+- Hidden when sidebar is collapsed
+
+### Nav items are app-specific and passed as props
+The `PlatoShell` component enforces no opinion on what links exist. Every app defines its own `navSections` and `configItems` and passes them as props.
+
+### Configuration section
+Labelled "CONFIGURATION" (same heading style). Driven by `configItems` prop. Pushed to the bottom of the sidebar. Supports custom elements (toggles, etc.) via the `element` prop on `ConfigItem`.
+
+### Hover states required on all interactive elements — no exceptions
+
+### Adding a new app to the suite
+1. Add the app key to the `activeApp` union type in `PlatoShellProps`
+2. Add an entry to the `PLATO_APPS` array in `PlatoShell.tsx`
+3. Add the app URL to the `appUrls` prop when using the shell
+
+---
+
 ## 0. Non-Negotiable Rules
 
 These are hard stops. Violating any of these creates work to undo.
