@@ -248,6 +248,37 @@ What is a roadmap item at schema level? What does it attach to — Workstream, T
 
 Document on another device. Contains Despatch context relevant to schema design. Bring into a Despatch session.
 
+### 2.5 Nullable `resource_id` on `resource_period_allocations` — APPROVED, migration pending
+
+**Decision:** `resource_id` on `resource_period_allocations` should be
+made nullable. This supports "vacant slot" rows — cost commitments in a
+SoW or PO where a role exists and a rate has been agreed, but the named
+person hasn't been identified yet.
+
+**Approved approach:**
+```sql
+ALTER TABLE resource_period_allocations
+  ALTER COLUMN resource_id DROP NOT NULL;
+```
+
+**Behaviour:**
+- A null `resource_id` row represents a TBC/Vacant cost placeholder
+- `role_title` (already a snapshot column) describes the role
+- All cost and day calculations apply identically to vacant rows
+- UI must render null `resource_name` as "TBC" or "Vacant" with a
+  clear visual treatment — not a broken/empty row
+- When the person is identified, `resource_id` is populated. The cost
+  line was always present; only the attribution changes.
+
+**Blocked on:** This migration has not yet been applied. Until it is,
+vacant slots cannot be inserted. One Q4 Capgemini row is outstanding:
+"Non-Factory Service Engineer" (DevOps Senior Consultant, PR, 54 days,
+£209.48/day, offshore India) — insert this once the migration is applied.
+
+**ADR needed:** ADR-032 — Nullable resource_id for vacant schedule slots.
+
+---
+
 ### 2.4 Read-gating of `resources.day_rate_override`
 
 Migration `001` gates *writes* via trigger. Reads are not gated at DB level (Supabase's single `authenticated` role makes column GRANTs ineffective; Postgres has no native column-level RLS). Resolution options for `002+`:
