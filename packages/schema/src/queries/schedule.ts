@@ -130,10 +130,10 @@ export async function getSchedulePageData(
       utilisation_percent,
       capacity_days,
       is_chargeable,
-      resources:resource_id (
+      resources:resource_id!left (
         resource_name,
         resource_location,
-        suppliers:supplier_id ( supplier_name, supplier_colour )
+        suppliers:supplier_id!left ( supplier_name, supplier_colour )
       )
     `,
     )
@@ -160,12 +160,11 @@ export async function getSchedulePageData(
       const vat = isInternal ? base : Math.round(base * (1 + vatPct / 100))
       return {
         allocation_id: row.allocation_id,
-        resource_name: resource?.resource_name ?? '',
+        resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
-        supplier_name: supplier?.supplier_name ?? 'Unknown',
+        supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
-        resource_location: (resource?.resource_location ??
-          'offshore') as ResourceLocation,
+        resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,
         utilisation_percent: utilisation,
@@ -176,9 +175,9 @@ export async function getSchedulePageData(
       }
     })
     .sort((a, b) => {
-      const s = a.supplier_name.localeCompare(b.supplier_name)
+      const s = (a.supplier_name ?? '').localeCompare(b.supplier_name ?? '')
       if (s !== 0) return s
-      return a.resource_name.localeCompare(b.resource_name)
+      return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 
   return { period, costConfig, allocations, allPeriods }

@@ -66,7 +66,7 @@ export function SchedulePageClient({ data }: Props) {
   const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [planviewFilter, setPlanviewFilter] = useState<string>('all')
   const [locationFilter, setLocationFilter] = useState<string>('all')
-  const [collapsedSuppliers, setCollapsedSuppliers] = useState<Set<string>>(
+  const [collapsedSuppliers, setCollapsedSuppliers] = useState<Set<string | null>>(
     new Set(),
   )
 
@@ -77,7 +77,7 @@ export function SchedulePageClient({ data }: Props) {
 
   const supplierOptions = useMemo(() => {
     const set = new Set<string>()
-    allocations.forEach((a) => set.add(a.supplier_name))
+    allocations.forEach((a) => { if (a.supplier_name) set.add(a.supplier_name) })
     return Array.from(set).sort()
   }, [allocations])
 
@@ -85,7 +85,7 @@ export function SchedulePageClient({ data }: Props) {
     const q = search.trim().toLowerCase()
     return allocations.filter((a) => {
       if (q) {
-        const hay = `${a.resource_name} ${a.role_title ?? ''}`.toLowerCase()
+        const hay = `${a.resource_name ?? ''} ${a.role_title ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       if (supplierFilter !== 'all' && a.supplier_name !== supplierFilter) return false
@@ -96,11 +96,12 @@ export function SchedulePageClient({ data }: Props) {
   }, [allocations, search, supplierFilter, planviewFilter, locationFilter])
 
   const groupedBySupplier = useMemo(() => {
-    const groups = new Map<string, ScheduleAllocation[]>()
+    const groups = new Map<string | null, ScheduleAllocation[]>()
     for (const a of filtered) {
-      const arr = groups.get(a.supplier_name) ?? []
+      const key = a.supplier_name
+      const arr = groups.get(key) ?? []
       arr.push(a)
-      groups.set(a.supplier_name, arr)
+      groups.set(key, arr)
     }
     return Array.from(groups.entries())
       .map(([name, rows]) => ({
@@ -109,10 +110,10 @@ export function SchedulePageClient({ data }: Props) {
         rows: rows.sort((a, b) => {
           const r = (a.role_title ?? '').localeCompare(b.role_title ?? '')
           if (r !== 0) return r
-          return a.resource_name.localeCompare(b.resource_name)
+          return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
         }),
       }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
   }, [filtered])
 
   // KPI computations
@@ -162,7 +163,7 @@ export function SchedulePageClient({ data }: Props) {
     return { base, vat, days }
   }, [filtered])
 
-  function toggleSupplier(name: string) {
+  function toggleSupplier(name: string | null) {
     setCollapsedSuppliers((prev) => {
       const next = new Set(prev)
       if (next.has(name)) next.delete(name)
@@ -506,7 +507,7 @@ export function SchedulePageClient({ data }: Props) {
                 )
                 return (
                   <SupplierGroup
-                    key={group.name}
+                    key={group.name ?? '__tbc__'}
                     name={group.name}
                     colour={group.colour}
                     count={group.rows.length}
@@ -634,7 +635,7 @@ function SupplierGroup({
   onToggle,
   rows,
 }: {
-  name: string
+  name: string | null
   colour: string
   count: number
   base: number
@@ -643,6 +644,8 @@ function SupplierGroup({
   onToggle: () => void
   rows: ScheduleAllocation[]
 }) {
+  const displayName = name ?? 'Vacant / TBC'
+  const isVacant = name === null
   return (
     <>
       <tr
@@ -668,11 +671,13 @@ function SupplierGroup({
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                backgroundColor: colour,
+                backgroundColor: isVacant ? 'var(--rmg-color-grey-2)' : colour,
                 display: 'inline-block',
               }}
             />
-            {name}
+            <span style={isVacant ? { color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' } : undefined}>
+              {displayName}
+            </span>
             <span
               style={{
                 color: 'var(--rmg-color-grey-1)',
@@ -723,9 +728,13 @@ function AllocationRow({
     ? PLANVIEW_BADGE_STYLE[plan]
     : { bg: 'var(--rmg-color-grey-3)', fg: 'var(--rmg-color-grey-1)' }
   const planLabel = plan === 'F_Gov' ? 'F.Gov' : (plan ?? '—')
-  const loc = LOCATION_STYLE[row.resource_location]
+  const loc = row.resource_location ? LOCATION_STYLE[row.resource_location] : null
+  const isVacant = row.resource_name === null
   return (
-    <tr style={{ borderBottom: '1px solid var(--rmg-color-grey-3)' }}>
+    <tr style={{
+      borderBottom: '1px solid var(--rmg-color-grey-3)',
+      backgroundColor: isVacant ? 'var(--rmg-color-grey-4)' : undefined,
+    }}>
       <Td>
         <span
           style={{
@@ -751,26 +760,34 @@ function AllocationRow({
         )}
       </Td>
       <Td>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            padding: '2px 10px',
-            borderRadius: 'var(--rmg-radius-xl)',
-            background: supplierColour,
-            color: 'white',
-            fontSize: 11,
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {row.supplier_name}
-        </span>
+        {row.supplier_name ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px 10px',
+              borderRadius: 'var(--rmg-radius-xl)',
+              background: supplierColour,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {row.supplier_name}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--rmg-color-grey-1)' }}>—</span>
+        )}
       </Td>
       <Td>
-        <span style={{ color: loc.fg, fontWeight: 600, fontSize: 12 }}>
-          {loc.symbol} {row.resource_location}
-        </span>
+        {loc ? (
+          <span style={{ color: loc.fg, fontWeight: 600, fontSize: 12 }}>
+            {loc.symbol} {row.resource_location}
+          </span>
+        ) : (
+          <span style={{ color: 'var(--rmg-color-grey-1)' }}>—</span>
+        )}
       </Td>
       <Td>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

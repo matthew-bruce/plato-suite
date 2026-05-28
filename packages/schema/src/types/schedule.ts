@@ -24,11 +24,11 @@ export interface CostConfiguration {
 
 export interface ScheduleAllocation {
   allocation_id: string
-  resource_name: string
+  resource_name: string | null
   role_title: string | null
-  supplier_name: string
+  supplier_name: string | null
   supplier_colour: string | null
-  resource_location: ResourceLocation
+  resource_location: ResourceLocation | null
   planview_code: PlanviewCode | null
   day_rate: number
   utilisation_percent: number
