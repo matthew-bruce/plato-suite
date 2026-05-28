@@ -73,6 +73,33 @@ the active build priority and the primary reference client implementation.
 Always verify project ID before any DDL or destructive SQL.
 The correct live project is **always** `nwltpivvqynkfghazjpi`.
 
+### Seeded data state (as of May 2026)
+
+**Periods (all correct):**
+- Q4 FY 25/26 · 1 Jan 2026 – 31 Mar 2026 · Closed
+- Q1 FY 26/27 · 1 Apr 2026 – 30 Jun 2026 · Active
+- Q2 FY 26/27 · 1 Jul 2026 – 30 Sep 2026 · Draft
+
+**Teams (Web Platform):** Janus, Orion, Pulsar, Nebula, Helios, Cosmos,
+Cygnus, DST
+
+**Workstreams (Web Platform):**
+- Web & App (WAA) — T4B — Janus, Nebula, Cosmos, Cygnus
+- Out of Home (OOH) — T4B — Orion, Pulsar
+- Platform Engineering — T4T — Helios
+- External — T4T — DST
+
+**Schedule data:** Q4 FY 25/26 has ~65 allocations seeded.
+Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
+
+**Known data issues to resolve:**
+- VAT uplift incorrectly applied to RMG internal resources in the
+  schedule page (inflates recommended rate)
+- Q1 FY 26/27 schedule not yet populated
+- TCS resources not yet seeded (0 named TCS people)
+- Orion workstream change (OOH → WAA in Q2) requires date-bounded
+  workstream membership — not yet implemented
+
 ---
 
 ## Vercel Deployments
@@ -402,6 +429,60 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
 - **GitHub URL rule:** GitHub URLs are blocked from `web_fetch`. When repo
   file analysis is needed, generate a Claude Code Web prompt for Matt to run.
 
+- **PlatoShell in layout.tsx is mandatory:** Every new page session must
+  verify the app's root `layout.tsx` uses `<PlatoShell>` before writing
+  page code. Claude Code will skip this check unless explicitly instructed.
+  The prompt must say: "Check that layout.tsx uses PlatoShell. If not,
+  fix the layout first."
+
+- **RMG financial year runs April–March:** Q1 = Apr–Jun, Q2 = Jul–Sep,
+  Q3 = Oct–Dec, Q4 = Jan–Mar. Q4 FY 25/26 = Jan–Mar **2026**. Never
+  use calendar year logic for RMG period dates.
+
+- **RLS on Nucleus financial tables:** `periods`, `resource_period_allocations`,
+  and `cost_configurations` all have restrictive RLS by default. If any
+  of these tables return 0 rows silently, apply open SELECT policy per
+  ADR-031. This has already been applied once — check before assuming a
+  data or query issue.
+
+- **VAT logic — RMG internal resources:** The 7.082% irrecoverable VAT
+  uplift applies to **external suppliers only**. RMG internal resources
+  do not attract irrecoverable VAT. Applying the uplift to RMG resources
+  inflates the blended rate incorrectly. Supplier check: if
+  `supplier_name = 'Royal Mail Group'`, use base cost only; otherwise
+  multiply by `(1 + vat_uplift_percent / 100)`.
+
+- **Planview code taxonomy:** Four values used in
+  `resource_period_allocations.planview_code`:
+  - `PR` — Platform Request: time-recoverable via PR tickets and
+    internal recharge. These days form the denominator for the blended
+    rate calculation.
+  - `F_Gov` — Factory Governance: platform overhead. Cost embedded in
+    base but days NOT included in the X-Chargeable Days denominator.
+    Each F_Gov resource inflates the blended rate for everyone else.
+    Use sparingly.
+  - `BAU` — Business As Usual: not borne by the platform. Excluded from
+    all cost totals and day counts.
+  - `ETP` — Enterprise Tooling Platform: flat cost line items for shared
+    tooling and services. Added on top of the base rate for the
+    "rate inc. ETP & SS" figure.
+
+- **Money is stored as integer pence (ADR-029):** All day rates and cost
+  figures in the DB are in pence (£ × 100). Always divide by 100 for
+  display. Never store or display fractional pounds.
+
+- **Period duplicate pattern:** Creating a new quarter's schedule starts
+  by duplicating `resource_period_allocations` from the previous period
+  to a new draft period row. This is the intended workflow — never build
+  a new quarter from scratch unless it is genuinely a new platform
+  configuration.
+
+- **Orion workstream change in Q2 FY 26/27:** Team Orion moves from
+  Out of Home (OOH) to Web & App (WAA) workstream from Q2 FY 26/27
+  onwards. The `team_workstreams` table does not currently support
+  date-bounded membership — this is a known gap requiring a future
+  migration before Q2 is activated.
+
 ---
 
 ## Model Selection Guide
@@ -418,6 +499,12 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
 ---
 
 ## Coding Standards (enforced every session)
+
+- **Every new page must use `<PlatoShell>`** — before writing any page
+  component in any app, verify that the app's root `layout.tsx` imports
+  `<PlatoShell>` from `@plato/ui` and wraps `{children}` with it. If it
+  does not, fix the layout first. Never ship a page that renders outside
+  the shell.
 
 - TypeScript strict mode throughout — no `any`, no exceptions
 - Never use arbitrary Tailwind hex values — extend `tailwind.config.ts` with

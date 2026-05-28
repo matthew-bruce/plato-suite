@@ -1,7 +1,7 @@
 # ARCHITECTURE.md — Plato Suite
 
 > Last updated: April 2026.
-> ADRs 001–031 and ADR-TESS-001 are committed to `docs/decisions/`.
+> ADRs 001–032 and ADR-TESS-001 are committed to `docs/decisions/`.
 > ADRs 001–006 were written retroactively in April 2026 (they previously existed as titles only in this file).
 > ADRs 007–031 were written in Claude design sessions and committed manually by Matt Bruce.
 
@@ -11,7 +11,7 @@
 
 Plato is built as a Turborepo monorepo. Five independently deployable Next.js applications share a common design system, schema layer, auth implementation, and configuration. The architecture is designed for portability, replaceability, and long-term maintainability.
 
-The five apps are: **Nucleus** (org chart and resource management), **Dispatch** (PI planning), **Chronicle** (knowledge OS), **Roadmap** (executive canvas), and **Tessera** (KT Operating System — internal tool, see note in module registry).
+The five apps are: **Nucleus** (org chart and resource management), **Despatch** (PI planning), **Chronicle** (knowledge OS), **Roadmap** (executive canvas), and **Tessera** (KT Operating System — internal tool, see note in module registry).
 
 ---
 
@@ -43,7 +43,7 @@ All configuration is supplied via environment variables. No hardcoded infrastruc
 plato/
   apps/                     ← independently deployable modules
     nucleus/                ← Module 1: Org Chart / resource management
-    dispatch/               ← Module 2: PI planning
+    despatch/               ← Module 2: PI planning
     chronicle/              ← Module 3: Knowledge OS
     roadmap/                ← Module 4: Executive roadmap
     tessera/                ← Internal tool: KT Operating System (see note)
@@ -68,8 +68,8 @@ Each module is a Next.js 16+ App Router application. They share packages but dep
 
 | Module | Path | Role | Standalone | Status |
 |---|---|---|---|---|
-| Nucleus | `apps/nucleus` | Foundational data layer — teams, resources, org chart, finance | ✅ | Live — Vercel |
-| Dispatch | `apps/dispatch` | PI planning orchestration | ✅ | Reference impl only |
+| Nucleus | `apps/nucleus` | Foundational data layer — teams, resources, org structure, platform schedule, finance | ✅ | Live — Vercel |
+| Despatch | `apps/despatch` | PI planning orchestration | ✅ | Reference impl only |
 | Chronicle | `apps/chronicle` | Knowledge and evidence OS | ✅ | Live — Vercel (paused Supabase) |
 | Roadmap | `apps/roadmap` | Executive roadmap canvas | ✅ | Early scaffold |
 | Tessera | `apps/tessera` | KT Operating System — supplier transition management | ⚠️ | Live — internal tool |
@@ -94,10 +94,47 @@ Each module is a Next.js 16+ App Router application. They share packages but dep
 - Theme switching via token file swap — zero component changes
 - WCAG AA accessibility as standard
 
-#### Shell
-The `PlatoShell` component (`packages/ui/components/shell/PlatoShell.tsx`) provides the global header and sidebar for all Plato Suite apps. Every app imports `<PlatoShell>` from `@plato/ui` and passes its own nav configuration as props. No app has its own shell implementation.
+### Shell Component — `PlatoShell`
 
-Adding a new app to the suite: add its key to the `activeApp` union type in `PlatoShellProps`, and add its link to the app switcher in the `PlatoShell` component.
+The `PlatoShell` component (`packages/ui/components/shell/PlatoShell.tsx`)
+is the single shared shell for all Plato Suite applications. It provides:
+- The global top navigation bar (full-width, spans across the sidebar)
+- The per-app left-hand sidebar with configurable navigation sections
+- Collapse/expand behaviour with localStorage persistence
+- Active route detection via `usePathname()`
+
+**Every app in the monorepo must use `<PlatoShell>` from `@plato/ui`.**
+No app may implement its own shell, global header, or sidebar. This rule
+has no exceptions.
+
+Usage pattern — every app's root `layout.tsx` follows this structure:
+
+```tsx
+// app/layout.tsx — server component (preserves metadata export)
+import { NucleusAppShell } from './_components/NucleusAppShell'
+export const metadata = { ... }
+export default function RootLayout({ children }) {
+  return <html><body><NucleusAppShell>{children}</NucleusAppShell></body></html>
+}
+
+// app/_components/NucleusAppShell.tsx — 'use client'
+import { PlatoShell } from '@plato/ui'
+export function NucleusAppShell({ children }) {
+  return (
+    <PlatoShell activeApp="nucleus" appName="Nucleus" navSections={NAV_SECTIONS} configItems={CONFIG_ITEMS}>
+      {children}
+    </PlatoShell>
+  )
+}
+```
+
+Props interface: `PlatoShellProps` — exported from `@plato/ui`. See `packages/ui/components/shell/PlatoShell.tsx` for the full type definition.
+
+Adding a new app to the suite requires two changes in `PlatoShell.tsx`:
+1. Add the app key to the `activeApp` union type in `PlatoShellProps`
+2. Add an entry to the `PLATO_APPS` array
+
+Adding a new app does not require changes in any other app.
 
 ### `@plato/schema` — Database Abstraction
 - All Supabase/Postgres types
@@ -126,10 +163,23 @@ Plato uses a **single-tenant deployment model** (ADR-007). Each client deploymen
 
 ### Core Schema (shared, owned by `@plato/schema`)
 ```sql
-organisations   -- single-row config anchor (single-tenant model)
-teams           -- teams within the organisation
-resources       -- named individuals, roles, day rates
-users           -- auth-linked user accounts
+-- Core tables (owned by @plato/schema)
+organisations               -- single-row config anchor
+platforms                   -- platform units within an org (e.g. Web Platform)
+workstreams                 -- product towers / delivery groups within a platform
+arts                        -- Agile Release Trains (SAFe) — optional grouping
+teams                       -- squads within a workstream
+team_workstreams            -- many-to-many: teams ↔ workstreams
+resource_team_assignments   -- many-to-many: resources ↔ teams, with capacity_split
+resources                   -- named individuals with location, job title, supplier
+suppliers                   -- supplier organisations with brand colours
+roles                       -- role definitions (separate from resource allocation)
+users                       -- auth-linked user accounts
+
+-- Financial tables (owned by @plato/schema)
+periods                     -- quarterly financial snapshots (Q4 FY 25/26 etc.)
+resource_period_allocations -- resource assignments within a period snapshot
+cost_configurations         -- VAT uplift, ETP costs, blended day rate overrides
 ```
 
 ### Tessera Schema (kt_ prefix, owned by `apps/tessera`)
@@ -153,6 +203,18 @@ Modules add their own tables with foreign key references to core tables. No modu
 
 ### Migration Strategy
 All schema changes are managed via migration files. No ad-hoc SQL against production. Migrations are version-controlled alongside application code in `apps/[module]/supabase/migrations/` or `packages/schema/migrations/`.
+
+### Nucleus migration history (as of May 2026)
+
+| Migration | Description |
+|---|---|
+| 001_core_schema | Full schema — all tables above |
+| 002_seed_lookups | Supplier seed data |
+| 003_resource_location_and_job_title | resource_location enum, resource_country, resource_job_title |
+| 004_resource_team_assignments | resource_team_assignments junction table with capacity_split |
+| 005_schedule_display_fields | role_title and planview_code snapshot columns on resource_period_allocations |
+
+Applied to Supabase project `nwltpivvqynkfghazjpi`.
 
 ---
 
@@ -218,7 +280,7 @@ export const tenantConfig = {
   suiteName: 'Plato',
   modules: {
     nucleus:   { displayName: 'Org Chart',  enabled: true },
-    dispatch:  { displayName: 'Dispatch',   enabled: true },
+    despatch:  { displayName: 'Despatch',   enabled: true },
     chronicle: { displayName: 'Chronicle',  enabled: true },
     roadmap:   { displayName: 'Roadmap',    enabled: true },
   },
@@ -287,7 +349,7 @@ Any deviation from the principles in this document requires an ADR before implem
 | 021 | Three-tier user role model |
 | 022 | Org containers as presentation layer |
 
-**Product and UI decisions (023–031)**
+**Product and UI decisions (023–032)**
 | ADR | Title |
 |---|---|
 | 023 | RMG design system — inline styles, --rmg-* tokens, no Tailwind in packages/ui |
@@ -297,8 +359,9 @@ Any deviation from the principles in this document requires an ADR before implem
 | 027 | Database vendor abstraction |
 | 028 | Server component data fetching pattern |
 | 029 | Money stored as integer pence |
-| 030 | Dispatch migration strategy |
+| 030 | Despatch migration strategy |
 | 031 | Temporary anonymous RLS policies (development phase) |
+| 032 | PlatoShell — single shared shell component, mandatory for all apps |
 
 **Tessera-specific**
 | ADR | Title |
