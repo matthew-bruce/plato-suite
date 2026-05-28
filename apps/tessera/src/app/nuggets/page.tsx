@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { NuggetsClient } from '@/components/NuggetsClient'
 
@@ -23,7 +22,6 @@ export default async function NuggetsPage() {
   const nuggets = (data ?? []) as Nugget[]
 
   return (
-    <TesseraShell activeRoute="/nuggets">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -67,6 +65,5 @@ export default async function NuggetsPage() {
           <NuggetsClient nuggets={nuggets} />
         </div>
       </div>
-    </TesseraShell>
   )
 }

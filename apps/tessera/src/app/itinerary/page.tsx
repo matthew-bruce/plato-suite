@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { ItineraryClient } from '@/components/ItineraryClient'
 
@@ -63,7 +62,6 @@ export default async function ItineraryPage() {
       : 0
 
   return (
-    <TesseraShell activeRoute="/itinerary">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -188,6 +186,5 @@ export default async function ItineraryPage() {
           />
         </div>
       </div>
-    </TesseraShell>
   )
 }

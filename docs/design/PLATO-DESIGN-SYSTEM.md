@@ -7,6 +7,63 @@
 
 ---
 
+## Shell Component
+
+The shell is a shared component. It lives in `packages/ui/components/shell/PlatoShell.tsx` and is exported from `@plato/ui`. It is the single source of truth for global header and sidebar layout across the entire Plato Suite.
+
+**Never re-implement the shell in an app. Import from `@plato/ui`.**
+
+### Global header
+- Height: **40px**, background `#2A2A2D`
+- Spans the **full viewport width** — it sits above and across the top of the sidebar. The sidebar starts below the header.
+- Left side: red square logo mark ("P", `#DA202A` background) + "Plato Suite" wordmark ("Plato" white, "Suite" `#DA202A`)
+- Right side (flex row, right-aligned): app switcher links + user avatar
+
+### App switcher links (right side of header)
+- Nucleus · Tessera · Despatch · Chronicle · Cursus
+- Inactive: `rgba(255,255,255,0.55)` text
+- Active: `#ffffff` text + `2px solid #DA202A` bottom border
+- **Hover: `rgba(255,255,255,0.85)` text + `rgba(255,255,255,0.08)` background + `150ms ease` transition — required on all switcher links**
+- Avatar: circle, `#DA202A` background, white initials, fixed far right
+
+### Sidebar
+- Position: fixed left, below the global header, full height
+- Background: `#ffffff`, `border-right: 1px solid #EEEEEE`
+- Width expanded: **220px** — Width collapsed: **56px** (icon-only)
+- Collapse transition: `width 200ms ease`, triggered by toggle button at bottom
+- Mobile breakpoint: 768px (auto-collapses, no toggle button shown)
+
+### Active nav item state
+- Background: `#F8E7E7` (= `--rmg-color-tint-red`)
+- Text and icon: `#DA202A` (= `--rmg-color-red`), `fontWeight: 600`
+- Left border accent: `2px solid #DA202A` (transparent when inactive — no layout shift)
+
+### Inactive nav item state
+- Text: `#666666` (= `--rmg-color-text-body`)
+
+### Hover nav item state
+- Background: `#F5F5F5` (= `--rmg-color-grey-4`)
+- Text: `#2A2A2D` (= `--rmg-color-text-heading`)
+
+### Section headings
+- 9px, 700 weight, uppercase, `#8F9495` (= `--rmg-color-grey-1`), `letter-spacing: 0.08em`
+- Hidden when sidebar is collapsed
+
+### Nav items are app-specific and passed as props
+The `PlatoShell` component enforces no opinion on what links exist. Every app defines its own `navSections` and `configItems` and passes them as props.
+
+### Configuration section
+Labelled "CONFIGURATION" (same heading style). Driven by `configItems` prop. Pushed to the bottom of the sidebar. Supports custom elements (toggles, etc.) via the `element` prop on `ConfigItem`.
+
+### Hover states required on all interactive elements — no exceptions
+
+### Adding a new app to the suite
+1. Add the app key to the `activeApp` union type in `PlatoShellProps`
+2. Add an entry to the `PLATO_APPS` array in `PlatoShell.tsx`
+3. Add the app URL to the `appUrls` prop when using the shell
+
+---
+
 ## 0. Non-Negotiable Rules
 
 These are hard stops. Violating any of these creates work to undo.
@@ -34,6 +91,72 @@ These are hard stops. Violating any of these creates work to undo.
 **PAGE BACKGROUNDS:** All pages use `background-color: var(--rmg-color-surface-light)` (#F1F2F5) with the PLATO SVG watermark. Never plain white as a page background.
 
 **ALL COLOURS FROM FIGMA:** Every colour must trace back to a named `--rmg-*` CSS variable. No invented hex values. The only exceptions are supplier brand colours and Tessera track colours (documented below).
+
+---
+
+## 0B. Shell Component — PlatoShell
+
+> This is the most critical layout rule in the design system. Violating it
+> creates inconsistency across the suite that is expensive to fix.
+
+### The rule
+
+Every Plato Suite app renders inside `<PlatoShell>` from `@plato/ui`.
+No app has its own shell, header, or sidebar. The shell is configured
+via props — it is not re-implemented per app.
+
+Before writing any new page in any app, verify that the app's root
+`layout.tsx` imports and wraps content with `<PlatoShell>`. If it does
+not, fix the layout first.
+
+### Global header
+
+- **Height:** 40px, `position: fixed`, full viewport width
+- **Background:** `var(--rmg-color-black)` = `#2A2A2D`
+- **Full width:** spans across the top of the sidebar, not beside it
+- **Left:** Red "P" square mark (22×22px, `border-radius: 4px`) + "Plato Suite"
+  wordmark ("Plato" white, "Suite" `var(--rmg-color-red)`)
+- **Right (flex row):** app switcher links + avatar
+- **App links (right-aligned):** Nucleus · Tessera · Despatch · Chronicle · Cursus
+  - Inactive: `rgba(255,255,255,0.55)` text
+  - Active: white text + `2px solid var(--rmg-color-red)` bottom border
+  - **Hover (required — not optional):** `rgba(255,255,255,0.85)` text +
+    `rgba(255,255,255,0.08)` background, `transition: 150ms ease`
+- **Avatar:** circle, `var(--rmg-color-red)` bg, white initials, far right
+
+### Sidebar
+
+- **Position:** fixed left, starts below the global header (top: 40px), full height
+- **Background:** white, `border-right: 1px solid var(--rmg-color-grey-3)`
+- **Width expanded:** 220px — **Width collapsed:** 56px (icon-only)
+- **Collapse transition:** `width 200ms ease`, triggered by toggle button at bottom
+- **Mobile breakpoint:** 768px — auto-collapses, toggle button hidden
+
+**App header zone (top of sidebar):**
+- App name: `appName` prop — 14px, bold, `var(--rmg-color-black)`
+- Subtitle: `appSubtitle` prop — 11px, `var(--rmg-color-grey-1)`
+- No logo mark in the sidebar — the "P" square lives in the global header only
+
+**Navigation sections:**
+- Section headings: 9px, 700 weight, uppercase, `letter-spacing: 0.08em`,
+  `var(--rmg-color-grey-1)` — e.g. OVERVIEW, ORGANISATION, FINANCE
+- Nav items: icon (16px) + label (13px)
+- **Active state:** `var(--rmg-color-tint-red)` background, `var(--rmg-color-red)` text
+  and icon, `fontWeight: 600`, `border-left: 2px solid var(--rmg-color-red)` —
+  use `2px solid transparent` when inactive (no layout shift)
+- **Inactive:** `var(--rmg-color-text-light)` (`#666666`) text
+- **Hover:** `var(--rmg-color-grey-4)` background, `var(--rmg-color-text-heading)` text
+- Active detection: `usePathname()` from `next/navigation`
+- **Nav items are passed as props — never hardcoded in the component**
+
+**Bottom configuration section:**
+- Pushed to bottom of sidebar via flex layout
+- Heading: "CONFIGURATION" — same style as nav section headings
+- Items driven by `configItems` prop — app-specific
+- Supports links, toggles, and custom elements via the `element` prop on `ConfigItem`
+- Settings is the minimum — additional items can be added per app
+
+**Hover states required on all interactive elements — no exceptions**
 
 ---
 
@@ -933,6 +1056,21 @@ Tessera has no auth (ADR-TESS-001). All queries run as `anon`.
 If any Supabase query returns 0 rows silently — check RLS policies **before touching the code**.  
 Fix: `CREATE POLICY "Open read" ON kt_table_name FOR SELECT USING (true);`  
 Check: `SELECT tablename, policyname FROM pg_policies WHERE tablename = 'kt_sessions';`
+
+### Nucleus tables requiring open RLS (development phase — ADR-031)
+
+The following tables have been granted open SELECT policies for the
+development phase. They will be tightened once Nucleus auth is implemented.
+
+- `periods`
+- `resource_period_allocations`
+- `cost_configurations`
+
+Fix if queries return 0 rows silently:
+```sql
+CREATE POLICY "Open read — dev phase (ADR-031)"
+  ON [table_name] FOR SELECT USING (true);
+```
 
 ## Tessera Dashboard — UI Specification (May 2026)
 

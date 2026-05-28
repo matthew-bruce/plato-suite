@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { PeopleClient } from '@/components/PeopleClient'
 
@@ -114,7 +113,6 @@ export default async function PeoplePage({
   }
 
   return (
-    <TesseraShell activeRoute="/people">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -162,6 +160,5 @@ export default async function PeoplePage({
           />
         </div>
       </div>
-    </TesseraShell>
   )
 }

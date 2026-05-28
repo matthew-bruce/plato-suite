@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { type RiskLevel } from '@/components/RiskPill'
 import {
@@ -175,7 +174,7 @@ export default async function DomainDetailPage({
     domainTyped.risk_level != null ? RISK_COLOURS[domainTyped.risk_level] : null
 
   return (
-    <TesseraShell activeRoute="/domains">
+    <>
       <style>{`
         .ds-track-grid {
           display: grid;
@@ -361,7 +360,7 @@ export default async function DomainDetailPage({
           <DomainFooterNav prevDomain={prevDomain} nextDomain={nextDomain} />
         </div>
       </div>
-    </TesseraShell>
+  </>
   )
 }
 

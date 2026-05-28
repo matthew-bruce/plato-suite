@@ -1,4 +1,3 @@
-import { TesseraShell } from '@/components/TesseraShell'
 import { supabase } from '@/lib/supabase'
 import { buildSupplierMap } from '@plato/ui/tokens'
 import { SessionsClient } from '@/components/SessionsClient'
@@ -141,7 +140,6 @@ export default async function SessionsPage() {
   const totalHours: string | number = Number.isInteger(rawHours) ? rawHours : rawHours.toFixed(1)
 
   return (
-    <TesseraShell activeRoute="/sessions">
       <div
         style={{
           backgroundColor: 'var(--rmg-color-surface-light)',
@@ -159,6 +157,5 @@ export default async function SessionsPage() {
           metricHours={totalHours}
         />
       </div>
-    </TesseraShell>
   )
 }
