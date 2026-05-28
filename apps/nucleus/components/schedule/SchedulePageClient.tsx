@@ -479,7 +479,7 @@ export function SchedulePageClient({ data }: Props) {
                 <Th width={60}>Plan</Th>
                 <Th>Role</Th>
                 <Th>Resource</Th>
-                <Th>Supplier</Th>
+                <Th>Team</Th>
                 <Th>Location</Th>
                 <Th align="left">Utilisation</Th>
                 <Th align="right" width={70}>Days</Th>
@@ -711,18 +711,12 @@ function SupplierGroup({
         <td />
       </tr>
       {!collapsed &&
-        rows.map((r) => <AllocationRow key={r.allocation_id} row={r} supplierColour={colour} />)}
+        rows.map((r) => <AllocationRow key={r.allocation_id} row={r} />)}
     </>
   )
 }
 
-function AllocationRow({
-  row,
-  supplierColour,
-}: {
-  row: ScheduleAllocation
-  supplierColour: string
-}) {
+function AllocationRow({ row }: { row: ScheduleAllocation }) {
   const plan = row.planview_code
   const planStyle = plan
     ? PLANVIEW_BADGE_STYLE[plan]
@@ -760,25 +754,7 @@ function AllocationRow({
         )}
       </Td>
       <Td>
-        {row.supplier_name ? (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '2px 10px',
-              borderRadius: 'var(--rmg-radius-xl)',
-              background: supplierColour,
-              color: 'white',
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {row.supplier_name}
-          </span>
-        ) : (
-          <span style={{ color: 'var(--rmg-color-grey-1)' }}>—</span>
-        )}
+        {row.team_name ?? <span style={{ color: 'var(--rmg-color-grey-1)' }}>—</span>}
       </Td>
       <Td>
         {loc ? (
