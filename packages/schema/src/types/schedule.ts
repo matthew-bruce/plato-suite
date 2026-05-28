@@ -34,7 +34,7 @@ export interface ScheduleAllocation {
   utilisation_percent: number
   capacity_days: number | null
   is_chargeable: boolean
-  team_name: string | null
+  teams: string[]
   base_total_pence?: number
   vat_total_pence?: number
 }

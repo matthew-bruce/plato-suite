@@ -158,27 +158,32 @@ export async function getSchedulePageData(
 
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
 
-  // Build a resource_id → team_name map from primary team assignments.
+  // Build a resource_id → team_names map from ALL active team assignments.
   // resource_team_assignments has no direct FK to resource_period_allocations,
   // so we fetch it in a separate query keyed on resource_id.
+  // No is_primary filter — a resource can appear on two teams; both names
+  // are collected into the array and rendered as separate chips in the UI.
   const resourceIds = ((allocsData ?? []) as unknown as RawAllocationRow[])
     .map((r) => r.resource_id)
     .filter((id): id is string => id !== null)
 
-  const teamMap = new Map<string, string>()
+  const teamMap = new Map<string, string[]>()
   if (resourceIds.length > 0) {
     const { data: teamData, error: teamErr } = await supabase
       .from('resource_team_assignments')
       .select('resource_id, teams ( team_name )')
       .in('resource_id', resourceIds)
-      .eq('is_primary', true)
       .is('deleted_at', null)
 
     if (teamErr) throw new Error(`Failed to load team assignments: ${teamErr.message}`)
 
     for (const r of (teamData ?? []) as unknown as RawTeamAssignmentRow[]) {
       const team = pickEmbed(r.teams)
-      if (team?.team_name) teamMap.set(r.resource_id, team.team_name)
+      if (team?.team_name) {
+        const existing = teamMap.get(r.resource_id) ?? []
+        existing.push(team.team_name)
+        teamMap.set(r.resource_id, existing)
+      }
     }
   }
 
@@ -210,7 +215,7 @@ export async function getSchedulePageData(
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
-        team_name: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? null) : null,
+        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : [],
         base_total_pence: base,
         vat_total_pence: vat,
       }

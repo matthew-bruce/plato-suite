@@ -754,7 +754,29 @@ function AllocationRow({ row }: { row: ScheduleAllocation }) {
         )}
       </Td>
       <Td>
-        {row.team_name ?? <span style={{ color: 'var(--rmg-color-grey-1)' }}>—</span>}
+        {row.teams.length === 0 ? (
+          <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>No team</span>
+        ) : (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {row.teams.map((name) => (
+              <span
+                key={name}
+                style={{
+                  background: 'var(--color-background-info)',
+                  color: 'var(--color-text-info)',
+                  border: '0.5px solid var(--color-border-info)',
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: '2px 9px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
       </Td>
       <Td>
         {loc ? (
