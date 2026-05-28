@@ -89,39 +89,56 @@ Cygnus, DST
 - Platform Engineering — T4T — Helios
 - External — T4T — DST
 
-**Schedule data:** Q4 FY 25/26 has ~68 allocations seeded (reconciled
-against the original calculator spreadsheet in May 2026 — see below).
-Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
+**Schedule data:** Q4 FY 25/26 has 74 allocations (69 named + 5 TBC/Vacant),
+fully reconciled against the original Day Rate Calculator spreadsheet in
+May 2026. Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
 
 **Q4 FY 25/26 reconciliation status (May 2026):**
-- North Highland: ✅ reconciled — no changes needed
-- Lean Tree: ✅ reconciled — no changes needed
+- North Highland: ✅ reconciled
+- Lean Tree: ✅ reconciled
 - Happy Team: ✅ reconciled — Natalia Zalewska added (was missing)
-- Capgemini: ⚠️ partially reconciled — Deepti Borole and Bhulakshmi
-  Gangireddy added (were missing). One further row outstanding:
-  "Non-Factory Service Engineer" (DevOps Senior Consultant, PR, 54 days,
-  £209.48/day) cannot be inserted until the nullable `resource_id`
-  migration is applied (see Schema — Open Decisions).
-- Capgemini — Amol Tate: ⚠️ needs second allocation row. Amol Tate
-  spent part of Q4 offshore (9 days, F_Gov, £204.22/day) before
-  relocating to the UK (45 days, F_Gov, £400.82/day). Only the offshore
-  row exists in the DB. The UK row needs adding as a second allocation
-  against the same resource_id.
-- Capgemini — Dipti Chaudhari: ⚠️ rate requires review. She is a real
-  CG person but was not on the Q4 schedule. Her DB rate (40082p /
-  £400.82) was likely imported from Amol Tate's UK allocation row in
-  error. Correct rate must be confirmed with Capgemini before she
-  appears on any future schedule.
-- RMG: not yet reconciled
-- VAT uplift incorrectly applied to RMG internal resources in the
-  schedule page (inflates recommended rate) — parked, low impact,
-  to fix after partner supplier reconciliation is complete
+- TAAS: ✅ reconciled — Ankit Singh at 90% utilisation, £400/day
+- Capgemini: ✅ reconciled — 34 named + 1 TBC (DevOps Senior Consultant).
+  Dipti Chaudhari Q4 allocation soft-deleted (was not on Q4 schedule).
+  Amol Tate has two rows: offshore (9 days, F_Gov) + UK (45 days, F_Gov).
+  Dipti Chaudhari resource record retained — rate needs confirming before
+  she appears on any future schedule.
+- RMG: ✅ reconciled — 11 named + 4 TBC (Programme Manager, Senior SW
+  Engineer F_Gov, Test Manager, Test Engineer). DB total (£379,763) is
+  higher than original spreadsheet (£306,683) because the spreadsheet had
+  a formula error excluding Paul Williams and Selen Hamilton (both F_Gov,
+  both correct at £580/day × 63 days). DB is the correct source of truth.
+- VAT uplift incorrectly applied to RMG internal resources in the schedule
+  page UI — known issue, parked, to fix in a UI pass.
+
+**Migration history (Nucleus, applied to `nwltpivvqynkfghazjpi`):**
+
+| Migration | Description |
+|---|---|
+| 001_core_schema | Full schema — all tables |
+| 002_seed_lookups | Supplier seed data |
+| 003_resource_location_and_job_title | resource_location enum, resource_country, resource_job_title |
+| 004_resource_team_assignments | resource_team_assignments junction table with capacity_split |
+| 005_schedule_display_fields | role_title and planview_code snapshot columns on resource_period_allocations |
+| 006_rpa_nullable_resource_id | resource_id nullable on resource_period_allocations (TBC/Vacant slots) |
+| 007_rpa_supplier_id | supplier_id added to resource_period_allocations; backfilled for all rows; CHECK constraint: resource_id IS NOT NULL OR supplier_id IS NOT NULL |
+
+**Team assignment backfill status (Q4 FY 25/26):**
+Period-scoped `resource_team_assignments` rows (period_id = Q4) exist for:
+- Janus: 13 rows ✅
+- Nebula: 10 rows ✅ (Dipti Chaudhari excluded)
+All other teams (Orion, Pulsar, Cosmos, Cygnus, Helios, DST): not yet
+backfilled — will show "No team" on Q4 schedule until populated.
+Current-state assignments (period_id IS NULL) remain untouched alongside
+period-scoped rows.
 
 **Known data issues to resolve:**
 - Q1 FY 26/27 schedule not yet populated
 - TCS resources not yet seeded (0 named TCS people)
 - Orion workstream change (OOH → WAA in Q2) requires date-bounded
   workstream membership — not yet implemented
+- Remaining teams need Q4 period-scoped team assignment backfill
+- VAT uplift UI bug: incorrectly applied to RMG resources on schedule page
 
 ---
 
@@ -328,7 +345,8 @@ to extend the shared schema without polluting it.
 
 - `resource_function` — enum: FACTORY | SERVICE | PROGRAMME | COMMERCIAL | etc.
 - `resource_onboarded_date DATE` — when they joined the account
-- `resource_rolloff_date DATE` — actual or planned exit date
+- `resource_rolloff_date DATE` — actual or planned exit date (use this to
+  represent rolled-off resources; do not use deleted_at for this purpose)
 - `resource_location` — enum: onshore | nearshore | offshore
 - `resource_country TEXT`
 - `resource_job_title TEXT`
@@ -505,7 +523,8 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
   - `F_Gov` — Factory Governance: platform overhead. Cost embedded in
     base but days NOT included in the X-Chargeable Days denominator.
     Each F_Gov resource inflates the blended rate for everyone else.
-    Use sparingly.
+    Use sparingly. F_Gov resources have no team assignment and render
+    "No team" on the schedule — this is correct and intentional.
   - `BAU` — Business As Usual: not borne by the platform. Excluded from
     all cost totals and day counts.
   - `ETP` — Enterprise Tooling Platform: flat cost line items for shared
@@ -514,13 +533,32 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
 
 - **Money is stored as integer pence (ADR-029):** All day rates and cost
   figures in the DB are in pence (£ × 100). Always divide by 100 for
-  display. Never store or display fractional pounds.
+  display. Never store or display fractional pounds. Cost formula:
+  `day_rate × capacity_days × utilisation_percent / 100` (all in pence),
+  then divide by 100 for £ display. Never omit utilisation_percent.
 
 - **Period duplicate pattern:** Creating a new quarter's schedule starts
   by duplicating `resource_period_allocations` from the previous period
   to a new draft period row. This is the intended workflow — never build
   a new quarter from scratch unless it is genuinely a new platform
   configuration.
+
+- **Team assignment period scoping:** `resource_team_assignments` has a
+  nullable `period_id` column. NULL rows = current state. Period-scoped
+  rows (period_id set) = historical snapshots for that quarter. The
+  schedule page must filter `rta.period_id = <active period>` to show
+  historically accurate team data. When backfilling a new quarter's team
+  assignments, INSERT new rows with the target period_id — do NOT update
+  the NULL (current-state) rows. The schedule query must use
+  `rpa.supplier_id` (from migration 007) for supplier grouping, not
+  `resources.supplier_id`, so that TBC/Vacant rows are correctly
+  attributed.
+
+- **supplier_id on resource_period_allocations (migration 007):** Every
+  allocation row now carries supplier_id directly. Named rows are
+  backfilled from resources.supplier_id. TBC/Vacant rows (resource_id
+  IS NULL) require supplier_id to be set explicitly on insert. The
+  schedule page groups by rpa.supplier_id — never by resource.supplier_id.
 
 - **Orion workstream change in Q2 FY 26/27:** Team Orion moves from
   Out of Home (OOH) to Web & App (WAA) workstream from Q2 FY 26/27
@@ -536,15 +574,18 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
   cost snapshot. The schedule UI must handle and display multiple rows
   per person correctly.
 
-- **Vacant / TBC schedule slots — approved direction:** Making
-  `resource_id` nullable on `resource_period_allocations` is the
-  approved approach for cost placeholder rows where a role exists in a
-  SoW or PO but the person hasn't been identified yet. Migration not yet
-  applied. When rendered on the schedule, null `resource_id` should
-  display as "TBC" or "Vacant" with a clear visual treatment. Once the
-  person is identified, `resource_id` is populated — the cost line was
-  always present. The schedule page must null-guard `resource_name`
-  before this migration is applied.
+- **Vacant / TBC schedule slots:** `resource_id` is nullable on
+  `resource_period_allocations` (migration 006). TBC/Vacant rows must
+  have `supplier_id` set (migration 007) so they group correctly by
+  supplier. Render `resource_name` as "TBC" with italic styling when
+  null. All cost and day calculations apply identically to TBC rows.
+
+- **Active vs rolled-off resources:** Use `resource_rolloff_date` to
+  represent resources who have left the programme. Do NOT use `deleted_at`
+  for this — deleted_at means the record was an error. A rolled-off
+  resource is historically important and must remain queryable. The
+  resources list UI should offer a toggle: "Show active only" filters
+  `WHERE resource_rolloff_date IS NULL OR resource_rolloff_date > NOW()`.
 
 ---
 
@@ -574,14 +615,51 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
   named tokens
 - Never call vendor SDKs directly — always use the `@plato/[package]`
   abstraction layer
-- Any new pure function gets a unit test written at the same time — not
-  retroactively
+- **Tests are mandatory and non-negotiable.** Every new or modified pure
+  function must have a co-located unit test written in the same commit —
+  never retroactively. This applies to query functions, data transforms,
+  utility helpers, cost calculations, and any function with a return value.
+  If Claude Code skips a testable function it must name it explicitly in
+  the report-back and justify the omission. Silence on testing = violation.
+- Use **vitest** for all unit and integration tests
+- Test file naming: `functionName.test.ts`, lives in `__tests__/` alongside
+  the code it tests
+- Mock Supabase at the boundary — never make real DB calls in unit tests
 - Check every new component at 390px width before considering it done
 - Always protect against TypeScript errors that will break the Vercel build
 - Commit and push at the end of every task
-- Use **vitest** for unit and integration tests
-- Test file naming: `functionName.test.ts`, lives in `__tests__/` alongside
-  the code it tests
+
+---
+
+## Standard Claude Code Prompt Structure
+
+Every Claude Code prompt generated in this project must include the
+following block verbatim. There is no task too small to omit it —
+if a task produces a pure function, it needs a test.
+
+```
+## Pre-flight
+1. Confirm you are on a new claude/ branch — do not commit to main
+2. Check layout.tsx uses PlatoShell — fix if not before doing anything else
+
+## Tests (mandatory — same commit, not a follow-up)
+For every new or modified pure function in this task:
+- Write a co-located unit test in __tests__/[functionName].test.ts
+- Use vitest
+- Mock Supabase at the boundary — no real DB calls in tests
+- Cover: happy path, null/empty inputs, edge cases relevant to the logic
+
+If a function genuinely cannot be unit tested (e.g. a React Server
+Component with no extractable logic), name it in the report-back and
+explain why. Skipping without explanation is not acceptable.
+
+## Report back (always include)
+- Files changed (paths)
+- Functions added or modified
+- Test files created and what each test covers
+- Any TypeScript errors encountered and how they were resolved
+- Confirm the Vercel build would pass (no type errors, no lint errors)
+```
 
 ---
 
