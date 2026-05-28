@@ -17,7 +17,11 @@ const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
 type ResourceEmbed = {
   resource_name: string
   resource_location: string | null
-  suppliers: { supplier_name: string; supplier_colour: string | null } | null
+}
+
+type SupplierEmbed = {
+  supplier_name: string
+  supplier_colour: string | null
 }
 
 type RawAllocationRow = {
@@ -29,6 +33,7 @@ type RawAllocationRow = {
   capacity_days: number | string | null
   is_chargeable: boolean
   resources: ResourceEmbed | ResourceEmbed[] | null
+  suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
 
 function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
@@ -132,9 +137,9 @@ export async function getSchedulePageData(
       is_chargeable,
       resources:resource_id!left (
         resource_name,
-        resource_location,
-        suppliers:supplier_id!left ( supplier_name, supplier_colour )
-      )
+        resource_location
+      ),
+      suppliers:supplier_id ( supplier_name, supplier_colour )
     `,
     )
     .eq('period_id', activePeriodId)
@@ -148,7 +153,7 @@ export async function getSchedulePageData(
   )
     .map((row): ScheduleAllocation => {
       const resource = pickEmbed(row.resources)
-      const supplier = pickEmbed(resource?.suppliers)
+      const supplier = pickEmbed(row.suppliers)
       const utilisation = Number(row.utilisation_percent)
       const capacityDays =
         row.capacity_days === null ? null : Number(row.capacity_days)
