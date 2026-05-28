@@ -89,12 +89,35 @@ Cygnus, DST
 - Platform Engineering — T4T — Helios
 - External — T4T — DST
 
-**Schedule data:** Q4 FY 25/26 has ~65 allocations seeded.
+**Schedule data:** Q4 FY 25/26 has ~68 allocations seeded (reconciled
+against the original calculator spreadsheet in May 2026 — see below).
 Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
 
-**Known data issues to resolve:**
+**Q4 FY 25/26 reconciliation status (May 2026):**
+- North Highland: ✅ reconciled — no changes needed
+- Lean Tree: ✅ reconciled — no changes needed
+- Happy Team: ✅ reconciled — Natalia Zalewska added (was missing)
+- Capgemini: ⚠️ partially reconciled — Deepti Borole and Bhulakshmi
+  Gangireddy added (were missing). One further row outstanding:
+  "Non-Factory Service Engineer" (DevOps Senior Consultant, PR, 54 days,
+  £209.48/day) cannot be inserted until the nullable `resource_id`
+  migration is applied (see Schema — Open Decisions).
+- Capgemini — Amol Tate: ⚠️ needs second allocation row. Amol Tate
+  spent part of Q4 offshore (9 days, F_Gov, £204.22/day) before
+  relocating to the UK (45 days, F_Gov, £400.82/day). Only the offshore
+  row exists in the DB. The UK row needs adding as a second allocation
+  against the same resource_id.
+- Capgemini — Dipti Chaudhari: ⚠️ rate requires review. She is a real
+  CG person but was not on the Q4 schedule. Her DB rate (40082p /
+  £400.82) was likely imported from Amol Tate's UK allocation row in
+  error. Correct rate must be confirmed with Capgemini before she
+  appears on any future schedule.
+- RMG: not yet reconciled
 - VAT uplift incorrectly applied to RMG internal resources in the
-  schedule page (inflates recommended rate)
+  schedule page (inflates recommended rate) — parked, low impact,
+  to fix after partner supplier reconciliation is complete
+
+**Known data issues to resolve:**
 - Q1 FY 26/27 schedule not yet populated
 - TCS resources not yet seeded (0 named TCS people)
 - Orion workstream change (OOH → WAA in Q2) requires date-bounded
@@ -176,6 +199,28 @@ verified via Vercel preview/production URLs.
 **Supabase keys** are held as Vercel environment variables. The
 `.env.local` pattern is documented for future local dev but not currently
 in use.
+
+### Supabase MCP Connector (IMPORTANT — read every session)
+
+The **Supabase MCP connector is active and configured** in this Claude
+Project. Claude must use it proactively rather than making assumptions
+about the data or asking Matt to run queries manually.
+
+**Rules:**
+- **Read freely** — Claude may run any SELECT query at any time without
+  asking permission. Use it to verify IDs, inspect schema, diff data
+  against expectations, check RLS policies, and confirm state before
+  proposing changes.
+- **Always ask before writing** — any INSERT, UPDATE, DELETE, DDL
+  (`ALTER`, `CREATE`, `DROP`), or migration must be proposed in full,
+  explained in plain English, and explicitly approved by Matt before
+  Claude executes it. No exceptions.
+- **Use it to validate before assuming** — if something looks wrong on
+  the app or a query returns unexpected results, query the DB first.
+  Don't guess.
+- **Target project ID: `nwltpivvqynkfghazjpi`** — always confirm this
+  before any write operation. The ghost project `fvuutiejqbsnqhtodghs`
+  must never receive writes.
 
 ---
 
@@ -482,6 +527,24 @@ Tailwind preset: `packages/config/tailwind/rmg.preset.ts`
   onwards. The `team_workstreams` table does not currently support
   date-bounded membership — this is a known gap requiring a future
   migration before Q2 is activated.
+
+- **Multi-allocation per resource per period is valid:** A single
+  resource can have more than one `resource_period_allocations` row in
+  the same period. This is intentional and supports scenarios such as a
+  person changing location mid-quarter (e.g. offshore → onshore) which
+  changes their rate, location, and cost profile. Each row is a distinct
+  cost snapshot. The schedule UI must handle and display multiple rows
+  per person correctly.
+
+- **Vacant / TBC schedule slots — approved direction:** Making
+  `resource_id` nullable on `resource_period_allocations` is the
+  approved approach for cost placeholder rows where a role exists in a
+  SoW or PO but the person hasn't been identified yet. Migration not yet
+  applied. When rendered on the schedule, null `resource_id` should
+  display as "TBC" or "Vacant" with a clear visual treatment. Once the
+  person is identified, `resource_id` is populated — the cost line was
+  always present. The schedule page must null-guard `resource_name`
+  before this migration is applied.
 
 ---
 
