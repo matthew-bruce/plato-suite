@@ -173,6 +173,7 @@ export async function getSchedulePageData(
       .from('resource_team_assignments')
       .select('resource_id, teams ( team_name )')
       .in('resource_id', resourceIds)
+      .eq('period_id', activePeriodId)
       .is('deleted_at', null)
 
     if (teamErr) throw new Error(`Failed to load team assignments: ${teamErr.message}`)
