@@ -30,3 +30,5 @@ export type { TabsProps, TabItem, TabsSize } from './Tabs'
 
 export { Icon } from './icons'
 export type { IconName } from './icons'
+
+export * from './PageToolbar'

@@ -57,9 +57,13 @@ export async function getSchedulePageData(
 
   let activePeriodId = periodId
   if (!activePeriodId) {
+    // Default to the most recent non-draft period: active first, else closed.
+    // allPeriodsData is already ordered by period_start_date DESC.
     const active = allPeriodsData?.find((p) => p.period_status === 'active')
+    const closed = allPeriodsData?.find((p) => p.period_status === 'closed')
     activePeriodId =
       (active?.period_id as string | undefined) ??
+      (closed?.period_id as string | undefined) ??
       (allPeriodsData?.[0]?.period_id as string | undefined)
   }
   if (!activePeriodId) return null
