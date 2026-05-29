@@ -43,8 +43,7 @@ const AD_HOC_ITEMS_PENCE = [
 
 const ETP_AND_SS_PENCE = 11_743_400 // £117,434
 
-const SCHEDULE_COLS =
-  'minmax(165px, 1.2fr) minmax(140px, 1fr) 120px 84px 50px 94px 90px 44px 78px 84px 84px'
+const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
 
@@ -65,7 +64,7 @@ export function SchedulePageClient({ data }: Props) {
   const [isPending, startTransition] = useTransition()
 
   const [search, setSearch] = useState('')
-  const [supplierFilter, setSupplierFilter] = useState<string>('all')
+  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [planviewFilter, setPlanviewFilter] = useState<string>('all')
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
@@ -105,13 +104,13 @@ export function SchedulePageClient({ data }: Props) {
         const hay = `${a.resource_name} ${a.role_title ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
-      if (supplierFilter !== 'all' && a.supplier_name !== supplierFilter) return false
+      if (selectedSuppliers.length > 0 && !selectedSuppliers.includes(a.supplier_name ?? '')) return false
       if (planviewFilter !== 'all' && a.planview_code !== planviewFilter) return false
       if (locationFilter !== 'all' && a.resource_location !== locationFilter) return false
       if (teamFilter !== 'all' && !(a.teams ?? []).includes(teamFilter)) return false
       return true
     })
-  }, [allocations, search, supplierFilter, planviewFilter, locationFilter, teamFilter])
+  }, [allocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string | null, Allocation[]>()
@@ -243,12 +242,14 @@ export function SchedulePageClient({ data }: Props) {
         <PageToolbar
           primaryRow={
             <>
-              <PageToolbarSearch
-                value={search}
-                onChange={setSearch}
-                placeholder="Search role or resource…"
-              />
-              <PageToolbarPrimaryActions>
+              <div style={{ maxWidth: '320px', flexShrink: 0 }}>
+                <PageToolbarSearch
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search role or resource…"
+                />
+              </div>
+              <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>
                   {filtered.length} resources
                 </PageToolbarResourceCount>
@@ -263,17 +264,23 @@ export function SchedulePageClient({ data }: Props) {
             <>
               <PageToolbarFilterPill
                 label="All suppliers"
-                active={supplierFilter === 'all'}
+                active={selectedSuppliers.length === 0}
                 colour="--all"
-                onClick={() => setSupplierFilter('all')}
+                onClick={() => setSelectedSuppliers([])}
               />
               {supplierOptions.map((s) => (
                 <PageToolbarFilterPill
                   key={s.name}
                   label={s.name}
-                  active={supplierFilter === s.name}
+                  active={selectedSuppliers.includes(s.name)}
                   colour={s.colour}
-                  onClick={() => setSupplierFilter(s.name)}
+                  onClick={() =>
+                    setSelectedSuppliers((prev) =>
+                      prev.includes(s.name)
+                        ? prev.filter((x) => x !== s.name)
+                        : [...prev, s.name],
+                    )
+                  }
                 />
               ))}
               <PageToolbarDivider />
@@ -959,8 +966,10 @@ function SupplierSection({
             {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
           </span>
         </div>
-        <BandTotal label="Base" value={formatMoney(base)} />
-        <BandTotal label="+VAT" value={formatMoney(vat)} />
+        <div className={styles.bandTotals}>
+          <BandTotal label="Base" value={formatMoney(base)} />
+          <BandTotal label="+VAT" value={formatMoney(vat)} />
+        </div>
       </div>
 
       {expanded &&
@@ -1197,7 +1206,7 @@ function AllocationRow({
       </Cell>
 
       {/* 9 Day Rate */}
-      <Cell align="right">
+      <Cell align="right" dataLabel="Day Rate">
         <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
           {formatMoney(row.day_rate, { decimals: 2 })}
         </span>
@@ -1217,7 +1226,7 @@ function AllocationRow({
       </Cell>
 
       {/* 11 +VAT */}
-      <Cell align="right">
+      <Cell align="right" dataLabel="+VAT">
         <span
           style={{
             fontSize: 13,
@@ -1235,18 +1244,24 @@ function AllocationRow({
 function Cell({
   children,
   align,
+  dataLabel,
 }: {
   children: React.ReactNode
   align?: 'right'
+  dataLabel?: string
 }) {
   return (
     <div
+      data-label={dataLabel}
       style={{
         padding: '9px 8px 9px 0',
         display: 'flex',
         alignItems: 'center',
         justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
         minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
       }}
     >
       {children}
