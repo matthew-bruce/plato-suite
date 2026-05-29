@@ -5,8 +5,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
   ScheduleAllocation,
-  PlanviewCode,
 } from '@plato/schema'
+import {
+  PageToolbar,
+  PageToolbarSearch,
+  PageToolbarFilterPill,
+  PageToolbarDropdown,
+  PageToolbarDivider,
+  PageToolbarExpandButton,
+  PageToolbarResourceCount,
+  PageToolbarPrimaryActions,
+} from '@plato/ui'
 import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
 import {
   formatMoney,
@@ -59,6 +68,7 @@ export function SchedulePageClient({ data }: Props) {
   const [supplierFilter, setSupplierFilter] = useState<string>('all')
   const [planviewFilter, setPlanviewFilter] = useState<string>('all')
   const [locationFilter, setLocationFilter] = useState<string>('all')
+  const [teamFilter, setTeamFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
   const [alertDismissed, setAlertDismissed] = useState(false)
@@ -69,8 +79,22 @@ export function SchedulePageClient({ data }: Props) {
   )
 
   const supplierOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const a of allocations) {
+      if (!map.has(a.supplier_name)) {
+        map.set(a.supplier_name, a.supplier_colour ?? '#8F9495')
+      }
+    }
+    return Array.from(map.entries())
+      .map(([name, colour]) => ({ name, colour }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [allocations])
+
+  const teamOptions = useMemo(() => {
     const set = new Set<string>()
-    allocations.forEach((a) => set.add(a.supplier_name))
+    for (const a of allocations) {
+      for (const t of a.teams ?? []) set.add(t)
+    }
     return Array.from(set).sort()
   }, [allocations])
 
@@ -84,9 +108,10 @@ export function SchedulePageClient({ data }: Props) {
       if (supplierFilter !== 'all' && a.supplier_name !== supplierFilter) return false
       if (planviewFilter !== 'all' && a.planview_code !== planviewFilter) return false
       if (locationFilter !== 'all' && a.resource_location !== locationFilter) return false
+      if (teamFilter !== 'all' && !(a.teams ?? []).includes(teamFilter)) return false
       return true
     })
-  }, [allocations, search, supplierFilter, planviewFilter, locationFilter])
+  }, [allocations, search, supplierFilter, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string, Allocation[]>()
@@ -213,20 +238,80 @@ export function SchedulePageClient({ data }: Props) {
 
       <KpiStrip totals={totals} costConfig={costConfig} />
 
-      <FilterShelf
-        search={search}
-        onSearch={setSearch}
-        supplier={supplierFilter}
-        onSupplier={setSupplierFilter}
-        planview={planviewFilter}
-        onPlanview={setPlanviewFilter}
-        location={locationFilter}
-        onLocation={setLocationFilter}
-        supplierOptions={supplierOptions}
-        resourceCount={filtered.length}
-        allExpanded={allExpanded}
-        onToggleAll={toggleAll}
-      />
+      <div style={{ marginBottom: 14 }}>
+        <PageToolbar
+          primaryRow={
+            <>
+              <PageToolbarSearch
+                value={search}
+                onChange={setSearch}
+                placeholder="Search role or resource…"
+              />
+              <PageToolbarPrimaryActions>
+                <PageToolbarResourceCount>
+                  {filtered.length} resources
+                </PageToolbarResourceCount>
+                <PageToolbarExpandButton
+                  expanded={allExpanded}
+                  onToggle={toggleAll}
+                />
+              </PageToolbarPrimaryActions>
+            </>
+          }
+          filterRow={
+            <>
+              <PageToolbarFilterPill
+                label="All suppliers"
+                active={supplierFilter === 'all'}
+                colour="--all"
+                onClick={() => setSupplierFilter('all')}
+              />
+              {supplierOptions.map((s) => (
+                <PageToolbarFilterPill
+                  key={s.name}
+                  label={s.name}
+                  active={supplierFilter === s.name}
+                  colour={s.colour}
+                  onClick={() => setSupplierFilter(s.name)}
+                />
+              ))}
+              <PageToolbarDivider />
+              <PageToolbarDropdown
+                label="Planview"
+                value={planviewFilter}
+                onChange={setPlanviewFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'PR', label: 'PR' },
+                  { value: 'F_Gov', label: 'F.Gov' },
+                  { value: 'BAU', label: 'BAU' },
+                  { value: 'ETP', label: 'ETP' },
+                ]}
+              />
+              <PageToolbarDropdown
+                label="Location"
+                value={locationFilter}
+                onChange={setLocationFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'onshore', label: 'Onshore' },
+                  { value: 'nearshore', label: 'Nearshore' },
+                  { value: 'offshore', label: 'Offshore' },
+                ]}
+              />
+              <PageToolbarDropdown
+                label="Team"
+                value={teamFilter}
+                onChange={setTeamFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  ...teamOptions.map((t) => ({ value: t, label: t })),
+                ]}
+              />
+            </>
+          }
+        />
+      </div>
 
       <ScheduleTable
         groups={groupedBySupplier}
@@ -629,199 +714,6 @@ function KpiCard({
         }}
       />
     </div>
-  )
-}
-
-/* ── FilterShelf ───────────────────────────────────────────────── */
-
-function FilterShelf({
-  search,
-  onSearch,
-  supplier,
-  onSupplier,
-  planview,
-  onPlanview,
-  location,
-  onLocation,
-  supplierOptions,
-  resourceCount,
-  allExpanded,
-  onToggleAll,
-}: {
-  search: string
-  onSearch: (v: string) => void
-  supplier: string
-  onSupplier: (v: string) => void
-  planview: string
-  onPlanview: (v: string) => void
-  location: string
-  onLocation: (v: string) => void
-  supplierOptions: string[]
-  resourceCount: number
-  allExpanded: boolean
-  onToggleAll: () => void
-}) {
-  return (
-    <div
-      style={{
-        background: '#E8E8E8',
-        border: '1px solid #D4D4D4',
-        borderRadius: 10,
-        padding: '8px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 14,
-        flexWrap: 'wrap',
-      }}
-    >
-      <div
-        style={{
-          background: 'white',
-          border: '1px solid #DCDCDC',
-          borderRadius: 7,
-          padding: '6px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flex: 1,
-          minWidth: 160,
-        }}
-      >
-        <SearchIcon />
-        <input
-          type="text"
-          placeholder="Search role or resource…"
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          style={{
-            flex: 1,
-            border: 'none',
-            outline: 'none',
-            background: 'transparent',
-            fontSize: 13,
-            color: '#2A2A2D',
-            fontFamily: 'var(--rmg-font-body)',
-          }}
-        />
-      </div>
-
-      <FilterControl
-        label="Supplier"
-        value={supplier}
-        onChange={onSupplier}
-        options={[
-          { value: 'all', label: 'All' },
-          ...supplierOptions.map((s) => ({ value: s, label: s })),
-        ]}
-      />
-      <FilterControl
-        label="Planview"
-        value={planview}
-        onChange={onPlanview}
-        options={[
-          { value: 'all', label: 'All' },
-          { value: 'PR', label: 'PR' },
-          { value: 'F_Gov', label: 'F.Gov' },
-          { value: 'BAU', label: 'BAU' },
-          { value: 'ETP', label: 'ETP' },
-        ]}
-      />
-      <FilterControl
-        label="Location"
-        value={location}
-        onChange={onLocation}
-        options={[
-          { value: 'all', label: 'All' },
-          { value: 'onshore', label: 'Onshore' },
-          { value: 'nearshore', label: 'Nearshore' },
-          { value: 'offshore', label: 'Offshore' },
-        ]}
-      />
-
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#666' }}>
-          {resourceCount} resources
-        </span>
-        <button
-          type="button"
-          onClick={onToggleAll}
-          style={{
-            background: 'white',
-            border: '1px solid #DCDCDC',
-            borderRadius: 7,
-            padding: '5px 10px',
-            fontSize: 11,
-            fontWeight: 700,
-            color: '#2A2A2D',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-          }}
-        >
-          <DoubleChevron up={allExpanded} />
-          {allExpanded ? 'Collapse all' : 'Expand all'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function FilterControl({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-}) {
-  return (
-    <label
-      style={{
-        background: 'white',
-        border: '1px solid #DCDCDC',
-        borderRadius: 7,
-        padding: '5px 10px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-      }}
-    >
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.07em',
-          textTransform: 'uppercase',
-          color: '#8F9495',
-        }}
-      >
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          outline: 'none',
-          fontSize: 13,
-          fontWeight: 500,
-          color: '#2A2A2D',
-          fontFamily: 'var(--rmg-font-body)',
-        }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   )
 }
 
@@ -1433,30 +1325,6 @@ function ChevronSmall() {
   )
 }
 
-function DoubleChevron({ up }: { up: boolean }) {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 12 12"
-      aria-hidden
-      style={{ transform: up ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}
-    >
-      <path d="M2 4 L6 7 L10 4" stroke="#2A2A2D" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2 7 L6 10 L10 7" stroke="#2A2A2D" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-      <circle cx="6" cy="6" r="4.2" stroke="#8F9495" strokeWidth="1.5" fill="none" />
-      <path d="M9.2 9.2 L12 12" stroke="#8F9495" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function TickIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
@@ -1494,5 +1362,3 @@ function toTitle(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 }
 
-// Suppress unused — kept exported via @plato/schema for completeness.
-type _Unused = PlanviewCode
