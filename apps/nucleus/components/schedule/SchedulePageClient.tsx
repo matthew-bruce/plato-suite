@@ -81,7 +81,7 @@ export function SchedulePageClient({ data }: Props) {
   const supplierOptions = useMemo(() => {
     const map = new Map<string, string>()
     for (const a of allocations) {
-      if (!map.has(a.supplier_name)) {
+      if (a.supplier_name && !map.has(a.supplier_name)) {
         map.set(a.supplier_name, a.supplier_colour ?? '#8F9495')
       }
     }
@@ -114,7 +114,7 @@ export function SchedulePageClient({ data }: Props) {
   }, [allocations, search, supplierFilter, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
-    const groups = new Map<string, Allocation[]>()
+    const groups = new Map<string | null, Allocation[]>()
     for (const a of filtered) {
       const arr = groups.get(a.supplier_name) ?? []
       arr.push(a)
@@ -126,7 +126,7 @@ export function SchedulePageClient({ data }: Props) {
         colour: rows[0]?.supplier_colour ?? '#8F9495',
         rows: sortAllocations(rows, sort.col, sort.dir),
       }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
   }, [filtered, sort])
 
   const totals = useMemo(() => {
@@ -163,19 +163,20 @@ export function SchedulePageClient({ data }: Props) {
 
   const allExpanded =
     groupedBySupplier.length > 0 &&
-    groupedBySupplier.every((g) => expandedMap[g.name] !== false)
+    groupedBySupplier.every((g) => expandedMap[g.name ?? ''] !== false)
 
-  function toggleSupplier(name: string) {
+  function toggleSupplier(name: string | null) {
+    const key = name ?? ''
     setExpandedMap((prev) => ({
       ...prev,
-      [name]: prev[name] === false ? true : false,
+      [key]: prev[key] === false ? true : false,
     }))
   }
 
   function toggleAll() {
     const next: Record<string, boolean> = {}
     const nextState = !allExpanded
-    for (const g of groupedBySupplier) next[g.name] = nextState
+    for (const g of groupedBySupplier) next[g.name ?? ''] = nextState
     setExpandedMap(next)
   }
 
@@ -728,9 +729,9 @@ function ScheduleTable({
   vatPct,
   isClosed,
 }: {
-  groups: { name: string; colour: string; rows: Allocation[] }[]
+  groups: { name: string | null; colour: string; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
-  onToggle: (name: string) => void
+  onToggle: (name: string | null) => void
   sort: SortState
   onSort: (col: SortableCol) => void
   vatPct: number
@@ -741,7 +742,7 @@ function ScheduleTable({
       <div className={styles.tableInner}>
         <HeaderRow sort={sort} onSort={onSort} isClosed={isClosed} />
         {groups.map((g) => {
-          const expanded = expandedMap[g.name] !== false
+          const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce(
             (s, r) =>
               isIncludedInBaseCost(r.planview_code) ? s + (r.base_total_pence ?? 0) : s,
@@ -754,7 +755,7 @@ function ScheduleTable({
           )
           return (
             <SupplierSection
-              key={g.name}
+              key={g.name ?? '__vacant__'}
               name={g.name}
               colour={g.colour}
               rows={g.rows}
@@ -904,7 +905,7 @@ function SupplierSection({
   vat,
   vatPct,
 }: {
-  name: string
+  name: string | null
   colour: string
   rows: Allocation[]
   expanded: boolean
@@ -952,7 +953,7 @@ function SupplierSection({
               borderRadius: 6,
             }}
           >
-            {name}
+            {name ?? 'Vacant / TBC'}
           </span>
           <span style={{ fontSize: 12, color: '#8F9495' }}>
             {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
