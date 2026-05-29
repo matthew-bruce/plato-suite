@@ -124,7 +124,7 @@ export type SortableCol =
 export type SortDir = 'asc' | 'desc'
 
 interface SortRow {
-  resource_name: string
+  resource_name: string | null
   role_title: string | null
   planview_code: string | null
   resource_location: string | null
