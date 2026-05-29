@@ -35,7 +35,7 @@ const AD_HOC_ITEMS_PENCE = [
 const ETP_AND_SS_PENCE = 11_743_400 // £117,434
 
 const SCHEDULE_COLS =
-  '165px 152px 120px 84px 50px 94px 90px 44px 78px 84px 84px'
+  'minmax(165px, 1.2fr) minmax(140px, 1fr) 120px 84px 50px 94px 90px 44px 78px 84px 84px'
 
 const COL_PADDING = '0 16px 0 12px'
 
@@ -186,13 +186,14 @@ export function SchedulePageClient({ data }: Props) {
   return (
     <div
       style={{
+        background: '#ffffff',
+        minHeight: 'calc(100vh - 40px)',
         padding: '24px 28px',
-        maxWidth: 1600,
-        margin: '0 auto',
         fontFamily: 'var(--rmg-font-body)',
         color: '#2A2A2D',
         opacity: isPending ? 0.6 : 1,
         transition: 'opacity 120ms ease',
+        boxSizing: 'border-box',
       }}
     >
       <PageHeader
@@ -296,33 +297,31 @@ function PageHeader({
           Platform Schedule
         </h1>
 
-        <label
+        <div
           style={{
-            background: 'white',
-            border: '1.5px solid #D5D5D5',
-            borderRadius: 10,
-            padding: '5px 12px',
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#2A2A2D',
+            position: 'relative',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
-            cursor: 'pointer',
           }}
         >
-          <span>{shortQ}</span>
-          <ChevronSmall />
           <select
             value={period.period_id}
             onChange={(e) => onPeriodChange(e.target.value)}
             aria-label="Quarter selector"
             style={{
-              position: 'absolute',
-              opacity: 0,
-              pointerEvents: 'auto',
-              width: 0,
-              height: 0,
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              background: 'white',
+              border: '1.5px solid #D5D5D5',
+              borderRadius: 10,
+              padding: '5px 28px 5px 12px',
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#2A2A2D',
+              fontFamily: 'var(--rmg-font-body)',
+              cursor: 'pointer',
+              lineHeight: 1.4,
             }}
           >
             {allPeriods.map((p) => (
@@ -331,7 +330,21 @@ function PageHeader({
               </option>
             ))}
           </select>
-        </label>
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              right: 10,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#2A2A2D',
+              pointerEvents: 'none',
+              display: 'inline-flex',
+            }}
+          >
+            <ChevronSmall />
+          </span>
+        </div>
 
         <span
           style={{

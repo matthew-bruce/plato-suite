@@ -9,6 +9,7 @@ import {
   getTextColour,
   withAlpha,
   sortAllocations,
+  pickDefaultPeriodId,
 } from '../ui'
 
 describe('formatMoney', () => {
@@ -210,5 +211,42 @@ describe('sortAllocations', () => {
 
   it('handles empty array', () => {
     expect(sortAllocations([], 'resource', 'asc')).toEqual([])
+  })
+})
+
+describe('pickDefaultPeriodId', () => {
+  it('prefers active when present', () => {
+    const out = pickDefaultPeriodId([
+      { period_id: 'p1', period_status: 'draft' },
+      { period_id: 'p2', period_status: 'active' },
+      { period_id: 'p3', period_status: 'closed' },
+    ])
+    expect(out).toBe('p2')
+  })
+  it('falls back to most-recent closed when no active', () => {
+    // Input is start-date-desc; first closed is most recent.
+    const out = pickDefaultPeriodId([
+      { period_id: 'future-draft', period_status: 'draft' },
+      { period_id: 'recent-closed', period_status: 'closed' },
+      { period_id: 'older-closed', period_status: 'closed' },
+    ])
+    expect(out).toBe('recent-closed')
+  })
+  it('returns null on empty list', () => {
+    expect(pickDefaultPeriodId([])).toBeNull()
+  })
+  it('returns null when only draft periods exist', () => {
+    const out = pickDefaultPeriodId([
+      { period_id: 'd1', period_status: 'draft' },
+      { period_id: 'd2', period_status: 'draft' },
+    ])
+    expect(out).toBeNull()
+  })
+  it('ignores draft periods when picking', () => {
+    const out = pickDefaultPeriodId([
+      { period_id: 'draft', period_status: 'draft' },
+      { period_id: 'closed', period_status: 'closed' },
+    ])
+    expect(out).toBe('closed')
   })
 })
