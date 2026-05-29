@@ -17,11 +17,20 @@ const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
 type ResourceEmbed = {
   resource_name: string
   resource_location: string | null
-  suppliers: { supplier_name: string; supplier_colour: string | null } | null
+}
+
+type SupplierEmbed = {
+  supplier_name: string
+  supplier_colour: string | null
+}
+
+type TeamEmbed = {
+  team_name: string
 }
 
 type RawAllocationRow = {
   allocation_id: string
+  resource_id: string | null
   role_title: string | null
   planview_code: string | null
   day_rate: number
@@ -29,6 +38,12 @@ type RawAllocationRow = {
   capacity_days: number | string | null
   is_chargeable: boolean
   resources: ResourceEmbed | ResourceEmbed[] | null
+  suppliers: SupplierEmbed | SupplierEmbed[] | null
+}
+
+type RawTeamAssignmentRow = {
+  resource_id: string
+  teams: TeamEmbed | TeamEmbed[] | null
 }
 
 function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
@@ -57,13 +72,9 @@ export async function getSchedulePageData(
 
   let activePeriodId = periodId
   if (!activePeriodId) {
-    // Default to the most recent non-draft period: active first, else closed.
-    // allPeriodsData is already ordered by period_start_date DESC.
     const active = allPeriodsData?.find((p) => p.period_status === 'active')
-    const closed = allPeriodsData?.find((p) => p.period_status === 'closed')
     activePeriodId =
       (active?.period_id as string | undefined) ??
-      (closed?.period_id as string | undefined) ??
       (allPeriodsData?.[0]?.period_id as string | undefined)
   }
   if (!activePeriodId) return null
@@ -128,17 +139,18 @@ export async function getSchedulePageData(
     .select(
       `
       allocation_id,
+      resource_id,
       role_title,
       planview_code,
       day_rate,
       utilisation_percent,
       capacity_days,
       is_chargeable,
-      resources:resource_id (
+      resources:resource_id!left (
         resource_name,
-        resource_location,
-        suppliers:supplier_id ( supplier_name, supplier_colour )
-      )
+        resource_location
+      ),
+      suppliers:supplier_id ( supplier_name, supplier_colour )
     `,
     )
     .eq('period_id', activePeriodId)
@@ -146,13 +158,43 @@ export async function getSchedulePageData(
 
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
 
+  // Build a resource_id → team_names map from ALL active team assignments.
+  // resource_team_assignments has no direct FK to resource_period_allocations,
+  // so we fetch it in a separate query keyed on resource_id.
+  // No is_primary filter — a resource can appear on two teams; both names
+  // are collected into the array and rendered as separate chips in the UI.
+  const resourceIds = ((allocsData ?? []) as unknown as RawAllocationRow[])
+    .map((r) => r.resource_id)
+    .filter((id): id is string => id !== null)
+
+  const teamMap = new Map<string, string[]>()
+  if (resourceIds.length > 0) {
+    const { data: teamData, error: teamErr } = await supabase
+      .from('resource_team_assignments')
+      .select('resource_id, teams ( team_name )')
+      .in('resource_id', resourceIds)
+      .eq('period_id', activePeriodId)
+      .is('deleted_at', null)
+
+    if (teamErr) throw new Error(`Failed to load team assignments: ${teamErr.message}`)
+
+    for (const r of (teamData ?? []) as unknown as RawTeamAssignmentRow[]) {
+      const team = pickEmbed(r.teams)
+      if (team?.team_name) {
+        const existing = teamMap.get(r.resource_id) ?? []
+        existing.push(team.team_name)
+        teamMap.set(r.resource_id, existing)
+      }
+    }
+  }
+
   const vatPct = costConfig?.vat_uplift_percent ?? 0
   const allocations: ScheduleAllocation[] = (
     (allocsData ?? []) as unknown as RawAllocationRow[]
   )
     .map((row): ScheduleAllocation => {
       const resource = pickEmbed(row.resources)
-      const supplier = pickEmbed(resource?.suppliers)
+      const supplier = pickEmbed(row.suppliers)
       const utilisation = Number(row.utilisation_percent)
       const capacityDays =
         row.capacity_days === null ? null : Number(row.capacity_days)
@@ -164,25 +206,25 @@ export async function getSchedulePageData(
       const vat = isInternal ? base : Math.round(base * (1 + vatPct / 100))
       return {
         allocation_id: row.allocation_id,
-        resource_name: resource?.resource_name ?? '',
+        resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
-        supplier_name: supplier?.supplier_name ?? 'Unknown',
+        supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
-        resource_location: (resource?.resource_location ??
-          'offshore') as ResourceLocation,
+        resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
+        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : [],
         base_total_pence: base,
         vat_total_pence: vat,
       }
     })
     .sort((a, b) => {
-      const s = a.supplier_name.localeCompare(b.supplier_name)
+      const s = (a.supplier_name ?? '').localeCompare(b.supplier_name ?? '')
       if (s !== 0) return s
-      return a.resource_name.localeCompare(b.resource_name)
+      return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 
   return { period, costConfig, allocations, allPeriods }
