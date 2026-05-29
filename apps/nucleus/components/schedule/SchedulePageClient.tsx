@@ -1253,6 +1253,7 @@ function Cell({
   return (
     <div
       data-label={dataLabel}
+      className={styles.cell}
       style={{
         padding: '9px 8px 9px 0',
         display: 'flex',

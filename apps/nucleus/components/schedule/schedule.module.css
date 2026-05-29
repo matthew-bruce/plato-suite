@@ -124,7 +124,7 @@
   .allocationRow > :nth-child(10) { display: none; }                     /* Days, Total — hidden */
 
   /* Data labels for Day Rate and +VAT cells */
-  div[data-label]::before {
+  .cell[data-label]::before {
     content: attr(data-label);
     display: block;
     font-size: 10px;
