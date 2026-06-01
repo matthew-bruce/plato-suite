@@ -40,7 +40,7 @@ export function PageToolbarDropdown({
   const [hovered, setHovered] = useState(false)
   const active = isActiveValue(value)
   const borderColor = active
-    ? 'var(--rmg-color-dark-grey)'
+    ? 'var(--rmg-color-red)'
     : hovered
       ? 'var(--rmg-color-grey-1)'
       : 'var(--rmg-color-grey-2)'
@@ -50,13 +50,13 @@ export function PageToolbarDropdown({
     display: 'inline-flex',
     alignItems: 'center',
     gap: '5px',
-    background: 'var(--rmg-color-surface-white)',
+    background: active ? '#FFF5F5' : 'var(--rmg-color-surface-white)',
     border: `1px solid ${borderColor}`,
     borderRadius: 'var(--rmg-radius-s)',
     padding: '5px 10px',
     cursor: 'pointer',
     fontFamily: 'var(--rmg-font-body)',
-    transition: 'border-color 120ms',
+    transition: 'border-color 120ms, background 120ms',
     boxSizing: 'border-box',
     ...style,
   }
@@ -71,9 +71,9 @@ export function PageToolbarDropdown({
 
   const valueStyle: React.CSSProperties = {
     fontSize: '12px',
-    fontWeight: active ? 600 : 500,
+    fontWeight: active ? 600 : 400,
     color: active
-      ? 'var(--rmg-color-text-heading)'
+      ? 'var(--rmg-color-red)'
       : 'var(--rmg-color-text-body)',
   }
 
