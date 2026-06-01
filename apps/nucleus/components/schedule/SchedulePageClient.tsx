@@ -1032,15 +1032,15 @@ function SupplierSection({
         >
           {days > 0 ? (
             <>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--rmg-color-text-heading)' }}>
-                £{weightedAvgDayRate.toFixed(2)}
-              </span>
-              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginLeft: '3px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px' }}>
                 avg./day
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--rmg-color-text-heading)' }}>
+                £{weightedAvgDayRate.toFixed(2)}
               </span>
             </>
           ) : (
-            <span style={{ fontSize: '12px', color: 'var(--rmg-color-grey-1)' }}>—</span>
+            <span style={{ fontSize: '13px', color: 'var(--rmg-color-grey-1)' }}>—</span>
           )}
         </div>
         <div
