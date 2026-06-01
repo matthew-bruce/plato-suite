@@ -10,6 +10,7 @@ import type {
   CostConfiguration,
   PlanviewCode,
   ResourceLocation,
+  PlatformCostItem,
 } from '../types/schedule'
 
 const WEB_PLATFORM_CODE = 'WEB'
@@ -137,29 +138,39 @@ export async function getSchedulePageData(
     }
   }
 
-  const { data: allocsData, error: allocsErr } = await supabase
-    .from('resource_period_allocations')
-    .select(
-      `
-      allocation_id,
-      resource_id,
-      role_title,
-      planview_code,
-      day_rate,
-      utilisation_percent,
-      capacity_days,
-      is_chargeable,
-      resources:resource_id!left (
-        resource_name,
-        resource_location
-      ),
-      suppliers:supplier_id ( supplier_name, supplier_colour )
-    `,
-    )
-    .eq('period_id', activePeriodId)
-    .is('deleted_at', null)
+  const [allocsResult, costItemsResult] = await Promise.all([
+    supabase
+      .from('resource_period_allocations')
+      .select(
+        `
+        allocation_id,
+        resource_id,
+        role_title,
+        planview_code,
+        day_rate,
+        utilisation_percent,
+        capacity_days,
+        is_chargeable,
+        resources:resource_id!left (
+          resource_name,
+          resource_location
+        ),
+        suppliers:supplier_id ( supplier_name, supplier_colour )
+      `,
+      )
+      .eq('period_id', activePeriodId)
+      .is('deleted_at', null),
+    supabase
+      .from('platform_cost_items')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes')
+      .eq('period_id', activePeriodId)
+      .is('deleted_at', null)
+      .order('sort_order'),
+  ])
 
+  const { data: allocsData, error: allocsErr } = allocsResult
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
+  const { data: costItemsData } = costItemsResult
 
   // Build a resource_id → team_names map from ALL active team assignments.
   // resource_team_assignments has no direct FK to resource_period_allocations,
@@ -234,5 +245,5 @@ export async function getSchedulePageData(
       return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 
-  return { period, costConfig, allocations, allPeriods }
+  return { period, costConfig, allocations, allPeriods, costItems: (costItemsData ?? []) as PlatformCostItem[] }
 }

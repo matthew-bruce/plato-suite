@@ -50,4 +50,14 @@ export interface SchedulePageData {
   costConfig: CostConfiguration | null
   allocations: ScheduleAllocation[]
   allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status'>[]
+  costItems: PlatformCostItem[]
+}
+
+export type PlatformCostItem = {
+  cost_item_id: string
+  label: string
+  amount_pence: number
+  vat_applies: boolean
+  sort_order: number
+  notes: string | null
 }

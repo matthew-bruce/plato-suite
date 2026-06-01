@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
   ScheduleAllocation,
+  PlatformCostItem,
 } from '@plato/schema'
+import { getSupabaseBrowserClient } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -16,6 +18,7 @@ import {
   PageToolbarPrimaryActions,
 } from '@plato/ui'
 import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
+import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
   formatMoney,
@@ -34,13 +37,6 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-// Hard-coded ad-hoc cost items kept for KPI maths (unchanged from previous build).
-const AD_HOC_ITEMS_PENCE = [
-  { name: 'Camel Resources', amount: 6_820_000 },
-  { name: 'SLZ', amount: 4_708_000 },
-  { name: 'Late Timesheets from 24/25', amount: 1_922_000 },
-] as const
-
 const ETP_AND_SS_PENCE = 11_743_400 // £117,434
 
 const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
@@ -57,8 +53,9 @@ interface SortState {
 }
 
 export function SchedulePageClient({ data }: Props) {
-  const { period, costConfig, allocations: rawAllocations, allPeriods } = data
+  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
   const allocations = rawAllocations as Allocation[]
+  const vatPct = costConfig?.vat_uplift_percent ?? 0
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
@@ -72,6 +69,8 @@ export function SchedulePageClient({ data }: Props) {
   const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
   const [alertDismissed, setAlertDismissed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
+  const [editingAdHoc, setEditingAdHoc] = useState(false)
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
     check()
@@ -146,8 +145,11 @@ export function SchedulePageClient({ data }: Props) {
         isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
     )
-    const adHoc = AD_HOC_ITEMS_PENCE.reduce((s, i) => s + i.amount, 0)
-    const totalPlatform = allocsVat + adHoc
+    const adHocVat = localCostItems.reduce(
+      (s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct),
+      0,
+    )
+    const totalPlatform = allocsVat + adHocVat
     const totalPlatformIncEtp = totalPlatform + ETP_AND_SS_PENCE
     const chargeableDays = allocations
       .filter((a) => isChargeableRow(a.planview_code))
@@ -157,7 +159,7 @@ export function SchedulePageClient({ data }: Props) {
     return {
       allocsBase,
       allocsVat,
-      adHoc,
+      adHocVat,
       totalPlatform,
       totalPlatformIncEtp,
       chargeableDays,
@@ -165,7 +167,52 @@ export function SchedulePageClient({ data }: Props) {
       calcRateIncEtp,
       headcount: allocations.length,
     }
-  }, [allocations])
+  }, [allocations, localCostItems, vatPct])
+
+  async function refetchCostItems() {
+    const supabase = getSupabaseBrowserClient()
+    const { data } = await supabase
+      .from('platform_cost_items')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes')
+      .eq('period_id', period.period_id)
+      .is('deleted_at', null)
+      .order('sort_order')
+    if (data) setLocalCostItems(data as PlatformCostItem[])
+  }
+
+  async function handleUpdateCostItem(
+    id: string,
+    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>,
+  ) {
+    setLocalCostItems((prev) => prev.map((item) => item.cost_item_id === id ? { ...item, ...updates } : item))
+    const supabase = getSupabaseBrowserClient()
+    await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+  }
+
+  async function handleDeleteCostItem(id: string) {
+    setLocalCostItems((prev) => prev.filter((item) => item.cost_item_id !== id))
+    const supabase = getSupabaseBrowserClient()
+    await supabase
+      .from('platform_cost_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('cost_item_id', id)
+  }
+
+  async function handleAddCostItem() {
+    const supabase = getSupabaseBrowserClient()
+    const maxSort = localCostItems.length > 0
+      ? Math.max(...localCostItems.map((i) => i.sort_order))
+      : 0
+    await supabase.from('platform_cost_items').insert({
+      period_id: period.period_id,
+      label: 'New item',
+      amount_pence: 0,
+      vat_applies: false,
+      sort_order: maxSort + 1,
+      notes: null,
+    })
+    await refetchCostItems()
+  }
 
   const allExpanded =
     groupedBySupplier.length > 0 &&
@@ -334,9 +381,15 @@ export function SchedulePageClient({ data }: Props) {
         onToggle={toggleSupplier}
         sort={sort}
         onSort={onHeaderClick}
-        vatPct={costConfig?.vat_uplift_percent ?? 0}
+        vatPct={vatPct}
         isClosed={isClosed}
         activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
+        costItems={localCostItems}
+        editingAdHoc={editingAdHoc}
+        onToggleEditAdHoc={() => setEditingAdHoc((v) => !v)}
+        onUpdateCostItem={handleUpdateCostItem}
+        onDeleteCostItem={handleDeleteCostItem}
+        onAddCostItem={handleAddCostItem}
       />
     </div>
   )
@@ -736,6 +789,12 @@ function ScheduleTable({
   vatPct,
   isClosed,
   activeTeamFilter,
+  costItems,
+  editingAdHoc,
+  onToggleEditAdHoc,
+  onUpdateCostItem,
+  onDeleteCostItem,
+  onAddCostItem,
 }: {
   groups: { name: string | null; colour: string; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
@@ -745,6 +804,12 @@ function ScheduleTable({
   vatPct: number
   isClosed: boolean
   activeTeamFilter: string | null
+  costItems: PlatformCostItem[]
+  editingAdHoc: boolean
+  onToggleEditAdHoc: () => void
+  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onDeleteCostItem: (id: string) => Promise<void>
+  onAddCostItem: () => Promise<void>
 }) {
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
@@ -763,6 +828,9 @@ function ScheduleTable({
       return rs + Math.round((r.vat_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
     }, 0)
   }, 0)
+
+  const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
+  const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
 
   return (
     <div className={styles.tableScroller}>
@@ -801,6 +869,16 @@ function ScheduleTable({
             />
           )
         })}
+        <AdHocSection
+          items={costItems}
+          editingAdHoc={editingAdHoc}
+          onToggleEditAdHoc={onToggleEditAdHoc}
+          onUpdate={onUpdateCostItem}
+          onDelete={onDeleteCostItem}
+          onAdd={onAddCostItem}
+          vatPct={vatPct}
+          isClosed={isClosed}
+        />
         <div
           style={{
             display: 'grid',
@@ -817,10 +895,10 @@ function ScheduleTable({
             {footerLabel}
           </div>
           <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase)} />
+            <BandTotal label="Base" value={formatMoney(footerBase + costItemsBase)} />
           </div>
           <div style={{ gridColumn: 11 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat)} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat + costItemsVat)} />
           </div>
         </div>
       </div>
@@ -1086,6 +1164,302 @@ function SupplierSection({
             activeTeamFilter={activeTeamFilter}
           />
         ))}
+    </div>
+  )
+}
+
+/* ── AdHocSection ──────────────────────────────────────────────── */
+
+const ADHOC_COLOUR = '#F3920D'
+
+function AdHocSection({
+  items,
+  editingAdHoc,
+  onToggleEditAdHoc,
+  onUpdate,
+  onDelete,
+  onAdd,
+  vatPct,
+  isClosed,
+}: {
+  items: PlatformCostItem[]
+  editingAdHoc: boolean
+  onToggleEditAdHoc: () => void
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  onAdd: () => Promise<void>
+  vatPct: number
+  isClosed: boolean
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const base = items.reduce((s, item) => s + item.amount_pence, 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
+  return (
+    <div style={{ borderLeft: `4px solid ${ADHOC_COLOUR}` }}>
+      <div
+        className={styles.bandRow}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SCHEDULE_COLS,
+          padding: COL_PADDING,
+          background: 'rgba(243,146,13,0.06)',
+          cursor: 'pointer',
+        }}
+      >
+        <div
+          className={styles.bandLeft}
+          style={{ gridColumn: '1 / span 8' }}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span
+            style={{
+              transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms ease',
+              color: ADHOC_COLOUR,
+              display: 'inline-flex',
+            }}
+            aria-hidden
+          >
+            <ChevronSmall />
+          </span>
+          <span
+            style={{
+              background: ADHOC_COLOUR,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '4px 12px',
+              borderRadius: 6,
+            }}
+          >
+            Ad-hoc Items
+          </span>
+          <span style={{ fontSize: 12, color: '#8F9495' }}>
+            {items.length} {items.length === 1 ? 'item' : 'items'}
+          </span>
+          {!isClosed && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleEditAdHoc() }}
+              style={{
+                marginLeft: 8,
+                background: editingAdHoc ? ADHOC_COLOUR : 'transparent',
+                color: editingAdHoc ? 'white' : ADHOC_COLOUR,
+                border: `1px solid ${ADHOC_COLOUR}`,
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {editingAdHoc ? 'Done' : 'Edit items'}
+            </button>
+          )}
+        </div>
+        <div className={styles.bandMobileRow}>
+          <div
+            style={{
+              gridColumn: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(vat)}
+          </div>
+        </div>
+      </div>
+
+      {expanded && items.map((item) => (
+        <AdHocRow
+          key={item.cost_item_id}
+          item={item}
+          editing={editingAdHoc}
+          vatPct={vatPct}
+          onUpdate={onUpdate}
+          onDelete={onDelete}
+        />
+      ))}
+
+      {expanded && editingAdHoc && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            borderTop: '1px solid #EEEEEE',
+          }}
+        >
+          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+            <button
+              type="button"
+              onClick={onAdd}
+              style={{
+                background: 'transparent',
+                border: `1px dashed ${ADHOC_COLOUR}`,
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: ADHOC_COLOUR,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              + Add item
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdHocRow({
+  item,
+  editing,
+  vatPct,
+  onUpdate,
+  onDelete,
+}: {
+  item: PlatformCostItem
+  editing: boolean
+  vatPct: number
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [labelValue, setLabelValue] = useState(item.label)
+  const [amountValue, setAmountValue] = useState((item.amount_pence / 100).toFixed(2))
+  useEffect(() => setLabelValue(item.label), [item.label])
+  useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
+
+  const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
+
+  if (!editing) {
+    return (
+      <div className={styles.allocationRow} style={{ gridTemplateColumns: SCHEDULE_COLS }}>
+        <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell align="right"><span /></Cell>
+        <Cell align="right"><span /></Cell>
+        <Cell align="right" dataLabel="Base">
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            {formatMoney(item.amount_pence)}
+          </span>
+        </Cell>
+        <Cell align="right" dataLabel="+VAT">
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495' }}>
+            {formatMoney(vatTotal)}
+          </span>
+        </Cell>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: SCHEDULE_COLS,
+        padding: COL_PADDING,
+        borderTop: '1px solid #EEEEEE',
+        background: 'rgba(243,146,13,0.03)',
+      }}
+    >
+      <div style={{ gridColumn: '1 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="text"
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: '6 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+        <input
+          type="number"
+          value={amountValue}
+          step="0.01"
+          min="0"
+          onChange={(e) => setAmountValue(e.target.value)}
+          onBlur={() => {
+            const pence = Math.round(parseFloat(amountValue) * 100)
+            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+          }}
+          style={{
+            width: '80px',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#555', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={item.vat_applies}
+            onChange={(e) => onUpdate(item.cost_item_id, { vat_applies: e.target.checked })}
+          />
+          +VAT
+        </label>
+      </div>
+      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => onDelete(item.cost_item_id)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#DA202A',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'var(--rmg-font-body)',
+            padding: '2px 6px',
+          }}
+        >
+          Remove
+        </button>
+      </div>
     </div>
   )
 }

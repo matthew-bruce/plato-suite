@@ -9,6 +9,7 @@ export type {
   CostConfiguration,
   ScheduleAllocation,
   SchedulePageData,
+  PlatformCostItem,
 } from './types/schedule'
 
 export { getSchedulePageData } from './queries/schedule'
