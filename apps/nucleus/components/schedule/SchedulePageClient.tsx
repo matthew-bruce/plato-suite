@@ -169,6 +169,13 @@ export function SchedulePageClient({ data }: Props) {
     }
   }, [allocations, localCostItems, vatPct])
 
+  const isUnfiltered =
+    search.trim() === '' &&
+    selectedSuppliers.length === 0 &&
+    planviewFilter === 'all' &&
+    locationFilter === 'all' &&
+    teamFilter === 'all'
+
   async function refetchCostItems() {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
@@ -385,6 +392,7 @@ export function SchedulePageClient({ data }: Props) {
         isClosed={isClosed}
         activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
         costItems={localCostItems}
+        isUnfiltered={isUnfiltered}
         editingAdHoc={editingAdHoc}
         onToggleEditAdHoc={() => setEditingAdHoc((v) => !v)}
         onUpdateCostItem={handleUpdateCostItem}
@@ -790,6 +798,7 @@ function ScheduleTable({
   isClosed,
   activeTeamFilter,
   costItems,
+  isUnfiltered,
   editingAdHoc,
   onToggleEditAdHoc,
   onUpdateCostItem,
@@ -805,6 +814,7 @@ function ScheduleTable({
   isClosed: boolean
   activeTeamFilter: string | null
   costItems: PlatformCostItem[]
+  isUnfiltered: boolean
   editingAdHoc: boolean
   onToggleEditAdHoc: () => void
   onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
@@ -869,7 +879,7 @@ function ScheduleTable({
             />
           )
         })}
-        <AdHocSection
+        {isUnfiltered && <AdHocSection
           items={costItems}
           editingAdHoc={editingAdHoc}
           onToggleEditAdHoc={onToggleEditAdHoc}
@@ -878,7 +888,7 @@ function ScheduleTable({
           onAdd={onAddCostItem}
           vatPct={vatPct}
           isClosed={isClosed}
-        />
+        />}
         <div
           style={{
             display: 'grid',
@@ -895,10 +905,10 @@ function ScheduleTable({
             {footerLabel}
           </div>
           <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase + costItemsBase)} />
+            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} />
           </div>
           <div style={{ gridColumn: 11 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat + costItemsVat)} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} />
           </div>
         </div>
       </div>
