@@ -613,15 +613,7 @@ function KpiStrip({
     : formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })
 
   return (
-    <div
-      className={styles.kpiStrip}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: 12,
-        marginBottom: 18,
-      }}
-    >
+    <div className={styles.kpiStrip}>
       <KpiCard
         label="Total Platform Cost"
         value={formatMoney(totals.totalPlatform)}
