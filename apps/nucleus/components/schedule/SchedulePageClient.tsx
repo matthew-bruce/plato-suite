@@ -19,6 +19,7 @@ import {
 } from '@plato/ui'
 import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
+import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
   formatMoney,
@@ -169,7 +170,6 @@ export function SchedulePageClient({ data }: Props) {
     }
   }, [allocations, localCostItems, vatPct])
 
-  console.log('[adhoc-debug]', { search, selectedSuppliers, planviewFilter, locationFilter, teamFilter })
   const isUnfiltered =
     search.trim() === '' &&
     selectedSuppliers.length === 0 &&
@@ -392,6 +392,7 @@ export function SchedulePageClient({ data }: Props) {
         vatPct={vatPct}
         isClosed={isClosed}
         activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
+        searchQuery={search}
         costItems={localCostItems}
         isUnfiltered={isUnfiltered}
         editingAdHoc={editingAdHoc}
@@ -798,6 +799,7 @@ function ScheduleTable({
   vatPct,
   isClosed,
   activeTeamFilter,
+  searchQuery,
   costItems,
   isUnfiltered,
   editingAdHoc,
@@ -813,6 +815,7 @@ function ScheduleTable({
   onSort: (col: SortableCol) => void
   vatPct: number
   isClosed: boolean
+  searchQuery: string
   activeTeamFilter: string | null
   costItems: PlatformCostItem[]
   isUnfiltered: boolean
@@ -877,6 +880,7 @@ function ScheduleTable({
               days={days}
               vatPct={vatPct}
               activeTeamFilter={activeTeamFilter}
+              searchQuery={searchQuery}
             />
           )
         })}
@@ -1051,6 +1055,7 @@ function SupplierSection({
   days,
   vatPct,
   activeTeamFilter,
+  searchQuery,
 }: {
   name: string | null
   colour: string
@@ -1062,6 +1067,7 @@ function SupplierSection({
   days: number
   vatPct: number
   activeTeamFilter: string | null
+  searchQuery: string
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -1173,6 +1179,7 @@ function SupplierSection({
             vatPct={vatPct}
             isRMG={isRMG}
             activeTeamFilter={activeTeamFilter}
+            searchQuery={searchQuery}
           />
         ))}
     </div>
@@ -1517,11 +1524,13 @@ function AllocationRow({
   vatPct,
   isRMG,
   activeTeamFilter,
+  searchQuery,
 }: {
   row: Allocation
   vatPct: number
   isRMG: boolean
   activeTeamFilter: string | null
+  searchQuery: string
 }) {
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
@@ -1567,14 +1576,16 @@ function AllocationRow({
           </span>
         ) : (
           <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-            {row.resource_name}
+            {highlightMatch(row.resource_name!, searchQuery)}
           </span>
         )}
       </Cell>
 
       {/* 2 Role */}
       <Cell>
-        <span style={{ fontSize: 13, color: '#333' }}>{row.role_title ?? '—'}</span>
+        <span style={{ fontSize: 13, color: '#333' }}>
+          {row.role_title ? highlightMatch(row.role_title, searchQuery) : '—'}
+        </span>
       </Cell>
 
       {/* 3 Team */}
