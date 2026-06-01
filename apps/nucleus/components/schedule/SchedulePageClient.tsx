@@ -11,7 +11,6 @@ import {
   PageToolbarSearch,
   PageToolbarFilterPill,
   PageToolbarDropdown,
-  PageToolbarDivider,
   PageToolbarExpandButton,
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
@@ -242,13 +241,46 @@ export function SchedulePageClient({ data }: Props) {
         <PageToolbar
           primaryRow={
             <>
-              <div style={{ maxWidth: '320px', flexShrink: 0 }}>
+              <div style={{ maxWidth: '400px', flexShrink: 0 }}>
                 <PageToolbarSearch
                   value={search}
                   onChange={setSearch}
                   placeholder="Search role or resource…"
                 />
               </div>
+              <div style={{ width: '1px', height: '18px', background: 'var(--rmg-color-grey-2)', flexShrink: 0, margin: '0 4px' }} />
+              <PageToolbarDropdown
+                label="Planview"
+                value={planviewFilter}
+                onChange={setPlanviewFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'PR', label: 'PR' },
+                  { value: 'F_Gov', label: 'F_GOV' },
+                  { value: 'BAU', label: 'BAU' },
+                  { value: 'ETP', label: 'ETP' },
+                ]}
+              />
+              <PageToolbarDropdown
+                label="Location"
+                value={locationFilter}
+                onChange={setLocationFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'onshore', label: 'Onshore' },
+                  { value: 'nearshore', label: 'Nearshore' },
+                  { value: 'offshore', label: 'Offshore' },
+                ]}
+              />
+              <PageToolbarDropdown
+                label="Team"
+                value={teamFilter}
+                onChange={setTeamFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  ...teamOptions.map((t) => ({ value: t, label: t })),
+                ]}
+              />
               <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>
                   {filtered.length} resources
@@ -283,39 +315,6 @@ export function SchedulePageClient({ data }: Props) {
                   }
                 />
               ))}
-              <PageToolbarDivider />
-              <PageToolbarDropdown
-                label="Planview"
-                value={planviewFilter}
-                onChange={setPlanviewFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'PR', label: 'PR' },
-                  { value: 'F_Gov', label: 'F.Gov' },
-                  { value: 'BAU', label: 'BAU' },
-                  { value: 'ETP', label: 'ETP' },
-                ]}
-              />
-              <PageToolbarDropdown
-                label="Location"
-                value={locationFilter}
-                onChange={setLocationFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'onshore', label: 'Onshore' },
-                  { value: 'nearshore', label: 'Nearshore' },
-                  { value: 'offshore', label: 'Offshore' },
-                ]}
-              />
-              <PageToolbarDropdown
-                label="Team"
-                value={teamFilter}
-                onChange={setTeamFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  ...teamOptions.map((t) => ({ value: t, label: t })),
-                ]}
-              />
             </>
           }
         />
@@ -834,7 +833,7 @@ function HeaderRow({
         align="right"
         trailing={isClosed ? LockIcon(11, 0.35) : null}
       />
-      <Th label="Total" col="total" sort={sort} onSort={onSort} align="right" />
+      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
     </div>
   )
@@ -1029,7 +1028,7 @@ function AllocationRow({
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
   const isBAU = plan === 'BAU'
-  const planLabel = plan === 'F_Gov' ? 'F.Gov' : (plan ?? '—')
+  const planLabel = plan === 'F_Gov' ? 'F_GOV' : (plan ?? '—')
   const planStyle = getPlanBadgeStyle(plan)
   const utilColour = getUtilColour(row.utilisation_percent)
   const locColour = getLocationColour(row.resource_location)
@@ -1059,7 +1058,7 @@ function AllocationRow({
       {/* 1 Resource */}
       <Cell>
         {tbc ? (
-          <span style={{ fontStyle: 'italic', color: '#8F9495', fontWeight: 400 }}>
+          <span style={{ fontStyle: 'italic', color: 'var(--rmg-color-grey-1)' }}>
             TBC
           </span>
         ) : (
@@ -1077,7 +1076,9 @@ function AllocationRow({
       {/* 3 Team */}
       <Cell>
         {teams.length === 0 ? (
-          <span style={{ color: '#D5D5D5' }}>—</span>
+          <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>
+            No Team
+          </span>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teams.map((t) => (
