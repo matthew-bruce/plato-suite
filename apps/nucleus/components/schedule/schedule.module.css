@@ -1,4 +1,4 @@
-/* Platform Schedule v5 — responsive rules.
+/* Platform Schedule — responsive rules.
    Layout grid (SCHEDULE_COLS) is declared inline in the client component;
    this module only carries breakpoint-driven adjustments. */
 
@@ -30,6 +30,14 @@
   padding: 10px 0;
 }
 
+.bandTotals {
+  grid-column: 10 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+}
+
 .allocationRow {
   display: grid;
   padding: 0 16px 0 12px;
@@ -40,6 +48,8 @@
   background: #fafafa;
 }
 
+/* ── Tablet 640px–999px ─────────────────────────────────────────── */
+
 @media (max-width: 999px) {
   .tableScroller {
     overflow-x: auto;
@@ -47,12 +57,14 @@
     border-radius: 0;
   }
   .tableInner {
-    min-width: 1045px;
+    min-width: 900px;
   }
   .kpiStrip {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ── Mobile <640px ──────────────────────────────────────────────── */
 
 @media (max-width: 639px) {
   .tableScroller {
@@ -69,7 +81,7 @@
   }
   .bandRow {
     display: block !important;
-    padding: 12px 14px !important;
+    padding: 12px 16px !important;
   }
   .bandLeft {
     grid-column: auto;
@@ -78,28 +90,53 @@
   .bandTotals {
     display: flex;
     gap: 18px;
+    justify-content: flex-start;
     margin-top: 6px;
   }
   .allocationRow {
     display: grid !important;
-    grid-template-columns: 1fr auto !important;
-    gap: 4px 12px;
-    padding: 12px 14px !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: auto auto auto auto auto !important;
+    gap: 6px 12px;
+    padding: 12px 16px !important;
+    background: white !important;
+    border-radius: 8px;
+    border: 1px solid var(--rmg-color-grey-3) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    margin-bottom: 8px;
   }
+  .allocationRow:hover {
+    background: white !important;
+  }
+
   /* Cell index map (1-based): 1 Resource, 2 Role, 3 Team, 4 Util, 5 Plan,
      6 Chargeable, 7 Location, 8 Days, 9 DayRate, 10 Total, 11 VAT */
-  .allocationRow > :nth-child(1) { grid-column: 1; grid-row: 1; }
-  .allocationRow > :nth-child(6) { grid-column: 2; grid-row: 1; text-align: right; }
-  .allocationRow > :nth-child(2) { grid-column: 1 / span 2; grid-row: 2; }
-  .allocationRow > :nth-child(3) { grid-column: 1; grid-row: 3; }
-  .allocationRow > :nth-child(7) { grid-column: 2; grid-row: 3; text-align: right; }
-  .allocationRow > :nth-child(4) { grid-column: 1; grid-row: 4; }
-  .allocationRow > :nth-child(5) { grid-column: 2; grid-row: 4; text-align: right; }
-  .allocationRow > :nth-child(9) { grid-column: 1; grid-row: 5; color: #8F9495; }
-  .allocationRow > :nth-child(11) { grid-column: 2; grid-row: 5; font-weight: 700; text-align: right; }
+  .allocationRow > :nth-child(1)  { grid-column: 1; grid-row: 1; }       /* Resource */
+  .allocationRow > :nth-child(6)  { grid-column: 2; grid-row: 1; justify-content: flex-end; } /* Chargeable */
+  .allocationRow > :nth-child(2)  { grid-column: 1 / span 2; grid-row: 2; } /* Role — full width */
+  .allocationRow > :nth-child(3)  { grid-column: 1; grid-row: 3; }       /* Team */
+  .allocationRow > :nth-child(7)  { grid-column: 2; grid-row: 3; justify-content: flex-end; } /* Location */
+  .allocationRow > :nth-child(4)  { grid-column: 1; grid-row: 4; }       /* Utilisation */
+  .allocationRow > :nth-child(5)  { grid-column: 2; grid-row: 4; justify-content: flex-end; } /* Plan */
+  .allocationRow > :nth-child(9)  { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Day Rate */
+  .allocationRow > :nth-child(11) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
   .allocationRow > :nth-child(8),
-  .allocationRow > :nth-child(10) { display: none; }
+  .allocationRow > :nth-child(10) { display: none; }                     /* Days, Total — hidden */
+
+  /* Data labels for Day Rate and +VAT cells */
+  .cell[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--rmg-color-grey-1);
+    margin-bottom: 2px;
+  }
 }
+
+/* ── Mobile <480px ──────────────────────────────────────────────── */
 
 @media (max-width: 479px) {
   .kpiStrip {
