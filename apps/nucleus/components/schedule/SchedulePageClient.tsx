@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
@@ -71,6 +71,13 @@ export function SchedulePageClient({ data }: Props) {
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
   const [alertDismissed, setAlertDismissed] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   const workingDays = useMemo(
     () => workingDaysBetween(period.period_start_date, period.period_end_date),
@@ -242,7 +249,7 @@ export function SchedulePageClient({ data }: Props) {
         <PageToolbar
           primaryRow={
             <>
-              <div style={{ maxWidth: '400px', flexShrink: 0 }}>
+              <div style={isMobile ? { flex: '1 1 100%' } : { maxWidth: '400px', flexShrink: 0 }}>
                 <PageToolbarSearch
                   value={search}
                   onChange={setSearch}
@@ -1043,35 +1050,37 @@ function SupplierSection({
             <span style={{ fontSize: '13px', color: 'var(--rmg-color-grey-1)' }}>—</span>
           )}
         </div>
-        <div
-          style={{
-            gridColumn: 10,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            padding: '10px 8px 10px 0',
-            fontWeight: 700,
-            fontSize: '13px',
-            color: 'var(--rmg-color-text-heading)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {formatMoney(base)}
-        </div>
-        <div
-          style={{
-            gridColumn: 11,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            padding: '10px 8px 10px 0',
-            fontWeight: 700,
-            fontSize: '13px',
-            color: 'var(--rmg-color-text-heading)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {formatMoney(vat)}
+        <div className={styles.bandMobileRow}>
+          <div
+            style={{
+              gridColumn: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(vat)}
+          </div>
         </div>
       </div>
 
@@ -1342,7 +1351,7 @@ function AllocationRow({
       </Cell>
 
       {/* 10 Base */}
-      <Cell align="right">
+      <Cell align="right" dataLabel="Base">
         <span
           style={{
             fontSize: 13,

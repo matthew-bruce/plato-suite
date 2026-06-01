@@ -16,6 +16,7 @@ const primaryRowWrapper: React.CSSProperties = {
   alignItems: 'center',
   gap: '10px',
   padding: '10px 14px',
+  flexWrap: 'wrap',
 }
 
 const filterRowWrapper: React.CSSProperties = {
