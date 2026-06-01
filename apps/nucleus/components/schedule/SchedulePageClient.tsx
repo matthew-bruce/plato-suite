@@ -169,6 +169,7 @@ export function SchedulePageClient({ data }: Props) {
     }
   }, [allocations, localCostItems, vatPct])
 
+  console.log('[adhoc-debug]', { search, selectedSuppliers, planviewFilter, locationFilter, teamFilter })
   const isUnfiltered =
     search.trim() === '' &&
     selectedSuppliers.length === 0 &&
