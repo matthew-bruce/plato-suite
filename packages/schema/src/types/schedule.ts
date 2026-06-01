@@ -22,6 +22,12 @@ export interface CostConfiguration {
   effective_from: string
 }
 
+export interface TeamAssignment {
+  teamId: string
+  teamName: string
+  capacitySplit: number
+}
+
 export interface ScheduleAllocation {
   allocation_id: string
   resource_name: string | null
@@ -34,7 +40,7 @@ export interface ScheduleAllocation {
   utilisation_percent: number
   capacity_days: number | null
   is_chargeable: boolean
-  teams: string[]
+  teams: TeamAssignment[]
   base_total_pence?: number
   vat_total_pence?: number
 }
