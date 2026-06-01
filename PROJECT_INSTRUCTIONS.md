@@ -168,33 +168,10 @@ should not be used.** It does not override GitHub branch protection rules.
 
 ### The correct workflow
 
-1. Claude Code creates a `claude/` branch, commits, and pushes
-2. Matt merges the branch into `main` via GitHub UI or the following CLI:
-
-```bash
-git checkout main
-git pull origin main
-git merge claude/[branch-name]
-git push origin main
-git branch -d claude/[branch-name]
-git push origin --delete claude/[branch-name]
-```
-
-3. Vercel auto-deploys from `main` after the merge
-
-### End of every Claude Code session
-
-- All work must be committed and pushed to the `claude/` branch before
-  the session ends — never leave uncommitted changes
-- Matt merges to `main` immediately after reviewing the session output
-- The `claude/` branch is deleted after merging — do not let them
-  accumulate
-
-### Branch accumulation warning
-
-If more than 2 unmerged `claude/` branches exist on the remote, stop and
-merge them before starting new work. Stale branches cause merge conflicts
-and confusion.
+1. Claude Code creates a `claude/` branch on the first prompt of a session
+2. **For all subsequent prompts in the same session, reuse that branch** —
+   do not create a new one. Add this line to the top of every follow-up
+   prompt:
 
 ---
 
