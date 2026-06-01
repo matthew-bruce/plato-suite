@@ -1010,9 +1010,35 @@ function SupplierSection({
             {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
           </span>
         </div>
-        <div className={styles.bandTotals}>
-          <BandTotal label="Base" value={formatMoney(base)} />
-          <BandTotal label="+VAT" value={formatMoney(vat)} />
+        <div
+          style={{
+            gridColumn: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '10px 8px 10px 0',
+            fontWeight: 700,
+            fontSize: '13px',
+            color: 'var(--rmg-color-text-heading)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {formatMoney(base)}
+        </div>
+        <div
+          style={{
+            gridColumn: 11,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '10px 8px 10px 0',
+            fontWeight: 700,
+            fontSize: '13px',
+            color: 'var(--rmg-color-red)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {formatMoney(vat)}
         </div>
       </div>
 
@@ -1121,29 +1147,9 @@ function AllocationRow({
             TBC
           </span>
         ) : (
-          <>
-            <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-              {row.resource_name}
-            </span>
-            {isProportional && activeTeamFilter && (
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                borderRadius: '4px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                fontWeight: 700,
-                background: '#FFF3CD',
-                color: '#856404',
-                border: '1px solid #FFD54F',
-                whiteSpace: 'nowrap',
-                marginLeft: '6px',
-                verticalAlign: 'middle',
-              }}>
-                {`${Math.round(split * 100)}% cost`}
-              </span>
-            )}
-          </>
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+            {row.resource_name}
+          </span>
         )}
       </Cell>
 
@@ -1164,17 +1170,24 @@ function AllocationRow({
               <span
                 key={t.teamId}
                 style={{
-                  background: '#EBF6FC',
-                  border: '1px solid rgba(8,146,203,0.18)',
-                  color: '#005F8A',
-                  fontSize: 10,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  borderRadius: '100px',
+                  padding: '2px 10px',
+                  fontSize: '10px',
                   fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: 20,
-                  opacity: activeTeamFilter && t.teamName !== activeTeamFilter ? 0.45 : 1,
+                  background: '#EBF6FC',
+                  color: '#005F8A',
+                  border: '1px solid #B8DFF2',
+                  opacity:
+                    activeTeamFilter &&
+                    activeTeamFilter !== 'All' &&
+                    t.teamName !== activeTeamFilter
+                      ? 0.45
+                      : 1,
                 }}
               >
-                {t.teamName}
+                {t.teamName} · {Math.round(t.capacitySplit * 100)}%
               </span>
             ))}
           </div>
