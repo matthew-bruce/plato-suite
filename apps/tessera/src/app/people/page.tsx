@@ -9,6 +9,11 @@ export type SupplierInfo = {
   supplier_colour: string
 }
 
+type RawTeamAssignmentRow = {
+  resource_id: string
+  teams: { team_name: string } | { team_name: string }[] | null
+}
+
 export type Resource = {
   resource_id: string
   resource_salutation: string | null
@@ -48,7 +53,7 @@ export default async function PeoplePage({
   searchParams: Promise<{ resource?: string }>
 }) {
   const { resource: initialSelectedId = null } = await searchParams
-  const [resourcesRes, suppliersRes] = await Promise.all([
+  const [resourcesRes, suppliersRes, teamAssignmentsRes] = await Promise.all([
     supabase
       .from('resources')
       .select(
@@ -60,6 +65,10 @@ export default async function PeoplePage({
       .from('suppliers')
       .select('supplier_abbreviation, supplier_colour, supplier_name')
       .order('sort_order'),
+    supabase
+      .from('resource_team_assignments')
+      .select('resource_id, teams(team_name)')
+      .is('deleted_at', null),
   ])
 
   if (resourcesRes.error) {
@@ -68,6 +77,15 @@ export default async function PeoplePage({
 
   const resources = (resourcesRes.data ?? []) as Resource[]
   const suppliers = (suppliersRes.data ?? []) as SupplierInfo[]
+
+  const teamsByResource: Record<string, string[]> = {}
+  for (const ta of (teamAssignmentsRes.data ?? []) as RawTeamAssignmentRow[]) {
+    const embed = ta.teams
+    const teamName = Array.isArray(embed) ? embed[0]?.team_name : embed?.team_name
+    if (teamName) {
+      ;(teamsByResource[ta.resource_id] ??= []).push(teamName)
+    }
+  }
 
   // Step 1: get session IDs where each resource is a LEAD
   const { data: leadLinks } = await supabase
@@ -157,6 +175,7 @@ export default async function PeoplePage({
             leadSessionsByResource={Object.fromEntries(sessionMap)}
             suppliers={suppliers}
             initialSelectedId={initialSelectedId}
+            teamsByResource={teamsByResource}
           />
         </div>
       </div>
