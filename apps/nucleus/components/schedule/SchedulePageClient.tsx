@@ -781,6 +781,11 @@ function ScheduleTable({
             const split = getCapacitySplit(r.teams, activeTeamFilter)
             return s + Math.round((r.vat_total_pence ?? 0) * split)
           }, 0)
+          const days = g.rows.reduce((s, r) => {
+            if (!isIncludedInBaseCost(r.planview_code)) return s
+            const split = getCapacitySplit(r.teams, activeTeamFilter)
+            return s + (r.capacity_days ?? 0) * (r.utilisation_percent / 100) * split
+          }, 0)
           return (
             <SupplierSection
               key={g.name ?? '__vacant__'}
@@ -791,6 +796,7 @@ function ScheduleTable({
               onToggle={() => onToggle(g.name)}
               base={base}
               vat={vat}
+              days={days}
               vatPct={vatPct}
               activeTeamFilter={activeTeamFilter}
             />
@@ -811,8 +817,10 @@ function ScheduleTable({
           >
             {footerLabel}
           </div>
-          <div className={styles.bandTotals}>
+          <div style={{ gridColumn: 10 }}>
             <BandTotal label="Base" value={formatMoney(footerBase)} />
+          </div>
+          <div style={{ gridColumn: 11 }}>
             <BandTotal label="+VAT" value={formatMoney(footerVat)} />
           </div>
         </div>
@@ -952,6 +960,7 @@ function SupplierSection({
   onToggle,
   base,
   vat,
+  days,
   vatPct,
   activeTeamFilter,
 }: {
@@ -962,12 +971,14 @@ function SupplierSection({
   onToggle: () => void
   base: number
   vat: number
+  days: number
   vatPct: number
   activeTeamFilter: string | null
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
   const pillTextColour = getTextColour(colour)
+  const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
 
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
@@ -982,7 +993,7 @@ function SupplierSection({
           cursor: 'pointer',
         }}
       >
-        <div className={styles.bandLeft}>
+        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 8' }}>
           <span
             style={{
               transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -1012,6 +1023,28 @@ function SupplierSection({
         </div>
         <div
           style={{
+            gridColumn: 9,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            padding: '10px 8px 10px 0',
+          }}
+        >
+          {days > 0 ? (
+            <>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--rmg-color-text-heading)' }}>
+                £{weightedAvgDayRate.toFixed(2)}
+              </span>
+              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginLeft: '3px' }}>
+                avg./day
+              </span>
+            </>
+          ) : (
+            <span style={{ fontSize: '12px', color: 'var(--rmg-color-grey-1)' }}>—</span>
+          )}
+        </div>
+        <div
+          style={{
             gridColumn: 10,
             display: 'flex',
             alignItems: 'center',
@@ -1034,7 +1067,7 @@ function SupplierSection({
             padding: '10px 8px 10px 0',
             fontWeight: 700,
             fontSize: '13px',
-            color: 'var(--rmg-color-red)',
+            color: 'var(--rmg-color-text-heading)',
             fontVariantNumeric: 'tabular-nums',
           }}
         >
