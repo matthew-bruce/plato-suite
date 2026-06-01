@@ -11,12 +11,12 @@ import {
   PageToolbarSearch,
   PageToolbarFilterPill,
   PageToolbarDropdown,
-  PageToolbarDivider,
   PageToolbarExpandButton,
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
 } from '@plato/ui'
 import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
+import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
   formatMoney,
   getUtilColour,
@@ -43,8 +43,7 @@ const AD_HOC_ITEMS_PENCE = [
 
 const ETP_AND_SS_PENCE = 11_743_400 // £117,434
 
-const SCHEDULE_COLS =
-  'minmax(165px, 1.2fr) minmax(140px, 1fr) 120px 84px 50px 94px 90px 44px 78px 84px 84px'
+const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
 
@@ -65,7 +64,7 @@ export function SchedulePageClient({ data }: Props) {
   const [isPending, startTransition] = useTransition()
 
   const [search, setSearch] = useState('')
-  const [supplierFilter, setSupplierFilter] = useState<string>('all')
+  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [planviewFilter, setPlanviewFilter] = useState<string>('all')
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
@@ -93,7 +92,7 @@ export function SchedulePageClient({ data }: Props) {
   const teamOptions = useMemo(() => {
     const set = new Set<string>()
     for (const a of allocations) {
-      for (const t of a.teams ?? []) set.add(t)
+      for (const t of a.teams ?? []) set.add(t.teamName)
     }
     return Array.from(set).sort()
   }, [allocations])
@@ -105,13 +104,13 @@ export function SchedulePageClient({ data }: Props) {
         const hay = `${a.resource_name} ${a.role_title ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
-      if (supplierFilter !== 'all' && a.supplier_name !== supplierFilter) return false
+      if (selectedSuppliers.length > 0 && !selectedSuppliers.includes(a.supplier_name ?? '')) return false
       if (planviewFilter !== 'all' && a.planview_code !== planviewFilter) return false
       if (locationFilter !== 'all' && a.resource_location !== locationFilter) return false
-      if (teamFilter !== 'all' && !(a.teams ?? []).includes(teamFilter)) return false
+      if (teamFilter !== 'all' && !(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
       return true
     })
-  }, [allocations, search, supplierFilter, planviewFilter, locationFilter, teamFilter])
+  }, [allocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string | null, Allocation[]>()
@@ -243,40 +242,14 @@ export function SchedulePageClient({ data }: Props) {
         <PageToolbar
           primaryRow={
             <>
-              <PageToolbarSearch
-                value={search}
-                onChange={setSearch}
-                placeholder="Search role or resource…"
-              />
-              <PageToolbarPrimaryActions>
-                <PageToolbarResourceCount>
-                  {filtered.length} resources
-                </PageToolbarResourceCount>
-                <PageToolbarExpandButton
-                  expanded={allExpanded}
-                  onToggle={toggleAll}
+              <div style={{ maxWidth: '400px', flexShrink: 0 }}>
+                <PageToolbarSearch
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search role or resource…"
                 />
-              </PageToolbarPrimaryActions>
-            </>
-          }
-          filterRow={
-            <>
-              <PageToolbarFilterPill
-                label="All suppliers"
-                active={supplierFilter === 'all'}
-                colour="--all"
-                onClick={() => setSupplierFilter('all')}
-              />
-              {supplierOptions.map((s) => (
-                <PageToolbarFilterPill
-                  key={s.name}
-                  label={s.name}
-                  active={supplierFilter === s.name}
-                  colour={s.colour}
-                  onClick={() => setSupplierFilter(s.name)}
-                />
-              ))}
-              <PageToolbarDivider />
+              </div>
+              <div style={{ width: '1px', height: '18px', background: 'var(--rmg-color-grey-2)', flexShrink: 0, margin: '0 4px' }} />
               <PageToolbarDropdown
                 label="Planview"
                 value={planviewFilter}
@@ -284,7 +257,7 @@ export function SchedulePageClient({ data }: Props) {
                 options={[
                   { value: 'all', label: 'All' },
                   { value: 'PR', label: 'PR' },
-                  { value: 'F_Gov', label: 'F.Gov' },
+                  { value: 'F_Gov', label: 'F_GOV' },
                   { value: 'BAU', label: 'BAU' },
                   { value: 'ETP', label: 'ETP' },
                 ]}
@@ -309,6 +282,40 @@ export function SchedulePageClient({ data }: Props) {
                   ...teamOptions.map((t) => ({ value: t, label: t })),
                 ]}
               />
+              <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
+                <PageToolbarResourceCount>
+                  {filtered.length} resources
+                </PageToolbarResourceCount>
+                <PageToolbarExpandButton
+                  expanded={allExpanded}
+                  onToggle={toggleAll}
+                />
+              </PageToolbarPrimaryActions>
+            </>
+          }
+          filterRow={
+            <>
+              <PageToolbarFilterPill
+                label="All suppliers"
+                active={selectedSuppliers.length === 0}
+                colour="--all"
+                onClick={() => setSelectedSuppliers([])}
+              />
+              {supplierOptions.map((s) => (
+                <PageToolbarFilterPill
+                  key={s.name}
+                  label={s.name}
+                  active={selectedSuppliers.includes(s.name)}
+                  colour={s.colour}
+                  onClick={() =>
+                    setSelectedSuppliers((prev) =>
+                      prev.includes(s.name)
+                        ? prev.filter((x) => x !== s.name)
+                        : [...prev, s.name],
+                    )
+                  }
+                />
+              ))}
             </>
           }
         />
@@ -322,6 +329,7 @@ export function SchedulePageClient({ data }: Props) {
         onSort={onHeaderClick}
         vatPct={costConfig?.vat_uplift_percent ?? 0}
         isClosed={isClosed}
+        activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
       />
     </div>
   )
@@ -728,6 +736,7 @@ function ScheduleTable({
   onSort,
   vatPct,
   isClosed,
+  activeTeamFilter,
 }: {
   groups: { name: string | null; colour: string; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
@@ -736,23 +745,42 @@ function ScheduleTable({
   onSort: (col: SortableCol) => void
   vatPct: number
   isClosed: boolean
+  activeTeamFilter: string | null
 }) {
+  const footerLabel = activeTeamFilter
+    ? `Filtered totals — ${activeTeamFilter} (proportional)`
+    : 'Filtered totals'
+
+  const footerBase = groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      return rs + Math.round((r.base_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
+    }, 0)
+  }, 0)
+
+  const footerVat = groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      return rs + Math.round((r.vat_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
+    }, 0)
+  }, 0)
+
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
         <HeaderRow sort={sort} onSort={onSort} isClosed={isClosed} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
-          const base = g.rows.reduce(
-            (s, r) =>
-              isIncludedInBaseCost(r.planview_code) ? s + (r.base_total_pence ?? 0) : s,
-            0,
-          )
-          const vat = g.rows.reduce(
-            (s, r) =>
-              isIncludedInBaseCost(r.planview_code) ? s + (r.vat_total_pence ?? 0) : s,
-            0,
-          )
+          const base = g.rows.reduce((s, r) => {
+            if (!isIncludedInBaseCost(r.planview_code)) return s
+            const split = getCapacitySplit(r.teams, activeTeamFilter)
+            return s + Math.round((r.base_total_pence ?? 0) * split)
+          }, 0)
+          const vat = g.rows.reduce((s, r) => {
+            if (!isIncludedInBaseCost(r.planview_code)) return s
+            const split = getCapacitySplit(r.teams, activeTeamFilter)
+            return s + Math.round((r.vat_total_pence ?? 0) * split)
+          }, 0)
           return (
             <SupplierSection
               key={g.name ?? '__vacant__'}
@@ -764,9 +792,30 @@ function ScheduleTable({
               base={base}
               vat={vat}
               vatPct={vatPct}
+              activeTeamFilter={activeTeamFilter}
             />
           )
         })}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            background: '#F5F5F5',
+            borderTop: '2px solid #E0E0E0',
+          }}
+        >
+          <div
+            className={styles.bandLeft}
+            style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
+          >
+            {footerLabel}
+          </div>
+          <div className={styles.bandTotals}>
+            <BandTotal label="Base" value={formatMoney(footerBase)} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat)} />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -827,7 +876,7 @@ function HeaderRow({
         align="right"
         trailing={isClosed ? LockIcon(11, 0.35) : null}
       />
-      <Th label="Total" col="total" sort={sort} onSort={onSort} align="right" />
+      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
     </div>
   )
@@ -904,6 +953,7 @@ function SupplierSection({
   base,
   vat,
   vatPct,
+  activeTeamFilter,
 }: {
   name: string | null
   colour: string
@@ -913,6 +963,7 @@ function SupplierSection({
   base: number
   vat: number
   vatPct: number
+  activeTeamFilter: string | null
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -959,13 +1010,21 @@ function SupplierSection({
             {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
           </span>
         </div>
-        <BandTotal label="Base" value={formatMoney(base)} />
-        <BandTotal label="+VAT" value={formatMoney(vat)} />
+        <div className={styles.bandTotals}>
+          <BandTotal label="Base" value={formatMoney(base)} />
+          <BandTotal label="+VAT" value={formatMoney(vat)} />
+        </div>
       </div>
 
       {expanded &&
         rows.map((r) => (
-          <AllocationRow key={r.allocation_id} row={r} vatPct={vatPct} isRMG={isRMG} />
+          <AllocationRow
+            key={r.allocation_id}
+            row={r}
+            vatPct={vatPct}
+            isRMG={isRMG}
+            activeTeamFilter={activeTeamFilter}
+          />
         ))}
     </div>
   )
@@ -1012,24 +1071,32 @@ function AllocationRow({
   row,
   vatPct,
   isRMG,
+  activeTeamFilter,
 }: {
   row: Allocation
   vatPct: number
   isRMG: boolean
+  activeTeamFilter: string | null
 }) {
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
   const isBAU = plan === 'BAU'
-  const planLabel = plan === 'F_Gov' ? 'F.Gov' : (plan ?? '—')
+  const planLabel = plan === 'F_Gov' ? 'F_GOV' : (plan ?? '—')
   const planStyle = getPlanBadgeStyle(plan)
   const utilColour = getUtilColour(row.utilisation_percent)
   const locColour = getLocationColour(row.resource_location)
   const tbc = !row.resource_name
 
-  const days = row.capacity_days ?? 0
-  const baseValue = row.base_total_pence ?? Math.round(row.day_rate * days * (row.utilisation_percent / 100))
-  const vatValue =
-    row.vat_total_pence ?? (isRMG ? baseValue : Math.round(baseValue * (1 + vatPct / 100)))
+  const rawDays = row.capacity_days ?? 0
+  const rawBase = row.base_total_pence ?? Math.round(row.day_rate * rawDays * (row.utilisation_percent / 100))
+  const rawVat = row.vat_total_pence ?? (isRMG ? rawBase : Math.round(rawBase * (1 + vatPct / 100)))
+
+  const split = getCapacitySplit(row.teams, activeTeamFilter)
+  const isProportional = split < 1.0
+
+  const displayDays = isProportional ? rawDays * split : rawDays
+  const displayBase = isProportional ? Math.round(rawBase * split) : rawBase
+  const displayVat = isProportional ? Math.round(rawVat * split) : rawVat
 
   const rowBg = isFGov
     ? 'rgba(243,146,13,0.035)'
@@ -1050,13 +1117,33 @@ function AllocationRow({
       {/* 1 Resource */}
       <Cell>
         {tbc ? (
-          <span style={{ fontStyle: 'italic', color: '#8F9495', fontWeight: 400 }}>
+          <span style={{ fontStyle: 'italic', color: 'var(--rmg-color-grey-1)' }}>
             TBC
           </span>
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-            {row.resource_name}
-          </span>
+          <>
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+              {row.resource_name}
+            </span>
+            {isProportional && activeTeamFilter && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 700,
+                background: '#FFF3CD',
+                color: '#856404',
+                border: '1px solid #FFD54F',
+                whiteSpace: 'nowrap',
+                marginLeft: '6px',
+                verticalAlign: 'middle',
+              }}>
+                {`${Math.round(split * 100)}% cost`}
+              </span>
+            )}
+          </>
         )}
       </Cell>
 
@@ -1068,12 +1155,14 @@ function AllocationRow({
       {/* 3 Team */}
       <Cell>
         {teams.length === 0 ? (
-          <span style={{ color: '#D5D5D5' }}>—</span>
+          <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>
+            No Team
+          </span>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teams.map((t) => (
               <span
-                key={t}
+                key={t.teamId}
                 style={{
                   background: '#EBF6FC',
                   border: '1px solid rgba(8,146,203,0.18)',
@@ -1082,9 +1171,10 @@ function AllocationRow({
                   fontWeight: 600,
                   padding: '2px 8px',
                   borderRadius: 20,
+                  opacity: activeTeamFilter && t.teamName !== activeTeamFilter ? 0.45 : 1,
                 }}
               >
-                {t}
+                {t.teamName}
               </span>
             ))}
           </div>
@@ -1192,18 +1282,20 @@ function AllocationRow({
         <span
           style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}
         >
-          {row.capacity_days ?? '—'}
+          {isProportional
+            ? displayDays.toFixed(1)
+            : (row.capacity_days ?? '—')}
         </span>
       </Cell>
 
       {/* 9 Day Rate */}
-      <Cell align="right">
+      <Cell align="right" dataLabel="Day Rate">
         <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
           {formatMoney(row.day_rate, { decimals: 2 })}
         </span>
       </Cell>
 
-      {/* 10 Total */}
+      {/* 10 Base */}
       <Cell align="right">
         <span
           style={{
@@ -1212,12 +1304,12 @@ function AllocationRow({
             color: isBAU ? '#8F9495' : '#2A2A2D',
           }}
         >
-          {formatMoney(baseValue)}
+          {formatMoney(displayBase)}
         </span>
       </Cell>
 
       {/* 11 +VAT */}
-      <Cell align="right">
+      <Cell align="right" dataLabel="+VAT">
         <span
           style={{
             fontSize: 13,
@@ -1225,7 +1317,7 @@ function AllocationRow({
             color: isBAU || isRMG ? '#8F9495' : '#2A2A2D',
           }}
         >
-          {formatMoney(vatValue)}
+          {formatMoney(displayVat)}
         </span>
       </Cell>
     </div>
@@ -1235,18 +1327,25 @@ function AllocationRow({
 function Cell({
   children,
   align,
+  dataLabel,
 }: {
   children: React.ReactNode
   align?: 'right'
+  dataLabel?: string
 }) {
   return (
     <div
+      data-label={dataLabel}
+      className={styles.cell}
       style={{
         padding: '9px 8px 9px 0',
         display: 'flex',
         alignItems: 'center',
         justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
         minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
       }}
     >
       {children}

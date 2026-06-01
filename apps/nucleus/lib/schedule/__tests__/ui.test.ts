@@ -134,7 +134,7 @@ describe('sortAllocations', () => {
     utilisation_percent: number
     base_total_pence?: number
     vat_total_pence?: number
-    teams?: string[]
+    teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
   }
   const rows: Row[] = [
     {
@@ -148,7 +148,7 @@ describe('sortAllocations', () => {
       utilisation_percent: 100,
       base_total_pence: 2_500_000,
       vat_total_pence: 2_677_050,
-      teams: ['Alpha'],
+      teams: [{ teamId: 'x', teamName: 'Alpha', capacitySplit: 1.0 }],
     },
     {
       resource_name: 'alice',
@@ -161,7 +161,7 @@ describe('sortAllocations', () => {
       utilisation_percent: 50,
       base_total_pence: 600_000,
       vat_total_pence: 642_492,
-      teams: ['Zulu'],
+      teams: [{ teamId: 'y', teamName: 'Zulu', capacitySplit: 1.0 }],
     },
     {
       resource_name: 'Bob',
@@ -174,7 +174,7 @@ describe('sortAllocations', () => {
       utilisation_percent: 80,
       base_total_pence: 3_072_000,
       vat_total_pence: 3_289_578,
-      teams: ['Mango'],
+      teams: [{ teamId: 'z', teamName: 'Mango', capacitySplit: 1.0 }],
     },
   ]
 

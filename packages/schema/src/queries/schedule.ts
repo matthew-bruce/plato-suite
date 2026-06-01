@@ -5,6 +5,7 @@ import { getSupabaseServerClient } from '../server'
 import type {
   SchedulePageData,
   ScheduleAllocation,
+  TeamAssignment,
   Period,
   CostConfiguration,
   PlanviewCode,
@@ -43,6 +44,8 @@ type RawAllocationRow = {
 
 type RawTeamAssignmentRow = {
   resource_id: string
+  team_id: string
+  capacity_split: number
   teams: TeamEmbed | TeamEmbed[] | null
 }
 
@@ -167,11 +170,11 @@ export async function getSchedulePageData(
     .map((r) => r.resource_id)
     .filter((id): id is string => id !== null)
 
-  const teamMap = new Map<string, string[]>()
+  const teamMap = new Map<string, TeamAssignment[]>()
   if (resourceIds.length > 0) {
     const { data: teamData, error: teamErr } = await supabase
       .from('resource_team_assignments')
-      .select('resource_id, teams ( team_name )')
+      .select('resource_id, team_id, capacity_split, teams ( team_name )')
       .in('resource_id', resourceIds)
       .eq('period_id', activePeriodId)
       .is('deleted_at', null)
@@ -182,7 +185,11 @@ export async function getSchedulePageData(
       const team = pickEmbed(r.teams)
       if (team?.team_name) {
         const existing = teamMap.get(r.resource_id) ?? []
-        existing.push(team.team_name)
+        existing.push({
+          teamId: r.team_id,
+          teamName: team.team_name,
+          capacitySplit: Number(r.capacity_split),
+        })
         teamMap.set(r.resource_id, existing)
       }
     }
@@ -216,7 +223,7 @@ export async function getSchedulePageData(
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
-        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : [],
+        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
         base_total_pence: base,
         vat_total_pence: vat,
       }

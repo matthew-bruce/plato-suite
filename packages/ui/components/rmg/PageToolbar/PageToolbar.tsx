@@ -24,7 +24,7 @@ const filterRowWrapper: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
-  padding: '8px 14px',
+  padding: '10px 20px',
   flexWrap: 'wrap',
 }
 
