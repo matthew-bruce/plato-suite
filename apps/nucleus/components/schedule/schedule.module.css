@@ -38,6 +38,12 @@
   gap: 24px;
 }
 
+/* Pass-through wrapper on desktop: children become direct grid items
+   so inline gridColumn styles on base/vat divs continue to work. */
+.bandMobileRow {
+  display: contents;
+}
+
 .allocationRow {
   display: grid;
   padding: 0 16px 0 12px;
@@ -77,7 +83,7 @@
     display: none;
   }
   .kpiStrip {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
   .bandRow {
     display: block !important;
@@ -87,10 +93,10 @@
     grid-column: auto;
     padding: 0;
   }
-  .bandTotals {
+  /* base + vat show inline below bandLeft */
+  .bandMobileRow {
     display: flex;
-    gap: 18px;
-    justify-content: flex-start;
+    gap: 16px;
     margin-top: 6px;
   }
   .allocationRow {
@@ -110,20 +116,20 @@
   }
 
   /* Cell index map (1-based): 1 Resource, 2 Role, 3 Team, 4 Util, 5 Plan,
-     6 Chargeable, 7 Location, 8 Days, 9 DayRate, 10 Total, 11 VAT */
-  .allocationRow > :nth-child(1)  { grid-column: 1; grid-row: 1; }       /* Resource */
+     6 Chargeable, 7 Location, 8 Days, 9 DayRate, 10 Base, 11 VAT */
+  .allocationRow > :nth-child(1)  { grid-column: 1; grid-row: 1; }                           /* Resource */
   .allocationRow > :nth-child(6)  { grid-column: 2; grid-row: 1; justify-content: flex-end; } /* Chargeable */
-  .allocationRow > :nth-child(2)  { grid-column: 1 / span 2; grid-row: 2; } /* Role — full width */
-  .allocationRow > :nth-child(3)  { grid-column: 1; grid-row: 3; }       /* Team */
+  .allocationRow > :nth-child(2)  { grid-column: 1 / span 2; grid-row: 2; }                  /* Role — full width */
+  .allocationRow > :nth-child(3)  { grid-column: 1; grid-row: 3; }                           /* Team */
   .allocationRow > :nth-child(7)  { grid-column: 2; grid-row: 3; justify-content: flex-end; } /* Location */
-  .allocationRow > :nth-child(4)  { grid-column: 1; grid-row: 4; }       /* Utilisation */
-  .allocationRow > :nth-child(5)  { grid-column: 2; grid-row: 4; justify-content: flex-end; } /* Plan */
-  .allocationRow > :nth-child(9)  { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Day Rate */
+  .allocationRow > :nth-child(5)  { grid-column: 1; grid-row: 4; }                           /* Plan */
+  .allocationRow > :nth-child(8)  { grid-column: 2; grid-row: 4; justify-content: flex-end; white-space: normal; overflow: visible; } /* Days */
+  .allocationRow > :nth-child(10) { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Base */
   .allocationRow > :nth-child(11) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
-  .allocationRow > :nth-child(8),
-  .allocationRow > :nth-child(10) { display: none; }                     /* Days, Total — hidden */
+  .allocationRow > :nth-child(4),
+  .allocationRow > :nth-child(9)  { display: none; }                                         /* Utilisation, Day Rate — hidden */
 
-  /* Data labels for Day Rate and +VAT cells */
+  /* Data labels for Base and +VAT cells */
   .cell[data-label]::before {
     content: attr(data-label);
     display: block;
@@ -133,13 +139,5 @@
     letter-spacing: 0.06em;
     color: var(--rmg-color-grey-1);
     margin-bottom: 2px;
-  }
-}
-
-/* ── Mobile <480px ──────────────────────────────────────────────── */
-
-@media (max-width: 479px) {
-  .kpiStrip {
-    grid-template-columns: 1fr;
   }
 }
