@@ -134,7 +134,7 @@ interface SortRow {
   utilisation_percent: number
   base_total_pence?: number
   vat_total_pence?: number
-  teams?: string[]
+  teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
 }
 
 function compareStrings(a: string, b: string): number {
@@ -156,7 +156,7 @@ export function sortAllocations<T extends SortRow>(
       case 'role':
         return mul * compareStrings(a.role_title ?? '', b.role_title ?? '')
       case 'team':
-        return mul * compareStrings((a.teams?.[0] ?? ''), (b.teams?.[0] ?? ''))
+        return mul * compareStrings((a.teams?.[0]?.teamName ?? ''), (b.teams?.[0]?.teamName ?? ''))
       case 'plan':
         return mul * compareStrings(a.planview_code ?? '', b.planview_code ?? '')
       case 'chargeable':

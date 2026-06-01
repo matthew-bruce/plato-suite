@@ -16,6 +16,7 @@ import {
   PageToolbarPrimaryActions,
 } from '@plato/ui'
 import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
+import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
   formatMoney,
   getUtilColour,
@@ -91,7 +92,7 @@ export function SchedulePageClient({ data }: Props) {
   const teamOptions = useMemo(() => {
     const set = new Set<string>()
     for (const a of allocations) {
-      for (const t of a.teams ?? []) set.add(t)
+      for (const t of a.teams ?? []) set.add(t.teamName)
     }
     return Array.from(set).sort()
   }, [allocations])
@@ -106,7 +107,7 @@ export function SchedulePageClient({ data }: Props) {
       if (selectedSuppliers.length > 0 && !selectedSuppliers.includes(a.supplier_name ?? '')) return false
       if (planviewFilter !== 'all' && a.planview_code !== planviewFilter) return false
       if (locationFilter !== 'all' && a.resource_location !== locationFilter) return false
-      if (teamFilter !== 'all' && !(a.teams ?? []).includes(teamFilter)) return false
+      if (teamFilter !== 'all' && !(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
       return true
     })
   }, [allocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
@@ -328,6 +329,7 @@ export function SchedulePageClient({ data }: Props) {
         onSort={onHeaderClick}
         vatPct={costConfig?.vat_uplift_percent ?? 0}
         isClosed={isClosed}
+        activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
       />
     </div>
   )
@@ -734,6 +736,7 @@ function ScheduleTable({
   onSort,
   vatPct,
   isClosed,
+  activeTeamFilter,
 }: {
   groups: { name: string | null; colour: string; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
@@ -742,23 +745,42 @@ function ScheduleTable({
   onSort: (col: SortableCol) => void
   vatPct: number
   isClosed: boolean
+  activeTeamFilter: string | null
 }) {
+  const footerLabel = activeTeamFilter
+    ? `Filtered totals — ${activeTeamFilter} (proportional)`
+    : 'Filtered totals'
+
+  const footerBase = groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      return rs + Math.round((r.base_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
+    }, 0)
+  }, 0)
+
+  const footerVat = groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      return rs + Math.round((r.vat_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
+    }, 0)
+  }, 0)
+
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
         <HeaderRow sort={sort} onSort={onSort} isClosed={isClosed} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
-          const base = g.rows.reduce(
-            (s, r) =>
-              isIncludedInBaseCost(r.planview_code) ? s + (r.base_total_pence ?? 0) : s,
-            0,
-          )
-          const vat = g.rows.reduce(
-            (s, r) =>
-              isIncludedInBaseCost(r.planview_code) ? s + (r.vat_total_pence ?? 0) : s,
-            0,
-          )
+          const base = g.rows.reduce((s, r) => {
+            if (!isIncludedInBaseCost(r.planview_code)) return s
+            const split = getCapacitySplit(r.teams, activeTeamFilter)
+            return s + Math.round((r.base_total_pence ?? 0) * split)
+          }, 0)
+          const vat = g.rows.reduce((s, r) => {
+            if (!isIncludedInBaseCost(r.planview_code)) return s
+            const split = getCapacitySplit(r.teams, activeTeamFilter)
+            return s + Math.round((r.vat_total_pence ?? 0) * split)
+          }, 0)
           return (
             <SupplierSection
               key={g.name ?? '__vacant__'}
@@ -770,9 +792,30 @@ function ScheduleTable({
               base={base}
               vat={vat}
               vatPct={vatPct}
+              activeTeamFilter={activeTeamFilter}
             />
           )
         })}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            background: '#F5F5F5',
+            borderTop: '2px solid #E0E0E0',
+          }}
+        >
+          <div
+            className={styles.bandLeft}
+            style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
+          >
+            {footerLabel}
+          </div>
+          <div className={styles.bandTotals}>
+            <BandTotal label="Base" value={formatMoney(footerBase)} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat)} />
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -910,6 +953,7 @@ function SupplierSection({
   base,
   vat,
   vatPct,
+  activeTeamFilter,
 }: {
   name: string | null
   colour: string
@@ -919,6 +963,7 @@ function SupplierSection({
   base: number
   vat: number
   vatPct: number
+  activeTeamFilter: string | null
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -973,7 +1018,13 @@ function SupplierSection({
 
       {expanded &&
         rows.map((r) => (
-          <AllocationRow key={r.allocation_id} row={r} vatPct={vatPct} isRMG={isRMG} />
+          <AllocationRow
+            key={r.allocation_id}
+            row={r}
+            vatPct={vatPct}
+            isRMG={isRMG}
+            activeTeamFilter={activeTeamFilter}
+          />
         ))}
     </div>
   )
@@ -1020,10 +1071,12 @@ function AllocationRow({
   row,
   vatPct,
   isRMG,
+  activeTeamFilter,
 }: {
   row: Allocation
   vatPct: number
   isRMG: boolean
+  activeTeamFilter: string | null
 }) {
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
@@ -1034,10 +1087,16 @@ function AllocationRow({
   const locColour = getLocationColour(row.resource_location)
   const tbc = !row.resource_name
 
-  const days = row.capacity_days ?? 0
-  const baseValue = row.base_total_pence ?? Math.round(row.day_rate * days * (row.utilisation_percent / 100))
-  const vatValue =
-    row.vat_total_pence ?? (isRMG ? baseValue : Math.round(baseValue * (1 + vatPct / 100)))
+  const rawDays = row.capacity_days ?? 0
+  const rawBase = row.base_total_pence ?? Math.round(row.day_rate * rawDays * (row.utilisation_percent / 100))
+  const rawVat = row.vat_total_pence ?? (isRMG ? rawBase : Math.round(rawBase * (1 + vatPct / 100)))
+
+  const split = getCapacitySplit(row.teams, activeTeamFilter)
+  const isProportional = split < 1.0
+
+  const displayDays = isProportional ? rawDays * split : rawDays
+  const displayBase = isProportional ? Math.round(rawBase * split) : rawBase
+  const displayVat = isProportional ? Math.round(rawVat * split) : rawVat
 
   const rowBg = isFGov
     ? 'rgba(243,146,13,0.035)'
@@ -1062,9 +1121,29 @@ function AllocationRow({
             TBC
           </span>
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-            {row.resource_name}
-          </span>
+          <>
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+              {row.resource_name}
+            </span>
+            {isProportional && activeTeamFilter && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                borderRadius: '4px',
+                padding: '2px 6px',
+                fontSize: '10px',
+                fontWeight: 700,
+                background: '#FFF3CD',
+                color: '#856404',
+                border: '1px solid #FFD54F',
+                whiteSpace: 'nowrap',
+                marginLeft: '6px',
+                verticalAlign: 'middle',
+              }}>
+                {`${Math.round(split * 100)}% cost`}
+              </span>
+            )}
+          </>
         )}
       </Cell>
 
@@ -1083,7 +1162,7 @@ function AllocationRow({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teams.map((t) => (
               <span
-                key={t}
+                key={t.teamId}
                 style={{
                   background: '#EBF6FC',
                   border: '1px solid rgba(8,146,203,0.18)',
@@ -1092,9 +1171,10 @@ function AllocationRow({
                   fontWeight: 600,
                   padding: '2px 8px',
                   borderRadius: 20,
+                  opacity: activeTeamFilter && t.teamName !== activeTeamFilter ? 0.45 : 1,
                 }}
               >
-                {t}
+                {t.teamName}
               </span>
             ))}
           </div>
@@ -1202,7 +1282,9 @@ function AllocationRow({
         <span
           style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}
         >
-          {row.capacity_days ?? '—'}
+          {isProportional
+            ? displayDays.toFixed(1)
+            : (row.capacity_days ?? '—')}
         </span>
       </Cell>
 
@@ -1213,7 +1295,7 @@ function AllocationRow({
         </span>
       </Cell>
 
-      {/* 10 Total */}
+      {/* 10 Base */}
       <Cell align="right">
         <span
           style={{
@@ -1222,7 +1304,7 @@ function AllocationRow({
             color: isBAU ? '#8F9495' : '#2A2A2D',
           }}
         >
-          {formatMoney(baseValue)}
+          {formatMoney(displayBase)}
         </span>
       </Cell>
 
@@ -1235,7 +1317,7 @@ function AllocationRow({
             color: isBAU || isRMG ? '#8F9495' : '#2A2A2D',
           }}
         >
-          {formatMoney(vatValue)}
+          {formatMoney(displayVat)}
         </span>
       </Cell>
     </div>
