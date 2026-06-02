@@ -31,7 +31,7 @@ import {
   getPlanBadgeStyle,
   getTextColour,
   withAlpha,
-  sortAllocations,
+  sortAllocations as sortByColumn,
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
@@ -146,7 +146,7 @@ export function SchedulePageClient({ data }: Props) {
         colour: rows[0]?.supplier_colour ?? '#8F9495',
         supplierId: rows[0]?.supplier_id ?? null,
         sortOrder: rows[0]?.supplier_sort_order ?? null,
-        rows: sortAllocations(sortRowsWithinBand(rows), sort.col, sort.dir),
+        rows: sortByColumn([...rows].sort(sortAllocations), sort.col, sort.dir),
       }))
       .sort((a, b) => {
         const sa = a.sortOrder ?? Infinity
@@ -746,20 +746,15 @@ function KpiCard({
 
 /* ── Within-band row ordering ──────────────────────────────────── */
 
-const planviewOrder: Record<string, number> = { F_Gov: 0, PR: 1, BAU: 2 }
-const getPlanviewRank = (code: string | null) => planviewOrder[code ?? ''] ?? 99
+const PLANVIEW_RANK: Record<string, number> = { BAU: 0, F_Gov: 1, PR: 2 }
 
-function sortRowsWithinBand(rows: Allocation[]): Allocation[] {
-  return [...rows].sort((a, b) => {
-    const pa = getPlanviewRank(a.planview_code)
-    const pb = getPlanviewRank(b.planview_code)
-    if (pa !== pb) return pa - pb
-    // TBC (no resource_name) floats last within each planview group
-    const ta = a.resource_name ? 0 : 1
-    const tb = b.resource_name ? 0 : 1
-    if (ta !== tb) return ta - tb
-    return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
-  })
+function sortAllocations(a: ScheduleAllocation, b: ScheduleAllocation): number {
+  const rankA = PLANVIEW_RANK[a.planview_code ?? ''] ?? 99
+  const rankB = PLANVIEW_RANK[b.planview_code ?? ''] ?? 99
+  if (rankA !== rankB) return rankA - rankB
+  const nameA = a.resource_name ?? 'ZZZZZ'
+  const nameB = b.resource_name ?? 'ZZZZZ'
+  return nameA.localeCompare(nameB)
 }
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
