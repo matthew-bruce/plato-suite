@@ -282,6 +282,8 @@ export function SchedulePageClient({ data }: Props) {
       .select('allocation_id')
       .single()
     if (inserted?.allocation_id) {
+      const supplierSortOrder =
+        localAllocations.find((a) => a.supplier_id === supplierId)?.supplier_sort_order ?? null
       const newAlloc: Allocation = {
         allocation_id: inserted.allocation_id as string,
         resource_name: null,
@@ -289,6 +291,7 @@ export function SchedulePageClient({ data }: Props) {
         supplier_id: supplierId,
         supplier_name: supplierName,
         supplier_colour: supplierColour,
+        supplier_sort_order: supplierSortOrder,
         resource_location: null,
         planview_code: 'BAU',
         day_rate: 0,
