@@ -139,9 +139,15 @@ export function SchedulePageClient({ data }: Props) {
         name,
         colour: rows[0]?.supplier_colour ?? '#8F9495',
         supplierId: rows[0]?.supplier_id ?? null,
-        rows: sortAllocations(rows, sort.col, sort.dir),
+        sortOrder: rows[0]?.supplier_sort_order ?? null,
+        rows: sortAllocations(sortRowsWithinBand(rows), sort.col, sort.dir),
       }))
-      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Infinity
+        const sb = b.sortOrder ?? Infinity
+        if (sa !== sb) return sa - sb
+        return (a.name ?? '').localeCompare(b.name ?? '')
+      })
   }, [filtered, sort])
 
   const totals = useMemo(() => {
@@ -888,6 +894,28 @@ function KpiCard({
   )
 }
 
+/* ── Within-band row ordering ──────────────────────────────────── */
+
+function bandRowPriority(r: Allocation): number {
+  const role = (r.role_title ?? '').toLowerCase()
+  if (role.includes('platform owner') || role.includes('head of platform')) return 0
+  if (r.planview_code === 'F_Gov') return 1
+  return 2
+}
+
+function sortRowsWithinBand(rows: Allocation[]): Allocation[] {
+  return [...rows].sort((a, b) => {
+    const pa = bandRowPriority(a)
+    const pb = bandRowPriority(b)
+    if (pa !== pb) return pa - pb
+    // TBC (no resource_name) floats last within each priority group
+    const ta = a.resource_name ? 0 : 1
+    const tb = b.resource_name ? 0 : 1
+    if (ta !== tb) return ta - tb
+    return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
+  })
+}
+
 /* ── ScheduleTable ─────────────────────────────────────────────── */
 
 type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable'>>
@@ -1344,7 +1372,8 @@ function SupplierSection({
 
 /* ── AdHocSection ──────────────────────────────────────────────── */
 
-const ADHOC_COLOUR = '#F3920D'
+const ADHOC_COLOUR = '#9CA3AF'
+const ADHOC_PILL_BG = '#6B7280'
 
 function AdHocSection({
   items,
@@ -1370,14 +1399,14 @@ function AdHocSection({
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
 
   return (
-    <div style={{ borderLeft: `4px solid ${ADHOC_COLOUR}` }}>
+    <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
       <div
         className={styles.bandRow}
         style={{
           display: 'grid',
           gridTemplateColumns: SCHEDULE_COLS,
           padding: COL_PADDING,
-          background: 'rgba(243,146,13,0.06)',
+          background: '#F3F4F6',
           cursor: 'pointer',
         }}
       >
@@ -1399,7 +1428,7 @@ function AdHocSection({
           </span>
           <span
             style={{
-              background: ADHOC_COLOUR,
+              background: ADHOC_PILL_BG,
               color: 'white',
               fontSize: 11,
               fontWeight: 700,
@@ -1407,7 +1436,7 @@ function AdHocSection({
               borderRadius: 6,
             }}
           >
-            Ad-hoc Items
+            Ad-hoc Quarterly Expenses
           </span>
           <span style={{ fontSize: 12, color: '#8F9495' }}>
             {items.length} {items.length === 1 ? 'item' : 'items'}
@@ -1675,6 +1704,13 @@ function BandTotal({ label, value }: { label: string; value: string }) {
 
 /* ── AllocationRow ─────────────────────────────────────────────── */
 
+const nullStyle: React.CSSProperties = {
+  color: 'var(--rmg-color-text-subtle, #9CA3AF)',
+  fontStyle: 'italic',
+  fontSize: '13px',
+  fontWeight: 400,
+}
+
 const editInputStyle: React.CSSProperties = {
   width: '100%',
   border: '1px solid #D5D5D5',
@@ -1807,9 +1843,9 @@ function AllocationRow({
         {/* 3 Team — read-only */}
         <Cell>
           {teams.length === 0 ? (
-            <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>No Team</span>
+            <span style={nullStyle}>No Team</span>
           ) : (
-            <span style={{ fontSize: '11px', color: '#555' }}>{teams.map((t) => t.teamName).join(', ')}</span>
+            <span style={{ fontSize: '13px', color: '#555' }}>{teams.map((t) => t.teamName).join(', ')}</span>
           )}
         </Cell>
         {/* 4 Utilisation */}
@@ -1842,19 +1878,21 @@ function AllocationRow({
         </Cell>
         {/* 6 Chargeable — computed */}
         <Cell>
-          <span style={{ fontSize: 11, color: isChargeableRow(plan) ? '#008A00' : '#D5D5D5' }}>
-            {isChargeableRow(plan) ? '✓' : '—'}
-          </span>
+          {isChargeableRow(plan) ? (
+            <span style={{ fontSize: 13, color: '#008A00' }}>✓</span>
+          ) : (
+            <span style={nullStyle}>—</span>
+          )}
         </Cell>
         {/* 7 Location — read-only */}
         <Cell>
           {row.resource_location ? (
-            <span style={{ fontSize: 12, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: locColour, display: 'inline-block', flexShrink: 0 }} />
               {toTitle(row.resource_location)}
             </span>
           ) : (
-            <span style={{ color: '#D5D5D5' }}>—</span>
+            <span style={nullStyle}>—</span>
           )}
         </Cell>
         {/* 8 Days */}
@@ -1920,9 +1958,7 @@ function AllocationRow({
       {/* 1 Resource */}
       <Cell>
         {tbc ? (
-          <span style={{ fontStyle: 'italic', color: 'var(--rmg-color-grey-1)' }}>
-            TBC
-          </span>
+          <span style={nullStyle}>TBC</span>
         ) : (
           <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
             {highlightMatch(row.resource_name!, searchQuery)}
@@ -1932,17 +1968,19 @@ function AllocationRow({
 
       {/* 2 Role */}
       <Cell>
-        <span style={{ fontSize: 13, color: '#333' }}>
-          {row.role_title ? highlightMatch(row.role_title, searchQuery) : '—'}
-        </span>
+        {row.role_title ? (
+          <span style={{ fontSize: 13, color: '#333' }}>
+            {highlightMatch(row.role_title, searchQuery)}
+          </span>
+        ) : (
+          <span style={nullStyle}>—</span>
+        )}
       </Cell>
 
       {/* 3 Team */}
       <Cell>
         {teams.length === 0 ? (
-          <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>
-            No Team
-          </span>
+          <span style={nullStyle}>No Team</span>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teams.map((t) => (
@@ -2037,14 +2075,14 @@ function AllocationRow({
             Chargeable
           </span>
         ) : (
-          <span style={{ fontSize: 11, color: '#D5D5D5' }}>— Not charged</span>
+          <span style={nullStyle}>— Not charged</span>
         )}
       </Cell>
 
       {/* 7 Location */}
       <Cell>
         {tbc || !row.resource_location ? (
-          <span style={{ color: '#D5D5D5' }}>—</span>
+          <span style={nullStyle}>—</span>
         ) : (
           <span
             style={{
@@ -2071,13 +2109,13 @@ function AllocationRow({
 
       {/* 8 Days */}
       <Cell align="right">
-        <span
-          style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}
-        >
-          {isProportional
-            ? displayDays.toFixed(1)
-            : (row.capacity_days ?? '—')}
-        </span>
+        {!isProportional && row.capacity_days === null ? (
+          <span style={nullStyle}>—</span>
+        ) : (
+          <span style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+            {isProportional ? displayDays.toFixed(1) : row.capacity_days}
+          </span>
+        )}
       </Cell>
 
       {/* 9 Day Rate */}
@@ -2093,7 +2131,9 @@ function AllocationRow({
           style={{
             fontSize: 13,
             fontVariantNumeric: 'tabular-nums',
-            color: isBAU ? '#8F9495' : '#2A2A2D',
+            color: displayBase === 0
+              ? 'var(--rmg-color-text-subtle, #9CA3AF)'
+              : 'var(--rmg-color-text-body)',
           }}
         >
           {formatMoney(displayBase)}
@@ -2106,7 +2146,9 @@ function AllocationRow({
           style={{
             fontSize: 13,
             fontVariantNumeric: 'tabular-nums',
-            color: isBAU || !vatApplies ? '#8F9495' : '#2A2A2D',
+            color: displayVat === 0
+              ? 'var(--rmg-color-text-subtle, #9CA3AF)'
+              : 'var(--rmg-color-text-body)',
           }}
         >
           {formatMoney(displayVat)}

@@ -23,6 +23,7 @@ type ResourceEmbed = {
 type SupplierEmbed = {
   supplier_name: string
   supplier_colour: string | null
+  sort_order: number | null
 }
 
 type TeamEmbed = {
@@ -158,7 +159,7 @@ export async function getSchedulePageData(
           resource_name,
           resource_location
         ),
-        suppliers:supplier_id ( supplier_name, supplier_colour )
+        suppliers:supplier_id ( supplier_name, supplier_colour, sort_order )
       `,
       )
       .eq('period_id', activePeriodId)
@@ -232,6 +233,7 @@ export async function getSchedulePageData(
         supplier_id: row.supplier_id,
         supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
+        supplier_sort_order: supplier?.sort_order ?? null,
         resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,

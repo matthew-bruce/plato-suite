@@ -35,6 +35,7 @@ export interface ScheduleAllocation {
   supplier_id: string | null
   supplier_name: string | null
   supplier_colour: string | null
+  supplier_sort_order: number | null
   resource_location: ResourceLocation | null
   planview_code: PlanviewCode | null
   day_rate: number
