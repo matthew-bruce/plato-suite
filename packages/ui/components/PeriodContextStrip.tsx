@@ -68,6 +68,13 @@ const PICKER_IDENTITY_BG: Record<PeriodStatus, string> = {
   draft: '#854F0B',
 }
 
+// Tessera chip pattern for picker rows (light background)
+const PICKER_CHIP_STYLES: Record<PeriodStatus, React.CSSProperties> = {
+  active: { background: '#C1E3C1', color: '#1A6B00' },
+  closed: { background: '#EEEEEE', color: '#8F9495' },
+  draft: { background: '#FDE8C8', color: '#854F0B' },
+}
+
 function Divider() {
   return (
     <div
@@ -484,21 +491,20 @@ export function PeriodContextStrip({
 
             {/* Status badge + checkmark */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <div
+              <span
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  borderRadius: 100,
-                  padding: '4px 10px',
-                  fontSize: 10,
+                  display: 'inline-block',
+                  borderRadius: 4,
+                  padding: '2px 6px',
+                  fontSize: 9,
                   fontWeight: 700,
                   textTransform: 'uppercase' as const,
-                  letterSpacing: '0.07em',
-                  ...STATUS_STYLES[p.status],
+                  letterSpacing: '0.06em',
+                  ...PICKER_CHIP_STYLES[p.status],
                 }}
               >
                 {p.status.charAt(0).toUpperCase() + p.status.slice(1)}
-              </div>
+              </span>
               {isSelected && (
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                   <path

@@ -85,10 +85,10 @@ describe('getLocationColour', () => {
 
 describe('getPlanBadgeStyle', () => {
   it('returns PR style', () => {
-    expect(getPlanBadgeStyle('PR')).toEqual({ background: '#DBEAFE', color: '#1D40B0' })
+    expect(getPlanBadgeStyle('PR')).toEqual({ background: '#BEE0F5', color: '#005F8A' })
   })
   it('returns F_Gov style', () => {
-    expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#FEF3C7', color: '#92400E' })
+    expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
   it('falls back for null', () => {
     expect(getPlanBadgeStyle(null).color).toBeTruthy()

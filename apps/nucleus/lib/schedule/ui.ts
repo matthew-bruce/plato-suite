@@ -43,15 +43,15 @@ export interface BadgeStyle {
 export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
   switch (code) {
     case 'PR':
-      return { background: '#DBEAFE', color: '#1D40B0' }
+      return { background: '#BEE0F5', color: '#005F8A' }
     case 'F_Gov':
-      return { background: '#FEF3C7', color: '#92400E' }
+      return { background: '#EEEEEE', color: '#8F9495' }
     case 'BAU':
-      return { background: '#F1F5F9', color: '#475569' }
+      return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
-      return { background: '#F3E8FF', color: '#6821AB' }
+      return { background: '#BEE0F5', color: '#005F8A' }
     default:
-      return { background: '#F1F5F9', color: '#475569' }
+      return { background: '#EEEEEE', color: '#8F9495' }
   }
 }
 

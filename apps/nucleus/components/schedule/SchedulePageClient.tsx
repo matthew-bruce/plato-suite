@@ -1737,11 +1737,21 @@ function AllocationRow({
         </Cell>
         {/* 6 Chargeable — computed */}
         <Cell>
-          {isChargeableRow(plan) ? (
-            <span style={{ fontSize: 13, color: '#008A00' }}>✓</span>
-          ) : (
-            <span style={nullStyle}>—</span>
-          )}
+          <span
+            style={{
+              display: 'inline-block',
+              background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
+              color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+              borderRadius: 4,
+              padding: '2px 6px',
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+          </span>
         </Cell>
         {/* 7 Location — read-only */}
         <Cell>
@@ -1910,7 +1920,7 @@ function AllocationRow({
             fontSize: 9,
             fontWeight: 700,
             textTransform: 'uppercase',
-            letterSpacing: '0.04em',
+            letterSpacing: '0.06em',
           }}
         >
           {planLabel}
@@ -1919,23 +1929,21 @@ function AllocationRow({
 
       {/* 6 Chargeable */}
       <Cell>
-        {isChargeableRow(plan) ? (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#008A00',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <TickIcon />
-            Chargeable
-          </span>
-        ) : (
-          <span style={nullStyle}>— Not charged</span>
-        )}
+        <span
+          style={{
+            display: 'inline-block',
+            background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
+            color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+            borderRadius: 4,
+            padding: '2px 6px',
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
+        >
+          {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+        </span>
       </Cell>
 
       {/* 7 Location */}
@@ -2114,14 +2122,6 @@ function ChevronSmall() {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
       <path d="M2 3 L5 7 L8 3" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function TickIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-      <path d="M2 6.5 L4.8 9 L10 3.5" stroke="#008A00" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
