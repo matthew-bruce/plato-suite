@@ -55,7 +55,6 @@ interface SortState {
 
 export function SchedulePageClient({ data }: Props) {
   const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
-  const allocations = rawAllocations as Allocation[]
   const vatPct = costConfig?.vat_uplift_percent ?? 0
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -72,6 +71,13 @@ export function SchedulePageClient({ data }: Props) {
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
+  const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
+  const [editingSchedule, setEditingSchedule] = useState(false)
+  useEffect(() => {
+    setLocalAllocations(rawAllocations as Allocation[])
+    setEditingSchedule(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period.period_id])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
     check()
@@ -86,7 +92,7 @@ export function SchedulePageClient({ data }: Props) {
 
   const supplierOptions = useMemo(() => {
     const map = new Map<string, string>()
-    for (const a of allocations) {
+    for (const a of localAllocations) {
       if (a.supplier_name && !map.has(a.supplier_name)) {
         map.set(a.supplier_name, a.supplier_colour ?? '#8F9495')
       }
@@ -94,19 +100,19 @@ export function SchedulePageClient({ data }: Props) {
     return Array.from(map.entries())
       .map(([name, colour]) => ({ name, colour }))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [allocations])
+  }, [localAllocations])
 
   const teamOptions = useMemo(() => {
     const set = new Set<string>()
-    for (const a of allocations) {
+    for (const a of localAllocations) {
       for (const t of a.teams ?? []) set.add(t.teamName)
     }
     return Array.from(set).sort()
-  }, [allocations])
+  }, [localAllocations])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return allocations.filter((a) => {
+    return localAllocations.filter((a) => {
       if (q) {
         const hay = `${a.resource_name} ${a.role_title ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
@@ -117,7 +123,7 @@ export function SchedulePageClient({ data }: Props) {
       if (teamFilter !== 'all' && !(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
       return true
     })
-  }, [allocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
+  }, [localAllocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string | null, Allocation[]>()
@@ -130,18 +136,19 @@ export function SchedulePageClient({ data }: Props) {
       .map(([name, rows]) => ({
         name,
         colour: rows[0]?.supplier_colour ?? '#8F9495',
+        supplierId: rows[0]?.supplier_id ?? null,
         rows: sortAllocations(rows, sort.col, sort.dir),
       }))
       .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
   }, [filtered, sort])
 
   const totals = useMemo(() => {
-    const allocsBase = allocations.reduce(
+    const allocsBase = localAllocations.reduce(
       (sum, a) =>
         isIncludedInBaseCost(a.planview_code) ? sum + (a.base_total_pence ?? 0) : sum,
       0,
     )
-    const allocsVat = allocations.reduce(
+    const allocsVat = localAllocations.reduce(
       (sum, a) =>
         isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
@@ -152,7 +159,7 @@ export function SchedulePageClient({ data }: Props) {
     )
     const totalPlatform = allocsVat + adHocVat
     const totalPlatformIncEtp = totalPlatform + ETP_AND_SS_PENCE
-    const chargeableDays = allocations
+    const chargeableDays = localAllocations
       .filter((a) => isChargeableRow(a.planview_code))
       .reduce((s, a) => s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100), 0)
     const calcRatePence = chargeableDays > 0 ? totalPlatform / chargeableDays : 0
@@ -166,9 +173,9 @@ export function SchedulePageClient({ data }: Props) {
       chargeableDays,
       calcRatePence,
       calcRateIncEtp,
-      headcount: allocations.length,
+      headcount: localAllocations.length,
     }
-  }, [allocations, localCostItems, vatPct])
+  }, [localAllocations, localCostItems, vatPct])
 
   const isUnfiltered =
     search.trim() === '' &&
@@ -220,6 +227,73 @@ export function SchedulePageClient({ data }: Props) {
       notes: null,
     })
     await refetchCostItems()
+  }
+
+  async function handleUpdateAllocation(id: string, updates: AllocationUpdates) {
+    setLocalAllocations((prev) => prev.map((a) => {
+      if (a.allocation_id !== id) return a
+      const next = { ...a, ...updates }
+      const days = next.capacity_days ?? 0
+      const base = Math.round(next.day_rate * days * (next.utilisation_percent / 100))
+      const vatApplies = next.vat_applies !== false
+      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
+      return { ...next, base_total_pence: base, vat_total_pence: vat }
+    }))
+    const supabase = getSupabaseBrowserClient()
+    await supabase.from('resource_period_allocations').update(updates).eq('allocation_id', id)
+  }
+
+  async function handleDeleteAllocation(id: string) {
+    setLocalAllocations((prev) => prev.filter((a) => a.allocation_id !== id))
+    const supabase = getSupabaseBrowserClient()
+    await supabase
+      .from('resource_period_allocations')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('allocation_id', id)
+  }
+
+  async function handleAddAllocation(
+    supplierId: string | null,
+    supplierName: string | null,
+    supplierColour: string,
+  ) {
+    const supabase = getSupabaseBrowserClient()
+    const { data: inserted } = await supabase
+      .from('resource_period_allocations')
+      .insert({
+        period_id: period.period_id,
+        supplier_id: supplierId,
+        role_title: null,
+        planview_code: 'BAU',
+        day_rate: 0,
+        utilisation_percent: 100,
+        capacity_days: 0,
+        is_chargeable: false,
+        vat_applies: true,
+      })
+      .select('allocation_id')
+      .single()
+    if (inserted?.allocation_id) {
+      const newAlloc: Allocation = {
+        allocation_id: inserted.allocation_id as string,
+        resource_name: null,
+        role_title: null,
+        supplier_id: supplierId,
+        supplier_name: supplierName,
+        supplier_colour: supplierColour,
+        resource_location: null,
+        planview_code: 'BAU',
+        day_rate: 0,
+        utilisation_percent: 100,
+        capacity_days: 0,
+        is_chargeable: false,
+        vat_applies: true,
+        teams: [],
+        base_total_pence: 0,
+        vat_total_pence: 0,
+      }
+      setLocalAllocations((prev) => [...prev, newAlloc])
+    }
   }
 
   const allExpanded =
@@ -352,6 +426,26 @@ export function SchedulePageClient({ data }: Props) {
                   expanded={allExpanded}
                   onToggle={toggleAll}
                 />
+                {!isClosed && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingSchedule((v) => !v)}
+                    style={{
+                      border: editingSchedule ? '1.5px solid var(--rmg-color-red)' : '1.5px solid var(--rmg-color-grey-2)',
+                      borderRadius: 'var(--rmg-radius-s)',
+                      background: editingSchedule ? '#FFF5F5' : 'var(--rmg-color-surface-white)',
+                      color: editingSchedule ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 12,
+                      fontWeight: editingSchedule ? 600 : 400,
+                      padding: '5px 10px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {editingSchedule ? 'Done editing' : 'Edit schedule'}
+                  </button>
+                )}
               </PageToolbarPrimaryActions>
             </>
           }
@@ -400,6 +494,10 @@ export function SchedulePageClient({ data }: Props) {
         onUpdateCostItem={handleUpdateCostItem}
         onDeleteCostItem={handleDeleteCostItem}
         onAddCostItem={handleAddCostItem}
+        editingSchedule={editingSchedule}
+        onUpdateAllocation={handleUpdateAllocation}
+        onDeleteAllocation={handleDeleteAllocation}
+        onAddAllocation={handleAddAllocation}
       />
     </div>
   )
@@ -790,6 +888,8 @@ function KpiCard({
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
 
+type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable'>>
+
 function ScheduleTable({
   groups,
   expandedMap,
@@ -807,8 +907,12 @@ function ScheduleTable({
   onUpdateCostItem,
   onDeleteCostItem,
   onAddCostItem,
+  editingSchedule,
+  onUpdateAllocation,
+  onDeleteAllocation,
+  onAddAllocation,
 }: {
-  groups: { name: string | null; colour: string; rows: Allocation[] }[]
+  groups: { name: string | null; colour: string; supplierId: string | null; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
   onToggle: (name: string | null) => void
   sort: SortState
@@ -824,6 +928,10 @@ function ScheduleTable({
   onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
   onDeleteCostItem: (id: string) => Promise<void>
   onAddCostItem: () => Promise<void>
+  editingSchedule: boolean
+  onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDeleteAllocation: (id: string) => Promise<void>
+  onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
 }) {
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
@@ -872,6 +980,7 @@ function ScheduleTable({
               key={g.name ?? '__vacant__'}
               name={g.name}
               colour={g.colour}
+              supplierId={g.supplierId}
               rows={g.rows}
               expanded={expanded}
               onToggle={() => onToggle(g.name)}
@@ -881,6 +990,10 @@ function ScheduleTable({
               vatPct={vatPct}
               activeTeamFilter={activeTeamFilter}
               searchQuery={searchQuery}
+              editingSchedule={editingSchedule}
+              onUpdateAllocation={onUpdateAllocation}
+              onDeleteAllocation={onDeleteAllocation}
+              onAddAllocation={onAddAllocation}
             />
           )
         })}
@@ -1047,6 +1160,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir | null }) {
 function SupplierSection({
   name,
   colour,
+  supplierId,
   rows,
   expanded,
   onToggle,
@@ -1056,9 +1170,14 @@ function SupplierSection({
   vatPct,
   activeTeamFilter,
   searchQuery,
+  editingSchedule,
+  onUpdateAllocation,
+  onDeleteAllocation,
+  onAddAllocation,
 }: {
   name: string | null
   colour: string
+  supplierId: string | null
   rows: Allocation[]
   expanded: boolean
   onToggle: () => void
@@ -1068,6 +1187,10 @@ function SupplierSection({
   vatPct: number
   activeTeamFilter: string | null
   searchQuery: string
+  editingSchedule: boolean
+  onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDeleteAllocation: (id: string) => Promise<void>
+  onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -1177,11 +1300,42 @@ function SupplierSection({
             key={r.allocation_id}
             row={r}
             vatPct={vatPct}
-            isRMG={isRMG}
             activeTeamFilter={activeTeamFilter}
             searchQuery={searchQuery}
+            editingSchedule={editingSchedule}
+            onUpdate={onUpdateAllocation}
+            onDelete={onDeleteAllocation}
           />
         ))}
+      {expanded && editingSchedule && (
+        <div
+          style={{
+            padding: '8px 12px',
+            borderTop: '1px dashed #E0E0E0',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onAddAllocation(supplierId, name, colour)}
+            style={{
+              background: 'transparent',
+              border: '1px dashed #C0C0C0',
+              borderRadius: 6,
+              color: '#8F9495',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              cursor: 'pointer',
+              padding: '4px 12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+            Add resource
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -1519,19 +1673,44 @@ function BandTotal({ label, value }: { label: string; value: string }) {
 
 /* ── AllocationRow ─────────────────────────────────────────────── */
 
+const editInputStyle: React.CSSProperties = {
+  width: '100%',
+  border: '1px solid #D5D5D5',
+  borderRadius: 4,
+  padding: '3px 6px',
+  fontSize: 12,
+  fontFamily: 'var(--rmg-font-body)',
+  color: '#2A2A2D',
+  background: '#fff',
+}
+
 function AllocationRow({
   row,
   vatPct,
-  isRMG,
   activeTeamFilter,
   searchQuery,
+  editingSchedule,
+  onUpdate,
+  onDelete,
 }: {
   row: Allocation
   vatPct: number
-  isRMG: boolean
   activeTeamFilter: string | null
   searchQuery: string
+  editingSchedule: boolean
+  onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDelete: (id: string) => Promise<void>
 }) {
+  const [pendingDelete, setPendingDelete] = useState(false)
+  const [roleValue, setRoleValue] = useState(row.role_title ?? '')
+  const [dayRateValue, setDayRateValue] = useState(String(row.day_rate / 100))
+  const [daysValue, setDaysValue] = useState(String(row.capacity_days ?? 0))
+  const [utilValue, setUtilValue] = useState(String(row.utilisation_percent))
+  useEffect(() => { setRoleValue(row.role_title ?? '') }, [row.role_title])
+  useEffect(() => { setDayRateValue(String(row.day_rate / 100)) }, [row.day_rate])
+  useEffect(() => { setDaysValue(String(row.capacity_days ?? 0)) }, [row.capacity_days])
+  useEffect(() => { setUtilValue(String(row.utilisation_percent)) }, [row.utilisation_percent])
+
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
   const isBAU = plan === 'BAU'
@@ -1543,7 +1722,8 @@ function AllocationRow({
 
   const rawDays = row.capacity_days ?? 0
   const rawBase = row.base_total_pence ?? Math.round(row.day_rate * rawDays * (row.utilisation_percent / 100))
-  const rawVat = row.vat_total_pence ?? (isRMG ? rawBase : Math.round(rawBase * (1 + vatPct / 100)))
+  const vatApplies = row.vat_applies !== false
+  const rawVat = row.vat_total_pence ?? (vatApplies ? Math.round(rawBase * (1 + vatPct / 100)) : rawBase)
 
   const split = getCapacitySplit(row.teams, activeTeamFilter)
   const isProportional = split < 1.0
@@ -1559,6 +1739,173 @@ function AllocationRow({
       : 'transparent'
 
   const teams = row.teams ?? []
+
+  if (editingSchedule && pendingDelete) {
+    return (
+      <div
+        className={styles.allocationRow}
+        style={{ gridTemplateColumns: SCHEDULE_COLS, background: '#FFF5F5' }}
+      >
+        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
+          <span style={{ fontSize: 13, color: '#DA202A', fontWeight: 500 }}>
+            Delete {row.resource_name ?? row.role_title ?? 'this resource'}?
+          </span>
+          <button
+            type="button"
+            onClick={() => onDelete(row.allocation_id)}
+            style={{ background: '#DA202A', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)' }}
+          >
+            Yes, delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingDelete(false)}
+            style={{ background: 'transparent', color: '#555', border: '1px solid #D5D5D5', borderRadius: 4, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (editingSchedule) {
+    return (
+      <div
+        className={styles.allocationRow}
+        style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
+      >
+        {/* 1 Resource + delete */}
+        <Cell>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: tbc ? 'var(--rmg-color-grey-1)' : '#2A2A2D', fontStyle: tbc ? 'italic' : 'normal', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tbc ? 'TBC' : row.resource_name}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(true)}
+              title="Delete row"
+              style={{ background: 'transparent', border: 'none', color: '#DA202A', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
+            >
+              ✕
+            </button>
+          </div>
+        </Cell>
+        {/* 2 Role */}
+        <Cell>
+          <input
+            type="text"
+            value={roleValue}
+            onChange={(e) => setRoleValue(e.target.value)}
+            onBlur={() => { if (roleValue !== (row.role_title ?? '')) onUpdate(row.allocation_id, { role_title: roleValue || null }) }}
+            placeholder="Role title"
+            style={editInputStyle}
+          />
+        </Cell>
+        {/* 3 Team — read-only */}
+        <Cell>
+          {teams.length === 0 ? (
+            <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>No Team</span>
+          ) : (
+            <span style={{ fontSize: '11px', color: '#555' }}>{teams.map((t) => t.teamName).join(', ')}</span>
+          )}
+        </Cell>
+        {/* 4 Utilisation */}
+        <Cell>
+          <input
+            type="number"
+            value={utilValue}
+            min="0"
+            max="100"
+            onChange={(e) => setUtilValue(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(100, Math.max(0, parseFloat(utilValue) || 0))
+              if (v !== row.utilisation_percent) onUpdate(row.allocation_id, { utilisation_percent: v })
+            }}
+            style={{ ...editInputStyle, width: '52px' }}
+          />
+        </Cell>
+        {/* 5 Plan */}
+        <Cell>
+          <select
+            value={plan ?? 'BAU'}
+            onChange={(e) => onUpdate(row.allocation_id, { planview_code: e.target.value as Allocation['planview_code'] })}
+            style={{ ...editInputStyle, width: 'auto' }}
+          >
+            <option value="PR">PR</option>
+            <option value="F_Gov">F_GOV</option>
+            <option value="BAU">BAU</option>
+            <option value="ETP">ETP</option>
+          </select>
+        </Cell>
+        {/* 6 Chargeable — computed */}
+        <Cell>
+          <span style={{ fontSize: 11, color: isChargeableRow(plan) ? '#008A00' : '#D5D5D5' }}>
+            {isChargeableRow(plan) ? '✓' : '—'}
+          </span>
+        </Cell>
+        {/* 7 Location — read-only */}
+        <Cell>
+          {row.resource_location ? (
+            <span style={{ fontSize: 12, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: locColour, display: 'inline-block', flexShrink: 0 }} />
+              {toTitle(row.resource_location)}
+            </span>
+          ) : (
+            <span style={{ color: '#D5D5D5' }}>—</span>
+          )}
+        </Cell>
+        {/* 8 Days */}
+        <Cell align="right">
+          <input
+            type="number"
+            value={daysValue}
+            min="0"
+            onChange={(e) => setDaysValue(e.target.value)}
+            onBlur={() => {
+              const v = Math.max(0, parseFloat(daysValue) || 0)
+              if (v !== (row.capacity_days ?? 0)) onUpdate(row.allocation_id, { capacity_days: v })
+            }}
+            style={{ ...editInputStyle, width: '52px', textAlign: 'right' }}
+          />
+        </Cell>
+        {/* 9 Day Rate */}
+        <Cell align="right">
+          <input
+            type="number"
+            value={dayRateValue}
+            min="0"
+            step="0.01"
+            onChange={(e) => setDayRateValue(e.target.value)}
+            onBlur={() => {
+              const pence = Math.round((parseFloat(dayRateValue) || 0) * 100)
+              if (pence !== row.day_rate) onUpdate(row.allocation_id, { day_rate: pence })
+            }}
+            style={{ ...editInputStyle, width: '72px', textAlign: 'right' }}
+          />
+        </Cell>
+        {/* 10 Base — computed */}
+        <Cell align="right" dataLabel="Base">
+          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#8F9495' }}>
+            {formatMoney(displayBase)}
+          </span>
+        </Cell>
+        {/* 11 +VAT — checkbox + computed */}
+        <Cell align="right" dataLabel="+VAT">
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11, color: '#555' }}>
+            <input
+              type="checkbox"
+              checked={vatApplies}
+              onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
+            />
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
+              {formatMoney(displayVat)}
+            </span>
+          </label>
+        </Cell>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -1757,7 +2104,7 @@ function AllocationRow({
           style={{
             fontSize: 13,
             fontVariantNumeric: 'tabular-nums',
-            color: isBAU || isRMG ? '#8F9495' : '#2A2A2D',
+            color: isBAU || !vatApplies ? '#8F9495' : '#2A2A2D',
           }}
         >
           {formatMoney(displayVat)}

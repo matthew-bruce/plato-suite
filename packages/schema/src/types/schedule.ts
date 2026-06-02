@@ -32,6 +32,7 @@ export interface ScheduleAllocation {
   allocation_id: string
   resource_name: string | null
   role_title: string | null
+  supplier_id: string | null
   supplier_name: string | null
   supplier_colour: string | null
   resource_location: ResourceLocation | null
@@ -40,6 +41,7 @@ export interface ScheduleAllocation {
   utilisation_percent: number
   capacity_days: number | null
   is_chargeable: boolean
+  vat_applies: boolean
   teams: TeamAssignment[]
   base_total_pence?: number
   vat_total_pence?: number

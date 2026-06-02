@@ -14,7 +14,6 @@ import type {
 } from '../types/schedule'
 
 const WEB_PLATFORM_CODE = 'WEB'
-const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
 
 type ResourceEmbed = {
   resource_name: string
@@ -33,12 +32,14 @@ type TeamEmbed = {
 type RawAllocationRow = {
   allocation_id: string
   resource_id: string | null
+  supplier_id: string | null
   role_title: string | null
   planview_code: string | null
   day_rate: number
   utilisation_percent: number | string
   capacity_days: number | string | null
   is_chargeable: boolean
+  vat_applies: boolean | null
   resources: ResourceEmbed | ResourceEmbed[] | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
@@ -145,12 +146,14 @@ export async function getSchedulePageData(
         `
         allocation_id,
         resource_id,
+        supplier_id,
         role_title,
         planview_code,
         day_rate,
         utilisation_percent,
         capacity_days,
         is_chargeable,
+        vat_applies,
         resources:resource_id!left (
           resource_name,
           resource_location
@@ -220,12 +223,13 @@ export async function getSchedulePageData(
         capacityDays === null
           ? 0
           : Math.round(row.day_rate * capacityDays * (utilisation / 100))
-      const isInternal = supplier?.supplier_name === INTERNAL_SUPPLIER_NAME
-      const vat = isInternal ? base : Math.round(base * (1 + vatPct / 100))
+      const vatApplies = row.vat_applies ?? true
+      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
       return {
         allocation_id: row.allocation_id,
         resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
+        supplier_id: row.supplier_id,
         supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
         resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
@@ -234,6 +238,7 @@ export async function getSchedulePageData(
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
+        vat_applies: vatApplies,
         teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
         base_total_pence: base,
         vat_total_pence: vat,
