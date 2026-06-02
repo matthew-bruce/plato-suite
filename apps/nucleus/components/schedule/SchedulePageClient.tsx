@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -16,8 +15,10 @@ import {
   PageToolbarExpandButton,
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
+  PeriodContextStrip,
 } from '@plato/ui'
-import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
+import type { PeriodStatus } from '@plato/ui'
+import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
@@ -54,11 +55,9 @@ interface SortState {
 }
 
 export function SchedulePageClient({ data }: Props) {
-  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
+  const { period, costConfig, allocations: rawAllocations, costItems: initialCostItems } = data
   const vatPct = costConfig?.vat_uplift_percent ?? 0
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [isPending, startTransition] = useTransition()
+  const [isPending] = useTransition()
 
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
@@ -67,7 +66,6 @@ export function SchedulePageClient({ data }: Props) {
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
-  const [alertDismissed, setAlertDismissed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
@@ -334,12 +332,6 @@ export function SchedulePageClient({ data }: Props) {
     setExpandedMap(next)
   }
 
-  function handlePeriodChange(newPeriodId: string) {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set('period', newPeriodId)
-    startTransition(() => router.push(`/schedule?${params.toString()}`))
-  }
-
   function onHeaderClick(col: SortableCol) {
     setSort((prev) => {
       if (prev.col !== col) return { col, dir: 'asc' }
@@ -361,8 +353,6 @@ export function SchedulePageClient({ data }: Props) {
         ? 'Active'
         : 'Draft'
 
-  const shortQ = shortQuarterLabel(period.period_name)
-
   return (
     <div
       style={{
@@ -378,18 +368,21 @@ export function SchedulePageClient({ data }: Props) {
     >
       <PageHeader
         period={period}
-        shortQ={shortQ}
         statusDot={statusDot}
         statusLabel={statusLabel}
-        workingDays={workingDays}
-        allPeriods={allPeriods}
-        onPeriodChange={handlePeriodChange}
         isClosed={isClosed}
       />
 
-      {isClosed && !alertDismissed && (
-        <ClosedPeriodAlert onDismiss={() => setAlertDismissed(true)} />
-      )}
+      <PeriodContextStrip
+        periodStart={new Date(period.period_start_date)}
+        periodEnd={new Date(period.period_end_date)}
+        workingDays={workingDays}
+        platformName="Web Platform (WEB)"
+        status={period.period_status as PeriodStatus}
+        onPeriodChange={() => alert('Period picker: coming soon')}
+        onDuplicateQuarter={() => alert('Duplicate Quarter: coming soon')}
+        closedBannerDismissable={true}
+      />
 
       <KpiStrip totals={totals} costConfig={costConfig} />
 
@@ -526,21 +519,13 @@ export function SchedulePageClient({ data }: Props) {
 
 function PageHeader({
   period,
-  shortQ,
   statusDot,
   statusLabel,
-  workingDays,
-  allPeriods,
-  onPeriodChange,
   isClosed,
 }: {
   period: SchedulePageData['period']
-  shortQ: string
   statusDot: string
   statusLabel: string
-  workingDays: number
-  allPeriods: SchedulePageData['allPeriods']
-  onPeriodChange: (id: string) => void
   isClosed: boolean
 }) {
   return (
@@ -562,7 +547,7 @@ function PageHeader({
           alignItems: 'center',
           gap: 14,
           flexWrap: 'wrap',
-          marginBottom: 8,
+          marginBottom: 12,
         }}
       >
         <h1
@@ -577,55 +562,6 @@ function PageHeader({
         >
           Platform Schedule
         </h1>
-
-        <div
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          <select
-            value={period.period_id}
-            onChange={(e) => onPeriodChange(e.target.value)}
-            aria-label="Quarter selector"
-            style={{
-              appearance: 'none',
-              WebkitAppearance: 'none',
-              MozAppearance: 'none',
-              background: 'white',
-              border: '1.5px solid #D5D5D5',
-              borderRadius: 10,
-              padding: '5px 28px 5px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#2A2A2D',
-              fontFamily: 'var(--rmg-font-body)',
-              cursor: 'pointer',
-              lineHeight: 1.4,
-            }}
-          >
-            {allPeriods.map((p) => (
-              <option key={p.period_id} value={p.period_id}>
-                {p.period_name}
-              </option>
-            ))}
-          </select>
-          <span
-            aria-hidden
-            style={{
-              position: 'absolute',
-              right: 10,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#2A2A2D',
-              pointerEvents: 'none',
-              display: 'inline-flex',
-            }}
-          >
-            <ChevronSmall />
-          </span>
-        </div>
 
         <span
           style={{
@@ -653,9 +589,6 @@ function PageHeader({
 
         <div style={{ flex: 1 }} />
 
-        <GhostButton onClick={() => alert('Duplicate Quarter: coming soon')}>
-          Duplicate Quarter
-        </GhostButton>
         <GhostButton onClick={() => alert('Export to Excel: coming soon')}>
           Export to Excel
         </GhostButton>
@@ -671,101 +604,7 @@ function PageHeader({
           Add Resource
         </PrimaryButton>
       </div>
-
-      <div
-        style={{
-          fontSize: 12,
-          color: '#8F9495',
-          marginBottom: 20,
-        }}
-      >
-        {formatShortDate(period.period_start_date)} – {formatShortDate(period.period_end_date)} · {workingDays} working days · Web Platform (WEB)
-      </div>
     </>
-  )
-}
-
-/* ── ClosedPeriodAlert ─────────────────────────────────────────── */
-
-function ClosedPeriodAlert({ onDismiss }: { onDismiss: () => void }) {
-  return (
-    <div
-      role="status"
-      style={{
-        background: '#FDDA24',
-        borderRadius: 10,
-        padding: '12px 18px',
-        display: 'flex',
-        gap: 12,
-        alignItems: 'flex-start',
-        marginBottom: 20,
-      }}
-    >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#2A2A2D"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-        style={{ flexShrink: 0, marginTop: 1 }}
-      >
-        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </svg>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#2A2A2D' }}>
-          This period is closed
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: '#2A2A2D',
-            opacity: 0.78,
-            marginTop: 2,
-          }}
-        >
-          All values are read-only. To make changes, duplicate this quarter first.
-          <button
-            type="button"
-            onClick={() => alert('Duplicate Quarter: coming soon')}
-            style={{
-              marginLeft: 10,
-              background: 'rgba(0,0,0,0.1)',
-              border: 'none',
-              borderRadius: 6,
-              padding: '3px 9px',
-              fontSize: 12,
-              fontWeight: 700,
-              color: '#2A2A2D',
-              cursor: 'pointer',
-            }}
-          >
-            Duplicate Quarter
-          </button>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss"
-        style={{
-          background: 'transparent',
-          border: 'none',
-          opacity: 0.45,
-          cursor: 'pointer',
-          fontSize: 16,
-          lineHeight: 1,
-          color: '#2A2A2D',
-        }}
-      >
-        ✕
-      </button>
-    </div>
   )
 }
 
@@ -2287,16 +2126,6 @@ function LockIcon(size: number, opacity = 1) {
       <path d="M4 5.5 V3.8 a2 2 0 0 1 4 0 V5.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
     </svg>
   )
-}
-
-function formatShortDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z')
-  return d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
 }
 
 function toTitle(s: string): string {
