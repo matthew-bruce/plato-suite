@@ -75,7 +75,9 @@ export function SchedulePageClient({ data }: Props) {
   const [editingSchedule, setEditingSchedule] = useState(false)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
+    setLocalCostItems(initialCostItems)
     setEditingSchedule(false)
+    setEditingAdHoc(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period.period_id])
   useEffect(() => {
