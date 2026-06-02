@@ -93,15 +93,23 @@ export function SchedulePageClient({ data }: Props) {
   )
 
   const supplierOptions = useMemo(() => {
-    const map = new Map<string, string>()
+    const map = new Map<string, { colour: string; sortOrder: number | null }>()
     for (const a of localAllocations) {
       if (a.supplier_name && !map.has(a.supplier_name)) {
-        map.set(a.supplier_name, a.supplier_colour ?? '#8F9495')
+        map.set(a.supplier_name, {
+          colour: a.supplier_colour ?? '#8F9495',
+          sortOrder: a.supplier_sort_order,
+        })
       }
     }
     return Array.from(map.entries())
-      .map(([name, colour]) => ({ name, colour }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(([name, { colour, sortOrder }]) => ({ name, colour, sortOrder }))
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Infinity
+        const sb = b.sortOrder ?? Infinity
+        if (sa !== sb) return sa - sb
+        return a.name.localeCompare(b.name)
+      })
   }, [localAllocations])
 
   const teamOptions = useMemo(() => {
@@ -899,19 +907,15 @@ function KpiCard({
 
 /* ── Within-band row ordering ──────────────────────────────────── */
 
-function bandRowPriority(r: Allocation): number {
-  const role = (r.role_title ?? '').toLowerCase()
-  if (role.includes('platform owner') || role.includes('head of platform')) return 0
-  if (r.planview_code === 'F_Gov') return 1
-  return 2
-}
+const planviewOrder: Record<string, number> = { F_Gov: 0, PR: 1, BAU: 2 }
+const getPlanviewRank = (code: string | null) => planviewOrder[code ?? ''] ?? 99
 
 function sortRowsWithinBand(rows: Allocation[]): Allocation[] {
   return [...rows].sort((a, b) => {
-    const pa = bandRowPriority(a)
-    const pb = bandRowPriority(b)
+    const pa = getPlanviewRank(a.planview_code)
+    const pb = getPlanviewRank(b.planview_code)
     if (pa !== pb) return pa - pb
-    // TBC (no resource_name) floats last within each priority group
+    // TBC (no resource_name) floats last within each planview group
     const ta = a.resource_name ? 0 : 1
     const tb = b.resource_name ? 0 : 1
     if (ta !== tb) return ta - tb
