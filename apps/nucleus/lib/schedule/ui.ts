@@ -2,7 +2,7 @@
 // Money is stored as integer pence per ADR-029.
 
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
-  const decimals = opts.decimals ?? 0
+  const decimals = opts.decimals ?? 2
   const value = pence / 100
   return `£${value.toLocaleString('en-GB', {
     minimumFractionDigits: decimals,

@@ -13,14 +13,17 @@ import {
 } from '../ui'
 
 describe('formatMoney', () => {
-  it('formats pence to pounds with commas', () => {
-    expect(formatMoney(191_473_200)).toBe('£1,914,732')
+  it('formats pence to pounds with commas and 2dp by default', () => {
+    expect(formatMoney(191_473_200)).toBe('£1,914,732.00')
   })
-  it('supports two decimals', () => {
+  it('supports zero decimals for whole pounds', () => {
+    expect(formatMoney(55000, { decimals: 0 })).toBe('£550')
+  })
+  it('supports two decimals explicitly', () => {
     expect(formatMoney(55000, { decimals: 2 })).toBe('£550.00')
   })
   it('handles zero', () => {
-    expect(formatMoney(0)).toBe('£0')
+    expect(formatMoney(0)).toBe('£0.00')
   })
 })
 

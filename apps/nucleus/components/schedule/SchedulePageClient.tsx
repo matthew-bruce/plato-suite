@@ -679,13 +679,13 @@ function KpiStrip({
     <div className={styles.kpiStrip}>
       <KpiCard
         label="Total Platform Cost"
-        value={formatMoney(totals.totalPlatform)}
+        value={formatMoney(totals.totalPlatform, { decimals: 0 })}
         sub="Allocations + VAT + ad-hoc"
         accent="#DA202A"
       />
       <KpiCard
         label="Inc. ETP & Shared Services"
-        value={formatMoney(totals.totalPlatformIncEtp)}
+        value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
         sub="+£117,434 ETP & SS"
         accent="#404044"
       />
