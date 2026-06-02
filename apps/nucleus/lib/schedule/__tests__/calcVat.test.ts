@@ -19,4 +19,13 @@ describe('calcVat', () => {
     expect(calcVat(0, true, 20)).toBe(0)
     expect(calcVat(0, false, 20)).toBe(0)
   })
+  it('sums 74 rows to the penny matching per-row rounding', () => {
+    // 33333p * 1.2 = 39999.6p → rounds to 40000p per row
+    // Without per-row rounding: 74 * 39999.6 = 2959970.4 → 2959970 (off by 30p)
+    // With per-row rounding:    74 * 40000   = 2960000             (exact)
+    const total = Array.from({ length: 74 }, () =>
+      calcVat(33_333, true, 20),
+    ).reduce((s, v) => s + v, 0)
+    expect(total).toBe(2_960_000)
+  })
 })
