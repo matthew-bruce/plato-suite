@@ -52,7 +52,7 @@ export interface SchedulePageData {
   period: Period
   costConfig: CostConfiguration | null
   allocations: ScheduleAllocation[]
-  allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status'>[]
+  allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status' | 'period_start_date' | 'period_end_date'>[]
   costItems: PlatformCostItem[]
 }
 

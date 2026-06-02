@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -17,7 +18,7 @@ import {
   PageToolbarPrimaryActions,
   PeriodContextStrip,
 } from '@plato/ui'
-import type { PeriodStatus } from '@plato/ui'
+import type { PeriodStatus, PeriodOption } from '@plato/ui'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -55,9 +56,14 @@ interface SortState {
 }
 
 export function SchedulePageClient({ data }: Props) {
-  const { period, costConfig, allocations: rawAllocations, costItems: initialCostItems } = data
+  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
   const vatPct = costConfig?.vat_uplift_percent ?? 0
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [isPending] = useTransition()
+
+  // Current period ID from URL, falling back to the loaded period
+  const activePeriodId = searchParams.get('period') ?? period.period_id
 
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
@@ -379,7 +385,19 @@ export function SchedulePageClient({ data }: Props) {
         workingDays={workingDays}
         platformName="Web Platform (WEB)"
         status={period.period_status as PeriodStatus}
-        onPeriodChange={() => alert('Period picker: coming soon')}
+        periods={allPeriods.map((p): PeriodOption => ({
+          periodId: p.period_id,
+          periodStart: new Date(p.period_start_date),
+          periodEnd: new Date(p.period_end_date),
+          workingDays: workingDaysBetween(p.period_start_date, p.period_end_date),
+          status: p.period_status as PeriodStatus,
+        }))}
+        currentPeriodId={activePeriodId}
+        onPeriodSelect={(id) => {
+          const params = new URLSearchParams(searchParams.toString())
+          params.set('period', id)
+          router.push(`/schedule?${params.toString()}`)
+        }}
         onDuplicateQuarter={() => alert('Duplicate Quarter: coming soon')}
         closedBannerDismissable={true}
       />

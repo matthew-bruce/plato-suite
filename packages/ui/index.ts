@@ -5,6 +5,6 @@ export type { PlatoShellProps, NavSection, NavItem, ConfigItem } from './compone
 export * from './components/rmg/PageToolbar'
 
 export { PeriodContextStrip } from './components/PeriodContextStrip'
-export type { PeriodContextStripProps, PeriodStatus } from './components/PeriodContextStrip'
+export type { PeriodContextStripProps, PeriodStatus, PeriodOption } from './components/PeriodContextStrip'
 export { getPeriodIdentity } from './utils/getPeriodIdentity'
 export type { PeriodIdentity } from './utils/getPeriodIdentity'

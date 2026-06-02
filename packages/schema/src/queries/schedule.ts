@@ -65,7 +65,7 @@ export async function getSchedulePageData(
 
   const { data: allPeriodsData, error: periodsErr } = await supabase
     .from('periods')
-    .select('period_id, period_name, period_status, period_start_date')
+    .select('period_id, period_name, period_status, period_start_date, period_end_date')
     .is('deleted_at', null)
     .order('period_start_date', { ascending: false })
 
@@ -74,6 +74,8 @@ export async function getSchedulePageData(
     period_id: p.period_id as string,
     period_name: p.period_name as string,
     period_status: p.period_status as Period['period_status'],
+    period_start_date: p.period_start_date as string,
+    period_end_date: p.period_end_date as string,
   }))
 
   let activePeriodId = periodId
