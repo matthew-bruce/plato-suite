@@ -18,7 +18,8 @@ import {
   PageToolbarPrimaryActions,
   PeriodContextStrip,
 } from '@plato/ui'
-import type { PeriodStatus, PeriodOption } from '@plato/ui'
+import type { PeriodOption } from '@plato/ui'
+import { getPeriodStatus } from '@plato/ui'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -77,11 +78,17 @@ export function SchedulePageClient({ data }: Props) {
   const [editingAdHoc, setEditingAdHoc] = useState(false)
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
   const [editingSchedule, setEditingSchedule] = useState(false)
+  const [locked, setLocked] = useState(() =>
+    getPeriodStatus(new Date(period.period_start_date), new Date(period.period_end_date)) === 'historic',
+  )
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
     setEditingSchedule(false)
     setEditingAdHoc(false)
+    setLocked(
+      getPeriodStatus(new Date(period.period_start_date), new Date(period.period_end_date)) === 'historic',
+    )
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period.period_id])
   useEffect(() => {
@@ -384,13 +391,11 @@ export function SchedulePageClient({ data }: Props) {
         periodEnd={new Date(period.period_end_date)}
         workingDays={workingDays}
         platformName="Web Platform (WEB)"
-        status={period.period_status as PeriodStatus}
         periods={allPeriods.map((p): PeriodOption => ({
           periodId: p.period_id,
           periodStart: new Date(p.period_start_date),
           periodEnd: new Date(p.period_end_date),
           workingDays: workingDaysBetween(p.period_start_date, p.period_end_date),
-          status: p.period_status as PeriodStatus,
         }))}
         currentPeriodId={activePeriodId}
         onPeriodSelect={(id) => {
@@ -398,8 +403,10 @@ export function SchedulePageClient({ data }: Props) {
           params.set('period', id)
           router.push(`/schedule?${params.toString()}`)
         }}
-        onDuplicateQuarter={() => alert('Duplicate Quarter: coming soon')}
-        closedBannerDismissable={true}
+        locked={locked}
+        onLockToggle={() => setLocked((v) => !v)}
+        onDuplicate={() => console.log('Duplicate period: coming soon')}
+        onActivate={() => console.log('Activate period: coming soon')}
       />
 
       <KpiStrip totals={totals} costConfig={costConfig} />
@@ -547,82 +554,72 @@ function PageHeader({
   isClosed: boolean
 }) {
   return (
-    <>
-      <nav
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        flexWrap: 'wrap',
+        marginBottom: 12,
+      }}
+    >
+      <h1
         style={{
-          fontSize: 12,
-          color: '#8F9495',
-          marginBottom: 12,
+          fontFamily: 'var(--rmg-font-display)',
+          fontSize: 26,
+          fontWeight: 700,
+          color: '#2A2A2D',
+          letterSpacing: '-0.03em',
+          margin: 0,
         }}
       >
-        Nucleus &nbsp;›&nbsp; Finance &nbsp;›&nbsp;{' '}
-        <span style={{ color: '#2A2A2D' }}>Platform Schedule</span>
-      </nav>
+        Platform Schedule
+      </h1>
 
-      <div
+      <span
         style={{
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
-          gap: 14,
-          flexWrap: 'wrap',
-          marginBottom: 12,
+          gap: 6,
+          fontSize: 10,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          color: '#8F9495',
         }}
       >
-        <h1
-          style={{
-            fontFamily: 'var(--rmg-font-display)',
-            fontSize: 26,
-            fontWeight: 700,
-            color: '#2A2A2D',
-            letterSpacing: '-0.03em',
-            margin: 0,
-          }}
-        >
-          Platform Schedule
-        </h1>
-
         <span
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: '#8F9495',
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: statusDot,
+            display: 'inline-block',
           }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: statusDot,
-              display: 'inline-block',
-            }}
-          />
-          {statusLabel}
-        </span>
+        />
+        {statusLabel}
+      </span>
 
-        <div style={{ flex: 1 }} />
+      <div style={{ flex: 1 }} />
 
-        <GhostButton onClick={() => alert('Export to Excel: coming soon')}>
-          Export to Excel
-        </GhostButton>
-        <PrimaryButton
-          disabled={isClosed}
-          onClick={() => alert('Add Resource: coming soon')}
-        >
-          {isClosed && (
-            <span style={{ marginRight: 6 }} aria-hidden>
-              {LockIcon(11)}
-            </span>
-          )}
-          Add Resource
-        </PrimaryButton>
-      </div>
-    </>
+      <GhostButton onClick={() => console.log('Create New Period: coming soon')}>
+        Create New Period
+      </GhostButton>
+      <GhostButton onClick={() => alert('Export to Excel: coming soon')}>
+        Export to Excel
+      </GhostButton>
+      <PrimaryButton
+        disabled={isClosed}
+        onClick={() => alert('Add Resource: coming soon')}
+      >
+        {isClosed && (
+          <span style={{ marginRight: 6 }} aria-hidden>
+            {LockIcon(11)}
+          </span>
+        )}
+        Add Resource
+      </PrimaryButton>
+    </div>
   )
 }
 
