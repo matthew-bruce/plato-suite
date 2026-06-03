@@ -219,7 +219,10 @@ export async function GET(request: Request): Promise<Response> {
   wb.creator = 'Plato Suite'
   wb.created = new Date()
 
-  const tabName = `Rate Calculator - ${period.period_name}`
+  const sanitiseSheetName = (name: string): string =>
+    name.replace(/[\\/?*[\]:]/g, '-').slice(0, 31)
+
+  const tabName = sanitiseSheetName(`Rate Calculator - ${period.period_name}`)
   const ws = wb.addWorksheet(tabName)
 
   // Column widths (A–M)
@@ -411,7 +414,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ══════════════════════════════════════════════════════════════════
      Tab 2: Summary
   ══════════════════════════════════════════════════════════════════ */
-  const ws2 = wb.addWorksheet('Summary')
+  const ws2 = wb.addWorksheet(sanitiseSheetName('Summary'))
   ws2.columns = [
     { width: 35 }, // A
     { width: 18 }, // B

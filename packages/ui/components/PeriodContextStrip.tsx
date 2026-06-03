@@ -393,7 +393,7 @@ export function PeriodContextStrip({
       }}
     >
       <DownloadIcon />
-      Export
+      Export as .xlsx
     </button>
   )
 

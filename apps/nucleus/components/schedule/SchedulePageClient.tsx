@@ -218,6 +218,7 @@ export function SchedulePageClient({ data }: Props) {
     teamFilter === 'all'
 
   async function handleExportToExcel() {
+    setLoading('Building export', period.period_name)
     try {
       const response = await fetch(`/api/export/schedule?periodId=${activePeriodId}`)
       if (!response.ok) throw new Error('Export failed')
@@ -234,6 +235,8 @@ export function SchedulePageClient({ data }: Props) {
       URL.revokeObjectURL(url)
     } catch (err) {
       console.error('Export error:', err)
+    } finally {
+      clearLoading()
     }
   }
 
