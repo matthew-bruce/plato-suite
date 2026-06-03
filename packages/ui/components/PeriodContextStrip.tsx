@@ -393,7 +393,7 @@ export function PeriodContextStrip({
       }}
     >
       <DownloadIcon />
-      Export as .xlsx
+      Export Rate Calculator as .xlsx
     </button>
   )
 

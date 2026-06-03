@@ -23,6 +23,7 @@ interface AllocationRow {
   planview_code: string | null
   supplier_name: string | null
   supplier_sort_order: number | null
+  supplier_colour: string | null
   resource_location: string | null
   utilisation_percent: number
   capacity_days: number | null
@@ -78,6 +79,16 @@ function setRowFill(ws: ExcelJS.Worksheet, rowNum: number, argb: string, cols: n
   }
 }
 
+// Blends the supplier hex colour with white at 15% opacity to produce a subtle tint.
+function supplierTint(hex: string): string {
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6) return 'FFFFFFFF'
+  const r = Math.round(parseInt(clean.slice(0, 2), 16) * 0.15 + 255 * 0.85)
+  const g = Math.round(parseInt(clean.slice(2, 4), 16) * 0.15 + 255 * 0.85)
+  const b = Math.round(parseInt(clean.slice(4, 6), 16) * 0.15 + 255 * 0.85)
+  return `FF${r.toString(16).padStart(2, '0').toUpperCase()}${g.toString(16).padStart(2, '0').toUpperCase()}${b.toString(16).padStart(2, '0').toUpperCase()}`
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    GET /api/export/schedule?periodId=<uuid>
 ══════════════════════════════════════════════════════════════════════ */
@@ -131,7 +142,7 @@ export async function GET(request: Request): Promise<Response> {
       capacity_days,
       vat_applies,
       resources:resource_id!left ( resource_name, resource_location ),
-      suppliers:supplier_id ( supplier_name, sort_order )
+      suppliers:supplier_id ( supplier_name, sort_order, supplier_colour )
     `)
     .eq('period_id', periodId)
     .is('deleted_at', null)
@@ -149,7 +160,7 @@ export async function GET(request: Request): Promise<Response> {
     vat_applies: boolean | null
     resource_id?: string | null
     resources: { resource_name: string; resource_location: string | null } | { resource_name: string; resource_location: string | null }[] | null
-    suppliers: { supplier_name: string; sort_order: number | null } | { supplier_name: string; sort_order: number | null }[] | null
+    suppliers: { supplier_name: string; sort_order: number | null; supplier_colour: string | null } | { supplier_name: string; sort_order: number | null; supplier_colour: string | null }[] | null
   }
 
   function pickOne<T>(v: T | T[] | null | undefined): T | null {
@@ -193,6 +204,7 @@ export async function GET(request: Request): Promise<Response> {
         planview_code: r.planview_code,
         supplier_name: supplier?.supplier_name ?? null,
         supplier_sort_order: supplier?.sort_order ?? null,
+        supplier_colour: supplier?.supplier_colour ?? null,
         resource_location: resource?.resource_location ?? '',
         utilisation_percent: Number(r.utilisation_percent),
         capacity_days: r.capacity_days === null ? null : Number(r.capacity_days),
@@ -243,6 +255,7 @@ export async function GET(request: Request): Promise<Response> {
     { width: 18 }, // B
     { width: 18 }, // C
     { width: 14 }, // D
+    { width: 12 }, // E
   ]
 
   const tabName = sanitiseSheetName(`Rate Calculator - ${period.period_name}`)
@@ -287,6 +300,8 @@ export async function GET(request: Request): Promise<Response> {
     }
   })
 
+  ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: 13 } }
+
   const HEADER_ROW = 2
   const FIRST_DATA_ROW = HEADER_ROW + 1 // = 3
 
@@ -323,8 +338,9 @@ export async function GET(request: Request): Promise<Response> {
     r.getCell(12).numFmt = '£#,##0.00'
     r.getCell(13).numFmt = '£#,##0.00'
 
-    // Subtle alternating row bg
-    if ((rowNum - FIRST_DATA_ROW) % 2 === 0) {
+    if (alloc.supplier_colour) {
+      setRowFill(ws, rowNum, supplierTint(alloc.supplier_colour), NUM_COLS)
+    } else if ((rowNum - FIRST_DATA_ROW) % 2 === 0) {
       setRowFill(ws, rowNum, 'FFFAFAFA', NUM_COLS)
     }
 
@@ -491,7 +507,7 @@ export async function GET(request: Request): Promise<Response> {
   s2Row++
 
   const supplierHeaderRow = ws2.getRow(s2Row)
-  ;['Supplier', 'Base Cost', '+VAT Cost', '% of Total'].forEach((h, i) => {
+  ;['Supplier', 'Base Cost', '+VAT Cost', '% of Total', 'Resources'].forEach((h, i) => {
     const cell = supplierHeaderRow.getCell(i + 1)
     cell.value = h
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -518,6 +534,9 @@ export async function GET(request: Request): Promise<Response> {
       formula: `=IF(SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow})=0,0,B${s2Row}/SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow}))`,
     }
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
+    ws2.getCell(s2Row, 5).value = {
+      formula: `=COUNTIF(${ref}!F${FIRST_DATA_ROW}:F${lastResourceRow},"${supplier}")`,
+    }
     s2Row++
   }
   const supplierDataEnd = s2Row - 1
@@ -531,6 +550,8 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 3).value = { formula: `=SUM(C${supplierDataStart}:C${supplierDataEnd})` }
   ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 3).font = { bold: true }
+  ws2.getCell(s2Row, 5).value = { formula: `=SUM(E${supplierDataStart}:E${supplierDataEnd})` }
+  ws2.getCell(s2Row, 5).font = { bold: true }
   s2Row += 2
 
   // Planview code split
