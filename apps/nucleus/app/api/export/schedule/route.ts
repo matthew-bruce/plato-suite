@@ -11,7 +11,10 @@ interface PeriodRow {
 
 interface CostConfigRow {
   vat_uplift_percent: number
+  blended_day_rate_override: number | null
 }
+
+type CostItemCategory = 'ADHOC' | 'ETP' | 'SHARED_SERVICES'
 
 interface AllocationRow {
   allocation_id: string
@@ -32,6 +35,7 @@ interface CostItemRow {
   label: string
   amount_pence: number
   sort_order: number
+  cost_item_category: CostItemCategory
 }
 
 /* ── Filename derivation ──────────────────────────────────────────── */
@@ -102,13 +106,16 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Query 2: Cost configuration ── */
   const { data: ccData } = await supabase
     .from('cost_configurations')
-    .select('vat_uplift_percent')
+    .select('vat_uplift_percent, blended_day_rate_override')
     .is('deleted_at', null)
     .order('effective_from', { ascending: false })
     .limit(1)
 
-  const vatUpliftPercent: number = (ccData?.[0] as CostConfigRow | undefined)?.vat_uplift_percent ?? 0
-  const vatMultiplier = 1 + vatUpliftPercent / 100
+  const costConfig = ccData?.[0] as CostConfigRow | undefined
+  const vatUpliftPercent: number = costConfig?.vat_uplift_percent ?? 0
+  // Round to exactly 5 dp so the cell reads 1.07082, not 1.0708200000001
+  const vatMultiplier = parseFloat((1 + Number(vatUpliftPercent) / 100).toFixed(5))
+  const blendedDayRateOverridePence = costConfig?.blended_day_rate_override ?? null
 
   /* ── Query 3: Resource allocations ── */
   // Uses Supabase client-side joins matching the existing query pattern.
@@ -116,6 +123,7 @@ export async function GET(request: Request): Promise<Response> {
     .from('resource_period_allocations')
     .select(`
       allocation_id,
+      resource_id,
       role_title,
       planview_code,
       day_rate,
@@ -160,10 +168,11 @@ export async function GET(request: Request): Promise<Response> {
   if (resourceIds.length > 0) {
     const { data: teamData } = await supabase
       .from('resource_team_assignments')
-      .select('resource_id, teams ( team_name )')
+      .select('resource_id, capacity_split, teams ( team_name )')
       .in('resource_id', resourceIds)
       .eq('period_id', periodId)
       .is('deleted_at', null)
+      .order('capacity_split', { ascending: false })
 
     for (const r of (teamData ?? []) as unknown as { resource_id: string; teams: { team_name: string } | { team_name: string }[] | null }[]) {
       const team = pickOne(r.teams)
@@ -199,18 +208,22 @@ export async function GET(request: Request): Promise<Response> {
       return (a.resource_name ?? 'ZZZ').localeCompare(b.resource_name ?? 'ZZZ')
     })
 
-  /* ── Query 4: Platform cost items (all ADHOC) ── */
+  /* ── Query 4: Platform cost items (split by category) ── */
   const { data: costItemsData } = await supabase
     .from('platform_cost_items')
-    .select('label, amount_pence, sort_order')
+    .select('label, amount_pence, sort_order, cost_item_category')
     .eq('period_id', periodId)
     .is('deleted_at', null)
     .order('sort_order')
 
   const costItems = (costItemsData ?? []) as CostItemRow[]
 
-  // ETP & Shared Services is a hardcoded constant (no DB column for category yet)
-  const ETP_AND_SS_PENCE = 11_743_400 // £117,434
+  // Split by category so ETP/SS are counted once (in their own section) and
+  // never double-counted inside the AD-HOC section.
+  const adhocItems = costItems.filter((i) => i.cost_item_category === 'ADHOC')
+  const etpSsItems = costItems.filter(
+    (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+  )
 
   /* ══════════════════════════════════════════════════════════════════
      Build the workbook
@@ -221,6 +234,16 @@ export async function GET(request: Request): Promise<Response> {
 
   const sanitiseSheetName = (name: string): string =>
     name.replace(/[\\/?*[\]:]/g, '-').slice(0, 31)
+
+  // Tab order follows creation order in ExcelJS: create Summary first so it is
+  // the leftmost (first) tab, then the Rate Calculator. Both are written below.
+  const ws2 = wb.addWorksheet(sanitiseSheetName('Summary'))
+  ws2.columns = [
+    { width: 35 }, // A
+    { width: 18 }, // B
+    { width: 18 }, // C
+    { width: 14 }, // D
+  ]
 
   const tabName = sanitiseSheetName(`Rate Calculator - ${period.period_name}`)
   const ws = wb.addWorksheet(tabName)
@@ -270,16 +293,19 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Pass 1: resource rows (VAT formula placeholder until VAT cell row is known) ── */
   const vatRows: number[] = [] // row numbers that need vat_applies=true formula
 
+  const capitalise = (s: string | null): string =>
+    s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
+
   for (const alloc of allocations) {
     const rowNum = ws.rowCount + 1
     const r = ws.addRow([
       alloc.role_title ?? '',
       alloc.resource_name,
-      '', // PO
+      'WEB', // PO — platform identifier (hardcoded for now)
       alloc.team_name,
       alloc.planview_code ?? '',
       alloc.supplier_name ?? '',
-      alloc.resource_location,
+      capitalise(alloc.resource_location),
       alloc.utilisation_percent / 100,
       alloc.capacity_days ?? 0,
       alloc.day_rate / 100,
@@ -307,15 +333,15 @@ export async function GET(request: Request): Promise<Response> {
 
   const lastResourceRow = ws.rowCount
 
-  /* ── Ad-hoc cost items ── */
+  /* ── Ad-hoc cost items (ADHOC category only) ── */
   let lastAdhocRow = lastResourceRow
 
-  if (costItems.length > 0) {
+  if (adhocItems.length > 0) {
     ws.addRow([]) // blank
     const adhocLabelRow = ws.addRow(['AD-HOC COSTS'])
     adhocLabelRow.getCell(1).font = { italic: true, color: { argb: 'FF8F9495' } }
 
-    for (const item of costItems) {
+    for (const item of adhocItems) {
       const rowNum = ws.rowCount + 1
       const r = ws.addRow([
         item.label,
@@ -329,21 +355,33 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
 
-  /* ── ETP & Shared Services ── */
-  ws.addRow([]) // blank
-  const etpLabelRow = ws.addRow(['ETP & SHARED SERVICES'])
-  etpLabelRow.getCell(1).font = { italic: true, color: { argb: LABEL_ARGB } }
+  /* ── ETP & Shared Services (one row per ETP / SHARED_SERVICES item) ── */
+  let firstEtpRow = 0
+  let lastEtpRow = 0
 
-  const etpRowNum = ws.rowCount + 1
-  const etpRow = ws.addRow([
-    'ETP & Shared Services',
-    '', '', '', '', '', '', '', '', '', '',
-    ETP_AND_SS_PENCE / 100,
-    { formula: `=L${etpRowNum}` },
-  ])
-  etpRow.getCell(12).numFmt = '£#,##0.00'
-  etpRow.getCell(13).numFmt = '£#,##0.00'
-  const lastEtpRow = etpRowNum
+  if (etpSsItems.length > 0) {
+    ws.addRow([]) // blank
+    const etpLabelRow = ws.addRow(['ETP & SHARED SERVICES'])
+    etpLabelRow.getCell(1).font = { italic: true, color: { argb: LABEL_ARGB } }
+
+    for (const item of etpSsItems) {
+      const rowNum = ws.rowCount + 1
+      const r = ws.addRow([
+        item.label,
+        '', '', '', '', '', '', '', '', '', '',
+        item.amount_pence / 100,
+        { formula: `=L${rowNum}` },
+      ])
+      r.getCell(12).numFmt = '£#,##0.00'
+      r.getCell(13).numFmt = '£#,##0.00'
+      if (firstEtpRow === 0) firstEtpRow = rowNum
+      lastEtpRow = rowNum
+    }
+  }
+
+  // Last row that carries data — used for all SUBTOTAL/SUMIF ranges. Blank and
+  // label rows inside the range are ignored by SUBTOTAL/SUMIF.
+  const lastDataRow = Math.max(lastResourceRow, lastAdhocRow, lastEtpRow)
 
   /* ── Blank spacer ── */
   ws.addRow([])
@@ -353,8 +391,8 @@ export async function GET(request: Request): Promise<Response> {
   const subtotalRow = ws.addRow([
     'SUBTOTAL',
     '', '', '', '', '', '', '', '', '', '',
-    { formula: `=SUBTOTAL(9,L${FIRST_DATA_ROW}:L${lastEtpRow})` },
-    { formula: `=SUBTOTAL(9,M${FIRST_DATA_ROW}:M${lastEtpRow})` },
+    { formula: `=SUBTOTAL(9,L${FIRST_DATA_ROW}:L${lastDataRow})` },
+    { formula: `=SUBTOTAL(9,M${FIRST_DATA_ROW}:M${lastDataRow})` },
   ])
   subtotalRow.font = { bold: true }
   setRowFill(ws, subtotalRowNum, SUBTOTAL_ARGB, NUM_COLS)
@@ -378,7 +416,7 @@ export async function GET(request: Request): Promise<Response> {
   const billableDaysRowNum = ws.rowCount + 1
   const billableRow = ws.addRow([
     'Total Billable Days', '', '', '', '', '', '', '',
-    { formula: `=SUMIF(K${FIRST_DATA_ROW}:K${lastEtpRow},"Yes",I${FIRST_DATA_ROW}:I${lastEtpRow})` },
+    { formula: `=SUMIF(K${FIRST_DATA_ROW}:K${lastDataRow},"Yes",I${FIRST_DATA_ROW}:I${lastDataRow})` },
   ])
   billableRow.getCell(1).font = { bold: true }
 
@@ -398,7 +436,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const dayRateRowNum = ws.rowCount + 1
   const dayRateRow = ws.addRow([
-    'eBiz Day Rate (Resources+Adhoc)', '', '', '', '', '', '', '',
+    'Advised Rate', '', '', '', '', '', '', '',
     { formula: `=M${subtotalRowNum}/I${xChargeableRowNum}` },
   ])
   dayRateRow.getCell(1).font = { bold: true }
@@ -412,16 +450,8 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   /* ══════════════════════════════════════════════════════════════════
-     Tab 2: Summary
+     Tab 2 (created first for tab order): write the Summary content
   ══════════════════════════════════════════════════════════════════ */
-  const ws2 = wb.addWorksheet(sanitiseSheetName('Summary'))
-  ws2.columns = [
-    { width: 35 }, // A
-    { width: 18 }, // B
-    { width: 18 }, // C
-    { width: 14 }, // D
-  ]
-
   const ref = `'${tabName}'` // cross-sheet reference prefix
 
   let s2Row = 1
@@ -446,12 +476,12 @@ export async function GET(request: Request): Promise<Response> {
   s2Row++
 
   ws2.getCell(s2Row, 1).value = 'Total BASE (ex-VAT)'
-  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastEtpRow})` }
+  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow})` }
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   s2Row++
 
   ws2.getCell(s2Row, 1).value = 'Total +VAT'
-  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!M${FIRST_DATA_ROW}:M${lastEtpRow})` }
+  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!M${FIRST_DATA_ROW}:M${lastDataRow})` }
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   s2Row += 2
 
@@ -485,7 +515,7 @@ export async function GET(request: Request): Promise<Response> {
     }
     ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
     ws2.getCell(s2Row, 4).value = {
-      formula: `=IF(SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastEtpRow})=0,0,B${s2Row}/SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastEtpRow}))`,
+      formula: `=IF(SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow})=0,0,B${s2Row}/SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow}))`,
     }
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     s2Row++
@@ -518,7 +548,8 @@ export async function GET(request: Request): Promise<Response> {
   s2Row++
 
   const planviewDataStart = s2Row
-  for (const code of ['PR', 'F_Gov', 'BAU', 'ETP'] as const) {
+  // ETP is a cost_item_category, not a planview code — excluded here.
+  for (const code of ['PR', 'F_Gov', 'BAU'] as const) {
     const displayCode = code === 'F_Gov' ? 'F_GOV' : code
     ws2.getCell(s2Row, 1).value = displayCode
     ws2.getCell(s2Row, 2).value = {
@@ -541,21 +572,35 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).font = { bold: true, size: 11 }
   s2Row++
 
-  ws2.getCell(s2Row, 1).value = 'Resources + Adhoc Day Rate'
+  ws2.getCell(s2Row, 1).value = 'Advised Rate'
   ws2.getCell(s2Row, 2).value = { formula: `='${tabName}'!I${dayRateRowNum}` }
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   s2Row++
 
+  // ETP & SS total — cross-sheet SUM of the actual ETP/SS rows (no hardcode).
   ws2.getCell(s2Row, 1).value = 'ETP & Shared Services Total'
-  ws2.getCell(s2Row, 2).value = ETP_AND_SS_PENCE / 100
+  ws2.getCell(s2Row, 2).value =
+    etpSsItems.length > 0
+      ? { formula: `=SUM('${tabName}'!L${firstEtpRow}:L${lastEtpRow})` }
+      : 0
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   s2Row++
 
-  ws2.getCell(s2Row, 1).value = 'Full Platform Rate (incl. ETP & SS)'
+  // Full platform rate = total +VAT subtotal (incl. ETP & SS) / X-Chargeable Days.
+  ws2.getCell(s2Row, 1).value = 'Advised Rate (incl. ETP & SS)'
   ws2.getCell(s2Row, 2).value = {
-    formula: `=IF('${tabName}'!I${xChargeableRowNum}=0,0,(SUBTOTAL(9,${ref}!M${FIRST_DATA_ROW}:M${lastEtpRow})+'${tabName}'!I${xChargeableRowNum})/'${tabName}'!I${xChargeableRowNum})`,
+    formula: `=IF('${tabName}'!I${xChargeableRowNum}=0,0,'${tabName}'!M${subtotalRowNum}/'${tabName}'!I${xChargeableRowNum})`,
   }
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  s2Row++
+
+  // Current Rate — the rate agreed with Finance, read from the DB override.
+  ws2.getCell(s2Row, 1).value = 'Current Rate'
+  ws2.getCell(s2Row, 2).value =
+    blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  ws2.getCell(s2Row, 3).value = '(agreed with Finance)'
+  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: LABEL_ARGB } }
 
   /* ── Serialise to buffer ── */
   const buffer = await wb.xlsx.writeBuffer()
