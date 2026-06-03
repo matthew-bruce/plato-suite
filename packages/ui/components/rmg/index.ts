@@ -31,4 +31,7 @@ export type { TabsProps, TabItem, TabsSize } from './Tabs'
 export { Icon } from './icons'
 export type { IconName } from './icons'
 
+export { LoadingOverlay } from './LoadingOverlay'
+export type { LoadingOverlayProps } from './LoadingOverlay'
+
 export * from './PageToolbar'

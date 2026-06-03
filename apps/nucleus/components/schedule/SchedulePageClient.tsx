@@ -17,6 +17,8 @@ import {
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
   PeriodContextStrip,
+  LoadingOverlay,
+  useLoadingOverlay,
 } from '@plato/ui'
 import type { PeriodOption } from '@plato/ui'
 import { getPeriodStatus } from '@plato/ui'
@@ -62,6 +64,8 @@ export function SchedulePageClient({ data }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending] = useTransition()
+  const { isLoading, loadingMessage, loadingSubMessage, setLoading, clearLoading } =
+    useLoadingOverlay()
 
   // Current period ID from URL, falling back to the loaded period
   const activePeriodId = searchParams.get('period') ?? period.period_id
@@ -89,6 +93,8 @@ export function SchedulePageClient({ data }: Props) {
     setLocked(
       getPeriodStatus(new Date(period.period_start_date), new Date(period.period_end_date)) === 'historic',
     )
+    // New schedule data has arrived for the selected period — dismiss the overlay.
+    clearLoading()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period.period_id])
   useEffect(() => {
@@ -376,6 +382,7 @@ export function SchedulePageClient({ data }: Props) {
   const isClosed = period.period_status === 'closed'
 
   return (
+    <>
     <div
       style={{
         background: '#ffffff',
@@ -403,6 +410,9 @@ export function SchedulePageClient({ data }: Props) {
         }))}
         currentPeriodId={activePeriodId}
         onPeriodSelect={(id) => {
+          if (id === activePeriodId) return
+          const periodName = allPeriods.find((p) => p.period_id === id)?.period_name
+          setLoading('Loading schedule', periodName)
           const params = new URLSearchParams(searchParams.toString())
           params.set('period', id)
           router.push(`/schedule?${params.toString()}`)
@@ -542,6 +552,12 @@ export function SchedulePageClient({ data }: Props) {
         onAddAllocation={handleAddAllocation}
       />
     </div>
+    <LoadingOverlay
+      isLoading={isLoading}
+      message={loadingMessage}
+      subMessage={loadingSubMessage}
+    />
+    </>
   )
 }
 
