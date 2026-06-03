@@ -211,6 +211,26 @@ export function SchedulePageClient({ data }: Props) {
     locationFilter === 'all' &&
     teamFilter === 'all'
 
+  async function handleExportToExcel() {
+    try {
+      const response = await fetch(`/api/export/schedule?periodId=${activePeriodId}`)
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = response.headers.get('Content-Disposition')
+      const match = disposition?.match(/filename="(.+)"/)
+      a.download = match?.[1] ?? 'Rate_Calculator.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export error:', err)
+    }
+  }
+
   async function refetchCostItems() {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
@@ -391,7 +411,7 @@ export function SchedulePageClient({ data }: Props) {
         onLockToggle={() => setLocked((v) => !v)}
         onDuplicate={() => console.log('Duplicate period: coming soon')}
         onActivate={() => console.log('Activate period: coming soon')}
-        onExport={() => console.log('Export to Excel: coming soon')}
+        onExport={handleExportToExcel}
       />
 
       <KpiStrip totals={totals} costConfig={costConfig} />
