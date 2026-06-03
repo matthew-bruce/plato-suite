@@ -354,17 +354,6 @@ export function SchedulePageClient({ data }: Props) {
   }
 
   const isClosed = period.period_status === 'closed'
-  const statusDot = isClosed
-    ? '#8F9495'
-    : period.period_status === 'active'
-      ? '#008A00'
-      : '#F3920D'
-  const statusLabel =
-    period.period_status === 'closed'
-      ? 'Closed'
-      : period.period_status === 'active'
-        ? 'Active'
-        : 'Draft'
 
   return (
     <div
@@ -379,12 +368,7 @@ export function SchedulePageClient({ data }: Props) {
         boxSizing: 'border-box',
       }}
     >
-      <PageHeader
-        period={period}
-        statusDot={statusDot}
-        statusLabel={statusLabel}
-        isClosed={isClosed}
-      />
+      <PageHeader onCreateNewPeriod={() => console.log('Create New Period: coming soon')} />
 
       <PeriodContextStrip
         periodStart={new Date(period.period_start_date)}
@@ -407,6 +391,7 @@ export function SchedulePageClient({ data }: Props) {
         onLockToggle={() => setLocked((v) => !v)}
         onDuplicate={() => console.log('Duplicate period: coming soon')}
         onActivate={() => console.log('Activate period: coming soon')}
+        onExport={() => console.log('Export to Excel: coming soon')}
       />
 
       <KpiStrip totals={totals} costConfig={costConfig} />
@@ -542,31 +527,19 @@ export function SchedulePageClient({ data }: Props) {
 
 /* ── PageHeader ────────────────────────────────────────────────── */
 
-function PageHeader({
-  period,
-  statusDot,
-  statusLabel,
-  isClosed,
-}: {
-  period: SchedulePageData['period']
-  statusDot: string
-  statusLabel: string
-  isClosed: boolean
-}) {
+function PageHeader({ onCreateNewPeriod }: { onCreateNewPeriod: () => void }) {
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 14,
-        flexWrap: 'wrap',
+        justifyContent: 'space-between',
         marginBottom: 12,
       }}
     >
       <h1
         style={{
-          fontFamily: 'var(--rmg-font-display)',
-          fontSize: 26,
+          fontSize: 22,
           fontWeight: 700,
           color: '#2A2A2D',
           letterSpacing: '-0.03em',
@@ -576,50 +549,22 @@ function PageHeader({
         Platform Schedule
       </h1>
 
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 10,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          color: '#8F9495',
-        }}
-      >
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            background: statusDot,
-            display: 'inline-block',
-          }}
-        />
-        {statusLabel}
-      </span>
-
-      <div style={{ flex: 1 }} />
-
-      <GhostButton onClick={() => console.log('Create New Period: coming soon')}>
+      <GhostButton onClick={onCreateNewPeriod}>
+        <span style={{ marginRight: 6, display: 'inline-flex', verticalAlign: 'middle' }} aria-hidden>
+          <ClockIcon size={12} />
+        </span>
         Create New Period
       </GhostButton>
-      <GhostButton onClick={() => alert('Export to Excel: coming soon')}>
-        Export to Excel
-      </GhostButton>
-      <PrimaryButton
-        disabled={isClosed}
-        onClick={() => alert('Add Resource: coming soon')}
-      >
-        {isClosed && (
-          <span style={{ marginRight: 6 }} aria-hidden>
-            {LockIcon(11)}
-          </span>
-        )}
-        Add Resource
-      </PrimaryButton>
     </div>
+  )
+}
+
+function ClockIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden style={{ verticalAlign: 'middle' }}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -2052,40 +1997,6 @@ function Cell({
 }
 
 /* ── Buttons / icons ───────────────────────────────────────────── */
-
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: '#DA202A',
-        color: 'white',
-        border: '1.5px solid #DA202A',
-        borderRadius: 10,
-        padding: '5px 12px',
-        fontSize: 12,
-        fontWeight: 600,
-        fontFamily: 'var(--rmg-font-body)',
-        opacity: disabled ? 0.42 : 1,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        display: 'inline-flex',
-        alignItems: 'center',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
 
 function GhostButton({
   children,

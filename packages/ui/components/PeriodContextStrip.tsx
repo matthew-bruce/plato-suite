@@ -1,9 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { getPeriodIdentity } from '../utils/getPeriodIdentity'
 import { getPeriodStatus } from '../utils/getPeriodStatus'
+import { formatPeriodDate } from '../utils/formatPeriodDate'
 import type { PeriodStatus } from '../utils/getPeriodStatus'
 
 export type { PeriodStatus }
+
+const COLORS = {
+  stripBg: '#404044',
+  bannerActive: '#008A00',
+  bannerHistoric: '#FDDA24',
+  bannerDraft: '#0892CB',
+  chipActiveBg: '#C1E3C1',
+  chipActiveTxt: '#1A6B00',
+  chipDraftBg: '#BEE0F5',
+  chipDraftTxt: '#005F8A',
+  chipHistoricBg: '#FEEB87',
+  chipHistoricTxt: '#5a4000',
+  badgeRed: '#DA202A',
+}
 
 export interface PeriodOption {
   periodId: string
@@ -19,7 +34,7 @@ export interface PeriodContextStripProps {
   platformName: string
   periods: PeriodOption[]
   currentPeriodId: string
-  onPeriodSelect: (periodId: string) => void
+  onPeriodSelect: (id: string) => void
   locked: boolean
   onLockToggle: () => void
   onDuplicate?: () => void
@@ -27,101 +42,111 @@ export interface PeriodContextStripProps {
   onExport?: () => void
 }
 
-function formatStripDate(d: Date): string {
-  return d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
-}
-
-const STATUS_STYLES: Record<PeriodStatus, React.CSSProperties> = {
-  active: {
-    background: 'rgba(0,138,0,0.22)',
-    color: '#7FD97F',
-    border: '1px solid rgba(127,217,127,0.22)',
-  },
-  historic: {
-    background: 'rgba(255,255,255,0.08)',
-    color: 'rgba(255,255,255,0.42)',
-    border: '1px solid rgba(255,255,255,0.12)',
-  },
-  draft: {
-    background: 'rgba(243,146,13,0.2)',
-    color: '#F3C175',
-    border: '1px solid rgba(243,146,13,0.25)',
-  },
-}
-
-const PICKER_IDENTITY_BG: Record<PeriodStatus, string> = {
-  active: '#005A00',
-  historic: '#6B7280',
-  draft: '#854F0B',
-}
-
-const PICKER_CHIP_STYLES: Record<PeriodStatus, React.CSSProperties> = {
-  active: { background: '#C1E3C1', color: '#1A6B00' },
-  historic: { background: '#EEEEEE', color: '#8F9495' },
-  draft: { background: '#FDE8C8', color: '#854F0B' },
+const CHIP_STYLES: Record<PeriodStatus, React.CSSProperties> = {
+  active: { background: COLORS.chipActiveBg, color: COLORS.chipActiveTxt },
+  draft: { background: COLORS.chipDraftBg, color: COLORS.chipDraftTxt },
+  historic: { background: COLORS.chipHistoricBg, color: COLORS.chipHistoricTxt },
 }
 
 const CHIP_LABEL: Record<PeriodStatus, string> = {
   active: 'Active',
-  historic: 'Historic',
   draft: 'Draft',
+  historic: 'Historic',
 }
 
-function Divider() {
+/* ── Icons ─────────────────────────────────────────────────────── */
+
+function DownloadIcon({ size = 13 }: { size?: number }) {
   return (
-    <div
-      style={{
-        width: 1,
-        height: 20,
-        background: 'rgba(255,255,255,0.15)',
-        margin: '0 22px',
-        flexShrink: 0,
-      }}
-    />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
-function MetaItem({ label, value }: { label: string; value: string }) {
+function ClockIcon({ size = 14 }: { size?: number }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span
-        style={{
-          fontSize: 8,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          color: 'rgba(255,255,255,0.32)',
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.78)' }}>
-        {value}
-      </span>
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M12 7v5l3 2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
-function ToggleSwitch({
-  on,
+function ActiveIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+      <circle cx="12" cy="12" r="10" stroke="#fff" strokeWidth="2" />
+      <path d="M8 12l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function HistoricIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+      <path
+        d="M3 6h18M5 6v13a1 1 0 001 1h12a1 1 0 001-1V6"
+        stroke="#2A2A2D"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M9 10h6M9 14h4" stroke="#2A2A2D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function DraftIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+      <path
+        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"
+        stroke="#fff"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="9" y="3" width="6" height="4" rx="1" stroke="#fff" strokeWidth="2" />
+      <path d="M9 12h6M9 16h4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/* ── Toggle ────────────────────────────────────────────────────── */
+
+function LockToggle({
+  locked,
   onToggle,
-  trackOnColor,
-  trackOffColor,
-  textColor,
-  label,
+  variant,
 }: {
-  on: boolean
+  locked: boolean
   onToggle: () => void
-  trackOnColor: string
-  trackOffColor: string
-  textColor: string
-  label: string
+  variant: 'light' | 'dark' // light = active (green), dark = historic (yellow)
 }) {
+  const on = !locked // ON = unlocked
+  const trackColor =
+    variant === 'light'
+      ? on
+        ? 'rgba(255,255,255,0.55)'
+        : 'rgba(255,255,255,0.25)'
+      : on
+        ? 'rgba(0,0,0,0.35)'
+        : 'rgba(0,0,0,0.15)'
+  const labelColor = variant === 'light' ? 'rgba(255,255,255,0.85)' : 'rgba(42,42,45,0.75)'
+
   return (
     <button
       type="button"
@@ -131,7 +156,7 @@ function ToggleSwitch({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
         background: 'transparent',
         border: 'none',
         cursor: 'pointer',
@@ -139,48 +164,48 @@ function ToggleSwitch({
         flexShrink: 0,
       }}
     >
-      <div
+      <span
         style={{
-          width: 36,
-          height: 20,
-          borderRadius: 10,
-          background: on ? trackOnColor : trackOffColor,
           position: 'relative',
-          transition: 'background 200ms ease',
+          width: 40,
+          height: 22,
+          borderRadius: 11,
+          background: trackColor,
           flexShrink: 0,
+          transition: 'background 180ms ease',
         }}
       >
-        <div
+        <span
           style={{
             position: 'absolute',
             top: 3,
-            left: on ? 19 : 3,
-            width: 14,
-            height: 14,
+            left: on ? 21 : 3,
+            width: 16,
+            height: 16,
             borderRadius: '50%',
             background: '#fff',
-            transition: 'left 200ms ease',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+            transition: 'left 180ms ease',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
           }}
         />
-      </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color: textColor, whiteSpace: 'nowrap' }}>
-        {label}
+      </span>
+      <span style={{ fontSize: 11, fontWeight: 700, color: labelColor, whiteSpace: 'nowrap' }}>
+        {locked ? 'Unlock' : 'Lock'}
       </span>
     </button>
   )
 }
 
-function ActionChip({
+/* ── Pill button ───────────────────────────────────────────────── */
+
+function PillButton({
   children,
   onClick,
-  background,
-  color,
+  variant,
 }: {
   children: React.ReactNode
   onClick?: () => void
-  background: string
-  color: string
+  variant: 'light' | 'dark'
 }) {
   return (
     <button
@@ -190,23 +215,46 @@ function ActionChip({
         display: 'inline-flex',
         alignItems: 'center',
         gap: 5,
-        padding: '4px 10px',
-        borderRadius: 4,
-        fontSize: 9,
+        padding: '5px 14px',
+        borderRadius: 100,
+        fontSize: 11,
         fontWeight: 700,
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.06em',
+        background: 'transparent',
         cursor: 'pointer',
-        border: 'none',
-        background,
-        color,
+        whiteSpace: 'nowrap',
         flexShrink: 0,
+        ...(variant === 'light'
+          ? { border: '2px solid rgba(255,255,255,0.7)', color: '#fff' }
+          : { border: '2px solid rgba(0,0,0,0.3)', color: '#2A2A2D' }),
       }}
     >
       {children}
     </button>
   )
 }
+
+/* ── Meta item (desktop top row) ───────────────────────────────── */
+
+function MetaItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      <span
+        style={{
+          fontSize: 8,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.09em',
+          color: 'rgba(255,255,255,0.32)',
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.78)' }}>{value}</span>
+    </div>
+  )
+}
+
+/* ── Component ─────────────────────────────────────────────────── */
 
 export function PeriodContextStrip({
   periodStart,
@@ -220,89 +268,79 @@ export function PeriodContextStrip({
   onLockToggle,
   onDuplicate,
   onActivate,
+  onExport,
 }: PeriodContextStripProps) {
   const [isMobile, setIsMobile] = useState(false)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [hoveredPeriodId, setHoveredPeriodId] = useState<string | null>(null)
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const [triggerHover, setTriggerHover] = useState(false)
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth <= 640)
+    const check = () => setIsMobile(window.innerWidth < 640)
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
 
   useEffect(() => {
-    if (!pickerOpen) return
+    if (!isPickerOpen) return
     function onMouseDown(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false)
+        setIsPickerOpen(false)
       }
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [pickerOpen])
+  }, [isPickerOpen])
 
   const status = getPeriodStatus(periodStart, periodEnd)
   const identity = getPeriodIdentity(periodStart)
-  const periodLabel = `${formatStripDate(periodStart)} – ${formatStripDate(periodEnd)}`
-  const workingDaysLabel = `${workingDays} days`
+  const dateRange = `${formatPeriodDate(periodStart)} – ${formatPeriodDate(periodEnd)}`
 
   const sortedPeriods = [...periods].sort(
-    (a, b) => a.periodStart.getTime() - b.periodStart.getTime(),
+    (a, b) => b.periodStart.getTime() - a.periodStart.getTime(),
   )
 
-  const statusBadge = (
-    <div
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        borderRadius: 100,
-        padding: '4px 10px',
-        fontSize: 10,
-        fontWeight: 700,
-        textTransform: 'uppercase' as const,
-        letterSpacing: '0.07em',
-        flexShrink: 0,
-        ...STATUS_STYLES[status],
-      }}
-    >
-      {status === 'historic' ? 'Historic' : status.charAt(0).toUpperCase() + status.slice(1)}
-    </div>
-  )
+  /* ── Trigger ── */
 
-  const periodSelectorButton = (
+  const trigger = (
     <button
       type="button"
-      onClick={() => setPickerOpen((v) => !v)}
+      onClick={() => setIsPickerOpen((v) => !v)}
+      onMouseEnter={() => setTriggerHover(true)}
+      onMouseLeave={() => setTriggerHover(false)}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
-        background: pickerOpen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.15)',
-        borderRadius: 8,
-        padding: '6px 12px',
+        gap: 10,
         cursor: 'pointer',
+        padding: '8px 16px',
+        borderRadius: 8,
+        border: `1px solid ${
+          triggerHover || isPickerOpen ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.18)'
+        }`,
+        background:
+          isPickerOpen || triggerHover ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)',
         flexShrink: 0,
+        marginRight: isMobile ? 0 : 22,
+        width: isMobile ? '100%' : undefined,
+        justifyContent: isMobile ? 'space-between' : undefined,
+        userSelect: 'none',
+        transition: 'background 120ms, border-color 120ms',
       }}
     >
-      <span
-        style={{
-          fontSize: 34,
-          fontWeight: 700,
-          color: '#fff',
-          letterSpacing: '-0.04em',
-          lineHeight: 1,
-        }}
-      >
-        Q{identity.quarter}
-      </span>
-      <span
-        style={{ fontSize: 17, fontWeight: 600, color: 'rgba(255,255,255,0.5)', lineHeight: 1 }}
-      >
-        {identity.fiscalYearLabel}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1 }}>
+          Q{identity.quarter}
+        </span>
+        <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', lineHeight: 1 }}>
+          FY {identity.fiscalYearLabel}
+        </span>
+        <span
+          style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.2)', margin: '0 4px', flexShrink: 0 }}
+        />
+        <span style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{dateRange}</span>
       </span>
       <svg
         width="14"
@@ -311,14 +349,16 @@ export function PeriodContextStrip({
         fill="none"
         aria-hidden
         style={{
+          color: 'rgba(255,255,255,0.55)',
+          marginLeft: 4,
           flexShrink: 0,
-          transform: pickerOpen ? 'rotate(180deg)' : 'none',
-          transition: 'transform 150ms ease',
+          transition: 'transform 200ms',
+          transform: isPickerOpen ? 'rotate(180deg)' : 'rotate(0deg)',
         }}
       >
         <path
           d="M3 5L7 9L11 5"
-          stroke="rgba(255,255,255,0.5)"
+          stroke="currentColor"
           strokeWidth="1.8"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -327,66 +367,90 @@ export function PeriodContextStrip({
     </button>
   )
 
-  // Top row — always rounded top, because banner always follows
-  const topRowRadius: React.CSSProperties['borderRadius'] = '12px 12px 0 0'
+  /* ── Export button ── */
 
-  const topRowContent = isMobile ? (
-    <div
+  const exportButton = (
+    <button
+      type="button"
+      onClick={onExport}
       style={{
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '10px 14px',
-        background: '#404044',
-        borderRadius: topRowRadius,
+        justifyContent: 'center',
+        gap: 6,
+        padding: '7px 13px',
+        borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.22)',
+        background: 'rgba(255,255,255,0.08)',
+        fontSize: 11,
+        fontWeight: 600,
+        color: 'rgba(255,255,255,0.75)',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        marginLeft: isMobile ? 0 : 'auto',
+        width: isMobile ? '100%' : undefined,
+        flexShrink: 0,
       }}
     >
-      {periodSelectorButton}
-      {statusBadge}
-    </div>
-  ) : (
+      <DownloadIcon />
+      Export
+    </button>
+  )
+
+  const metaDivider = (
+    <span
+      style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.14)', margin: '0 18px', flexShrink: 0 }}
+    />
+  )
+
+  /* ── Top row ── */
+
+  const topRow = (
     <div
       style={{
+        background: COLORS.stripBg,
         display: 'flex',
-        alignItems: 'center',
-        padding: '10px 16px',
-        background: '#404044',
-        borderRadius: topRowRadius,
+        alignItems: isMobile ? 'stretch' : 'center',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 10 : 0,
+        padding: '12px 18px',
       }}
     >
-      {periodSelectorButton}
-      <Divider />
-      <MetaItem label="Period" value={periodLabel} />
-      <Divider />
-      <MetaItem label="Working days" value={workingDaysLabel} />
-      <Divider />
-      <MetaItem label="Platform" value={platformName} />
-      <div style={{ flex: 1 }} />
-      {statusBadge}
+      {trigger}
+      {!isMobile && (
+        <>
+          {metaDivider}
+          <MetaItem label="Working days" value={`${workingDays}`} />
+          {metaDivider}
+          <MetaItem label="Platform" value={platformName} />
+        </>
+      )}
+      {exportButton}
     </div>
   )
+
+  /* ── Mobile meta grid ── */
 
   const mobileMetaGrid = isMobile ? (
     <div
       style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        background: '#404044',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 0,
+        background: COLORS.stripBg,
+        borderTop: '1px solid rgba(255,255,255,0.08)',
       }}
     >
       {[
-        { label: 'Period', value: periodLabel },
-        { label: 'Working days', value: workingDaysLabel },
+        { label: 'Period', value: dateRange },
+        { label: 'Working days', value: `${workingDays}` },
         { label: 'Platform', value: platformName },
       ].map((item, i) => (
         <div
           key={item.label}
           style={{
-            padding: '10px 16px',
-            borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.07)' : undefined,
-            borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.07)' : undefined,
+            padding: '10px 18px',
+            borderRight: i % 2 === 0 ? '1px solid rgba(255,255,255,0.08)' : undefined,
+            borderBottom: i < 2 ? '1px solid rgba(255,255,255,0.08)' : undefined,
           }}
         >
           <MetaItem label={item.label} value={item.value} />
@@ -395,303 +459,179 @@ export function PeriodContextStrip({
     </div>
   ) : null
 
-  // Banners
-  const bannerBase: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    padding: isMobile ? '10px 14px' : '11px 18px',
-    borderTop: '1px solid rgba(0,0,0,0.06)',
-    borderRadius: '0 0 12px 12px',
-  }
+  /* ── Period picker dropdown ── */
 
-  let banner: React.ReactNode
-
-  if (status === 'active') {
-    const unlocked = !locked
-    banner = (
-      <div style={{ ...bannerBase, background: '#E8F5E9', borderLeft: '3px solid #1A6B00' }}>
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: '50%',
-            background: '#C1E3C1',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-            <path
-              d="M2 6L5 9L10 3"
-              stroke="#1A6B00"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1A6B00' }}>
-            This period is currently active
-          </div>
-          <div style={{ fontSize: 10, color: 'rgba(26,107,0,0.7)', marginTop: 1 }}>
-            All values are editable. Lock to prevent accidental changes.
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <ToggleSwitch
-            on={unlocked}
-            onToggle={onLockToggle}
-            trackOnColor="#1A6B00"
-            trackOffColor="#ccc"
-            textColor="#1A6B00"
-            label={locked ? 'Unlock' : 'Lock'}
-          />
-          {onDuplicate && (
-            <ActionChip
-              onClick={onDuplicate}
-              background="rgba(0,107,0,0.1)"
-              color="#1A6B00"
-            >
-              Duplicate
-            </ActionChip>
-          )}
-        </div>
-      </div>
-    )
-  } else if (status === 'historic') {
-    const unlocked = !locked
-    banner = (
-      <div style={{ ...bannerBase, background: '#FFFBEA', borderLeft: '3px solid #FDDA24' }}>
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: '50%',
-            background: '#FDDA24',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-            <rect x="3.5" y="5" width="5" height="4.5" rx="0.8" stroke="#5a4000" strokeWidth="1.4" fill="none" />
-            <path d="M4.5 5 V3.5 a1.5 1.5 0 0 1 3 0 V5" stroke="#5a4000" strokeWidth="1.4" fill="none" />
-          </svg>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#5a4000' }}>
-            This period is historic
-          </div>
-          <div style={{ fontSize: 10, color: 'rgba(90,64,0,0.7)', marginTop: 1 }}>
-            {locked
-              ? 'All values are read-only. Unlock to make changes.'
-              : 'Changes now permitted. Lock again when done.'}
-          </div>
-        </div>
-        <div style={{ flexShrink: 0 }}>
-          <ToggleSwitch
-            on={unlocked}
-            onToggle={onLockToggle}
-            trackOnColor="#1A6B00"
-            trackOffColor="#B8860B"
-            textColor="#5a4000"
-            label={locked ? 'Unlock' : 'Lock'}
-          />
-        </div>
-      </div>
-    )
-  } else {
-    // draft
-    const unlocked = !locked
-    banner = (
-      <div style={{ ...bannerBase, background: '#E8F0FE', borderLeft: '3px solid #1A4A8A' }}>
-        <div
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: '50%',
-            background: '#BEE0F5',
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-            <path
-              d="M7.5 2.5L9.5 4.5L4 10H2V8L7.5 2.5Z"
-              stroke="#1A4A8A"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#1A4A8A' }}>
-            This period is in draft
-          </div>
-          <div style={{ fontSize: 10, color: 'rgba(26,74,138,0.7)', marginTop: 1 }}>
-            Review all resources before activating.
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <ToggleSwitch
-            on={unlocked}
-            onToggle={onLockToggle}
-            trackOnColor="#1A6B00"
-            trackOffColor="#ccc"
-            textColor="#1A4A8A"
-            label={locked ? 'Unlock' : 'Lock'}
-          />
-          {onActivate && (
-            <ActionChip
-              onClick={onActivate}
-              background="rgba(26,100,180,0.1)"
-              color="#1A4A8A"
-            >
-              Activate
-            </ActionChip>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // Floating period picker panel
-  const pickerPanel = pickerOpen ? (
+  const picker = (
     <div
       style={{
-        position: 'absolute',
-        top: '100%',
-        left: 0,
-        marginTop: 4,
         background: '#FFFFFF',
-        borderRadius: '0 12px 12px 12px',
-        border: '1px solid rgba(0,0,0,0.1)',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.10)',
-        overflow: 'hidden',
-        minWidth: 400,
-        zIndex: 50,
+        borderTop: '1px solid #EEEEEE',
+        display: isPickerOpen ? 'block' : 'none',
       }}
     >
       {sortedPeriods.map((p, i) => {
         const pid = getPeriodIdentity(p.periodStart)
         const rowStatus = getPeriodStatus(p.periodStart, p.periodEnd)
-        const isSelected = p.periodId === currentPeriodId
-        const isHovered = hoveredPeriodId === p.periodId
+        const isCurrent = p.periodId === currentPeriodId
+        const isHovered = hoveredRow === p.periodId
         const isLast = i === sortedPeriods.length - 1
 
         return (
           <div
             key={p.periodId}
-            onMouseEnter={() => setHoveredPeriodId(p.periodId)}
-            onMouseLeave={() => setHoveredPeriodId(null)}
+            onMouseEnter={() => setHoveredRow(p.periodId)}
+            onMouseLeave={() => setHoveredRow(null)}
             onClick={() => {
               onPeriodSelect(p.periodId)
-              setPickerOpen(false)
+              setIsPickerOpen(false)
             }}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
-              padding: '12px 16px',
-              borderBottom: isLast ? 'none' : '1px solid #EEEEEE',
-              background: isHovered ? '#F5F5F5' : '#FFFFFF',
+              gap: 14,
+              padding: '13px 18px',
               cursor: 'pointer',
-              transition: 'background 100ms ease',
+              borderBottom: isLast ? undefined : '1px solid #EEEEEE',
+              background: isHovered ? '#F5F5F5' : isCurrent ? '#FAFAFA' : '#FFFFFF',
+              transition: 'background 100ms',
             }}
           >
-            <div
+            <span
               style={{
-                width: 52,
-                height: 52,
-                borderRadius: 8,
-                background: PICKER_IDENTITY_BG[rowStatus],
-                flexShrink: 0,
-                display: 'flex',
-                flexDirection: 'column',
+                display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
+                gap: 5,
+                minWidth: 80,
+                height: 52,
+                flexShrink: 0,
+                borderRadius: 8,
+                background: COLORS.badgeRed,
+                padding: '0 12px',
               }}
             >
-              <span style={{ fontSize: 18, fontWeight: 700, color: '#fff', lineHeight: 1 }}>
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#fff', letterSpacing: '-0.04em' }}>
                 Q{pid.quarter}
               </span>
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 600,
-                  color: 'rgba(255,255,255,0.5)',
-                  lineHeight: 1,
-                }}
-              >
-                {pid.fiscalYearLabel}
-              </span>
-            </div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>FY {pid.fiscalYearLabel}</span>
+            </span>
 
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#2A2A2D', marginBottom: 2 }}>
-                Q{pid.quarter} — FY {pid.fiscalYearLabel}
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#2A2A2D' }}>
+                {formatPeriodDate(p.periodStart)} – {formatPeriodDate(p.periodEnd)}
               </div>
-              <div style={{ fontSize: 11, color: '#8F9495', marginBottom: 2 }}>
-                {formatStripDate(p.periodStart)} – {formatStripDate(p.periodEnd)}
-              </div>
-              <div style={{ fontSize: 10, color: '#8F9495' }}>{p.workingDays} working days</div>
+              <div style={{ fontSize: 10, color: '#8F9495', marginTop: 2 }}>{p.workingDays} working days</div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  borderRadius: 4,
-                  padding: '2px 6px',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  textTransform: 'uppercase' as const,
-                  letterSpacing: '0.06em',
-                  ...PICKER_CHIP_STYLES[rowStatus],
-                }}
-              >
-                {CHIP_LABEL[rowStatus]}
-              </span>
-              {isSelected && (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                  <path
-                    d="M2.5 7L5.5 10L11.5 4"
-                    stroke="#2A2A2D"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </div>
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                padding: '3px 8px',
+                borderRadius: 4,
+                flexShrink: 0,
+                ...CHIP_STYLES[rowStatus],
+              }}
+            >
+              {CHIP_LABEL[rowStatus]}
+            </span>
           </div>
         )
       })}
     </div>
-  ) : null
+  )
+
+  /* ── Banner ── */
+
+  const bannerLayout: React.CSSProperties = {
+    display: 'flex',
+    alignItems: isMobile ? 'flex-start' : 'center',
+    flexWrap: isMobile ? 'wrap' : 'nowrap',
+    gap: 12,
+    padding: '12px 18px',
+    borderTop: '1px solid rgba(0,0,0,0.08)',
+  }
+
+  let banner: React.ReactNode
+
+  if (status === 'active') {
+    banner = (
+      <div style={{ ...bannerLayout, background: COLORS.bannerActive }}>
+        <ActiveIcon />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+            This period is currently active
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>
+            All values are editable. Lock to prevent accidental changes.
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <LockToggle locked={locked} onToggle={onLockToggle} variant="light" />
+          {onDuplicate && (
+            <PillButton onClick={onDuplicate} variant="light">
+              Duplicate
+            </PillButton>
+          )}
+        </div>
+      </div>
+    )
+  } else if (status === 'historic') {
+    banner = (
+      <div style={{ ...bannerLayout, background: COLORS.bannerHistoric }}>
+        <HistoricIcon />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#2A2A2D' }}>
+            {locked ? 'This period is historic' : 'This period is historic — editing unlocked'}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(42,42,45,0.65)' }}>
+            {locked
+              ? 'All values are read-only. Unlock to make changes.'
+              : 'Changes now permitted. Lock again when done.'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <LockToggle locked={locked} onToggle={onLockToggle} variant="dark" />
+        </div>
+      </div>
+    )
+  } else {
+    banner = (
+      <div style={{ ...bannerLayout, background: COLORS.bannerDraft }}>
+        <DraftIcon />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>This period is in draft</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>
+            Review all resources before activating this period.
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          {onActivate && (
+            <PillButton onClick={onActivate} variant="light">
+              Activate
+            </PillButton>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', marginBottom: 20 }}>
-      <div
-        style={{
-          borderRadius: 12,
-          border: '1px solid rgba(0,0,0,0.1)',
-        }}
-      >
-        {topRowContent}
-        {mobileMetaGrid}
-        {banner}
-      </div>
-      {pickerPanel}
+    <div
+      ref={containerRef}
+      style={{
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: '1px solid rgba(0,0,0,0.1)',
+        marginBottom: 20,
+      }}
+    >
+      {topRow}
+      {mobileMetaGrid}
+      {picker}
+      {banner}
     </div>
   )
 }
