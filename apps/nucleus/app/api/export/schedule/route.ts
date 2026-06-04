@@ -321,7 +321,7 @@ export async function GET(request: Request): Promise<Response> {
     { width: 28 }, // A
     { width: 18 }, // B
     { width: 18 }, // C
-    { width: 16 }, // D
+    { width: 22 }, // D
     { width: 9 },  // E
     { width: 9 },  // F
     { width: 9 },  // G
