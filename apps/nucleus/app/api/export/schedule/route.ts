@@ -43,13 +43,13 @@ interface CostItemRow {
 /* ── Filename derivation ──────────────────────────────────────────── */
 // "Q4 FY 25/26" → "Rate_Calculator_FY25-26_Q4_Web.xlsx"
 
-function deriveFilename(periodName: string): string {
+function deriveFilename(periodName: string, stamp: string): string {
   // Match "Q<n> FY <yy>/<yy>" pattern
   const match = periodName.match(/Q(\d)\s+FY\s+(\d{2}\/\d{2})/)
-  if (!match) return 'Rate_Calculator_Web.xlsx'
+  if (!match) return `Rate_Calculator_Web_${stamp}.xlsx`
   const q = match[1]
   const fy = match[2].replace('/', '-')
-  return `Rate_Calculator_FY${fy}_Q${q}_Web.xlsx`
+  return `Rate_Calculator_FY${fy}_Q${q}_Web_${stamp}.xlsx`
 }
 
 /* ── Cell helpers ──────────────────────────────────────────────────── */
@@ -282,6 +282,13 @@ export async function GET(request: Request): Promise<Response> {
   const etpSsItems = costItems.filter(
     (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
   )
+
+  /* ── Timestamp (single instance shared by filename and hero row) ── */
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const exportedAt = `Exported ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} at ${pad(now.getHours())}:${pad(now.getMinutes())}`
 
   /* ══════════════════════════════════════════════════════════════════
      Build the workbook
@@ -632,6 +639,11 @@ export async function GET(request: Request): Promise<Response> {
   for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), HEADER_ARGB)
   ws2.getCell(s2Row, 1).value = 'WEB PLATFORM — COST SCHEDULE'
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+  s2Row++
+  // Exported-at row — dark background, grey italic timestamp
+  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), 'FF2A2A2D')
+  ws2.getCell(s2Row, 1).value = exportedAt
+  ws2.getCell(s2Row, 1).font = { italic: true, color: { argb: 'FF8F9495' }, size: 10 }
   s2Row += 2
 
   // Quarter overview
@@ -808,13 +820,14 @@ export async function GET(request: Request): Promise<Response> {
   s2Row++
 
   // Shortfall — per-day under-recovery and the quarterly figure at the current rate.
+  const shortfallRowNum = s2Row
   ws2.getCell(s2Row, 1).value = '▲ Shortfall'
   ws2.getCell(s2Row, 2).value = { formula: `=B${summaryAdvisedRow}-B${summaryCurrentRow}` }
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 3).value = {
     formula: `="Under-recovery at current rate — "&TEXT((B${summaryAdvisedRow}-B${summaryCurrentRow})*'${tabName}'!I${xChargeableRowNum},"£#,##0")&" over the quarter"`,
   }
-  for (let c = 1; c <= 3; c++) applyFill(ws2.getCell(s2Row, c), 'FFFEECEC')
+  // Static fill removed — conditional formatting owns the shortfall cell colour.
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF721C24' }, size: 10 }
   ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFE2001A' } } }
   ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF721C24' }, size: 10 }
@@ -945,6 +958,29 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
   }
 
+  /* ── Conditional formatting: shortfall cell on Summary tab ── */
+  const shortfallCf = [
+    { operator: 'greaterThan', formulae: ['50'], priority: 1, fill: 'FFFDE8E8', font: 'FF8B0000' },
+    { operator: 'greaterThan', formulae: ['20'], priority: 2, fill: 'FFFEF9C3', font: 'FF7A5A00' },
+    { operator: 'between', formulae: ['-20', '20'], priority: 3, fill: 'FFE8F5E9', font: 'FF1B5E20' },
+    { operator: 'lessThan', formulae: ['-20'], priority: 4, fill: 'FFFEF9C3', font: 'FF7A5A00' },
+    { operator: 'lessThan', formulae: ['-50'], priority: 5, fill: 'FFFDE8E8', font: 'FF8B0000' },
+  ] as const
+
+  ws2.addConditionalFormatting({
+    ref: `B${shortfallRowNum}`,
+    rules: shortfallCf.map(({ operator, formulae, priority, fill, font }) => ({
+      type: 'cellIs' as const,
+      operator,
+      formulae: [...formulae],
+      priority,
+      style: {
+        fill: { type: 'pattern' as const, pattern: 'solid' as const, bgColor: { argb: fill } },
+        font: { color: { argb: font } },
+      },
+    })),
+  })
+
   /* ══════════════════════════════════════════════════════════════════
      Raw Data tab — flat, calculated values for copy/paste & pivots
   ══════════════════════════════════════════════════════════════════ */
@@ -998,7 +1034,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Serialise to buffer ── */
   const buffer = await wb.xlsx.writeBuffer()
 
-  const filename = deriveFilename(period.period_name)
+  const filename = deriveFilename(period.period_name, stamp)
 
   return new Response(buffer as ArrayBuffer, {
     status: 200,
