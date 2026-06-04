@@ -109,6 +109,31 @@ function writeSectionHeader(
   ws.getCell(rowNum, 1).value = label
 }
 
+// Full-colour supplier band header row inserted before each supplier's resource rows.
+function writeSupplierBandRow(
+  ws: ExcelJS.Worksheet,
+  rowNum: number,
+  supplierName: string,
+  supplierColour: string,
+  resourceCount: number,
+  avgDayRate: number,
+): void {
+  const argb = 'FF' + supplierColour.replace('#', '')
+  for (let c = 1; c <= 13; c++) {
+    ws.getCell(rowNum, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
+  }
+  const labelCell = ws.getCell(rowNum, 1)
+  labelCell.value = `${supplierName.toUpperCase()}  ·  ${resourceCount} resource${resourceCount !== 1 ? 's' : ''}`
+  labelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+
+  const rateCell = ws.getCell(rowNum, 13)
+  rateCell.value = `avg/day  £${avgDayRate.toFixed(2)}`
+  rateCell.font = { bold: false, color: { argb: 'CCFFFFFF' }, size: 10 }
+  rateCell.alignment = { horizontal: 'right' }
+
+  ws.getRow(rowNum).height = 16
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    GET /api/export/schedule?periodId=<uuid>
 ══════════════════════════════════════════════════════════════════════ */
@@ -333,92 +358,113 @@ export async function GET(request: Request): Promise<Response> {
   const HEADER_ROW = 2
   const FIRST_DATA_ROW = HEADER_ROW + 1 // = 3
 
-  /* ── Pass 1: resource rows (VAT formula placeholder until VAT cell row is known) ── */
-  const vatRows: number[] = [] // row numbers that need vat_applies=true formula
+  /* ── Group allocations by supplier (preserving existing sort order) ── */
+  type SupplierGroup = { supplierName: string | null; colour: string | null; rows: AllocationRow[] }
+  const supplierGroupsOrdered: SupplierGroup[] = []
+  const supplierIndexMap = new Map<string | null, number>()
+  for (const alloc of allocations) {
+    const key = alloc.supplier_name
+    if (!supplierIndexMap.has(key)) {
+      supplierIndexMap.set(key, supplierGroupsOrdered.length)
+      supplierGroupsOrdered.push({ supplierName: key, colour: alloc.supplier_colour, rows: [] })
+    }
+    supplierGroupsOrdered[supplierIndexMap.get(key)!].rows.push(alloc)
+  }
+
+  /* ── Pass 1: supplier band rows + resource rows (VAT placeholder until VAT row known) ── */
+  const vatRows: number[] = []
 
   const capitalise = (s: string | null): string =>
     s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 
-  for (const alloc of allocations) {
-    const rowNum = ws.rowCount + 1
-    const r = ws.addRow([
-      alloc.role_title ?? '',
-      alloc.resource_name,
-      'WEB', // PO — platform identifier (hardcoded for now)
-      alloc.team_name,
-      alloc.planview_code ?? '',
-      alloc.supplier_name ?? '',
-      capitalise(alloc.resource_location),
-      alloc.utilisation_percent / 100,
-      alloc.capacity_days ?? 0,
-      alloc.day_rate / 100,
-      { formula: `=IF(E${rowNum}="PR","Yes","No")` },
-      { formula: `=(H${rowNum}*I${rowNum})*J${rowNum}` },
-      // Placeholder — will be replaced in pass 2 once VAT row is known
-      alloc.vat_applies
-        ? { formula: `=L${rowNum}` } // temporary; replaced below
-        : { formula: `=L${rowNum}` },
-    ])
+  const planviewStyles: Record<string, { bg: string; fg: string }> = {
+    PR: { bg: 'FFE8F5E9', fg: 'FF1B5E20' },
+    F_Gov: { bg: 'FFE3F2FD', fg: 'FF0D47A1' },
+    BAU: { bg: 'FFF0F0F0', fg: 'FF888888' },
+  }
 
-    // Percentage for H, currency for J/L/M
-    r.getCell(8).numFmt = '0%'
-    r.getCell(10).numFmt = '£#,##0.00'
-    r.getCell(12).numFmt = '£#,##0.00'
-    r.getCell(13).numFmt = '£#,##0.00'
+  for (const group of supplierGroupsOrdered) {
+    // Band header row immediately before this supplier's resource rows.
+    const bandRowNum = ws.rowCount + 1
+    ws.addRow([])
+    const avgRate = group.rows.reduce((sum, r) => sum + r.day_rate / 100, 0) / group.rows.length
+    writeSupplierBandRow(
+      ws, bandRowNum,
+      group.supplierName ?? 'Unknown',
+      group.colour ?? '#888888',
+      group.rows.length,
+      avgRate,
+    )
 
-    /* ── Row background precedence: vacant > BAU > supplier tint ── */
-    const isBau = alloc.planview_code === 'BAU'
-    const isVacant = !alloc.resource_id // null resource_id = TBC/Vacant
+    for (const alloc of group.rows) {
+      const rowNum = ws.rowCount + 1
+      const r = ws.addRow([
+        alloc.role_title ?? '',
+        alloc.resource_name,
+        'WEB', // PO — platform identifier (hardcoded for now)
+        alloc.team_name,
+        alloc.planview_code ?? '',
+        alloc.supplier_name ?? '',
+        capitalise(alloc.resource_location),
+        alloc.utilisation_percent / 100,
+        alloc.capacity_days ?? 0,
+        alloc.day_rate / 100,
+        { formula: `=IF(E${rowNum}="PR","Yes","No")` },
+        { formula: `=(H${rowNum}*I${rowNum})*J${rowNum}` },
+        // Placeholder — replaced in pass 2 once VAT row is known
+        { formula: `=L${rowNum}` },
+      ])
 
-    let rowArgb: string
-    if (isVacant) {
-      rowArgb = 'FFFEF9E7' // amber tint for unfilled positions
-    } else if (isBau) {
-      rowArgb = 'FFF5F5F5' // flat grey — BAU rows are de-emphasised
-    } else {
-      rowArgb = supplierTint(alloc.supplier_colour ?? '#888888')
+      r.getCell(8).numFmt = '0%'
+      r.getCell(10).numFmt = '£#,##0.00'
+      r.getCell(12).numFmt = '£#,##0.00'
+      r.getCell(13).numFmt = '£#,##0.00'
+
+      /* ── Row background: vacant > BAU > supplier tint ── */
+      const isBau = alloc.planview_code === 'BAU'
+      const isVacant = !alloc.resource_id
+
+      let rowArgb: string
+      if (isVacant) {
+        rowArgb = 'FFFEF9E7'
+      } else if (isBau) {
+        rowArgb = 'FFF5F5F5'
+      } else {
+        rowArgb = supplierTint(alloc.supplier_colour ?? '#888888')
+      }
+      setRowFill(ws, rowNum, rowArgb, NUM_COLS)
+
+      /* ── Column E — planview badge ── */
+      const ps = planviewStyles[alloc.planview_code ?? '']
+      if (ps) {
+        const planviewCell = ws.getCell(`E${rowNum}`)
+        applyFill(planviewCell, ps.bg)
+        planviewCell.font = { bold: true, color: { argb: ps.fg }, size: 10 }
+      }
+
+      /* ── Column K — Chargeable Yes/No colour ── */
+      const isChargeable = alloc.planview_code === 'PR'
+      ws.getCell(`K${rowNum}`).font = {
+        bold: isChargeable,
+        color: { argb: isChargeable ? 'FF1B5E20' : 'FF8F9495' },
+        size: 10,
+      }
+
+      /* ── Column B — TBC/Vacant italic amber-brown ── */
+      if (isVacant) {
+        ws.getCell(`B${rowNum}`).font = { italic: true, color: { argb: 'FF8A6000' }, size: 10 }
+      }
+
+      /* ── BAU rows — L/M not platform-borne, shown as em dash ── */
+      if (isBau) {
+        ws.getCell(`L${rowNum}`).value = '—'
+        ws.getCell(`M${rowNum}`).value = '—'
+        ws.getCell(`L${rowNum}`).font = { color: { argb: 'FFBBBBBB' }, size: 10 }
+        ws.getCell(`M${rowNum}`).font = { color: { argb: 'FFBBBBBB' }, size: 10 }
+      }
+
+      if (alloc.vat_applies && !isBau) vatRows.push(rowNum)
     }
-    setRowFill(ws, rowNum, rowArgb, NUM_COLS)
-
-    /* ── Column E (Planview) per-code badge styling ── */
-    const planviewCell = ws.getCell(`E${rowNum}`)
-    const planviewStyles: Record<string, { bg: string; fg: string }> = {
-      PR: { bg: 'FFE8F5E9', fg: 'FF1B5E20' },
-      F_Gov: { bg: 'FFE3F2FD', fg: 'FF0D47A1' },
-      BAU: { bg: 'FFF0F0F0', fg: 'FF888888' },
-    }
-    const ps = planviewStyles[alloc.planview_code ?? '']
-    if (ps) {
-      applyFill(planviewCell, ps.bg)
-      planviewCell.font = { bold: true, color: { argb: ps.fg }, size: 10 }
-    }
-
-    /* ── Column K (Chargeable) Yes/No colour ── */
-    const chargeableCell = ws.getCell(`K${rowNum}`)
-    const isChargeable = alloc.planview_code === 'PR'
-    chargeableCell.font = {
-      bold: isChargeable,
-      color: { argb: isChargeable ? 'FF1B5E20' : 'FF8F9495' },
-      size: 10,
-    }
-
-    /* ── Column B (Resource) — TBC/Vacant italic amber-brown ── */
-    if (isVacant) {
-      ws.getCell(`B${rowNum}`).font = { italic: true, color: { argb: 'FF8A6000' }, size: 10 }
-    }
-
-    /* ── BAU rows — Total/+VAT not platform-borne, shown as em dash ── */
-    if (isBau) {
-      const totalCell = ws.getCell(`L${rowNum}`)
-      const vatCell = ws.getCell(`M${rowNum}`)
-      totalCell.value = '—'
-      vatCell.value = '—'
-      totalCell.font = { color: { argb: 'FFBBBBBB' }, size: 10 }
-      vatCell.font = { color: { argb: 'FFBBBBBB' }, size: 10 }
-    }
-
-    // VAT formula only back-filled for non-BAU rows (BAU M is now an em dash).
-    if (alloc.vat_applies && !isBau) vatRows.push(rowNum)
   }
 
   const lastResourceRow = ws.rowCount
@@ -530,6 +576,12 @@ export async function GET(request: Request): Promise<Response> {
     { formula: `=I${utilisationRowNum}*I${billableDaysRowNum}` },
   ])
   xChargeableRow.getCell(1).font = { bold: true }
+
+  /* ── Plain config rows: #F8F8F8 background, grey label font ── */
+  for (const plainRowNum of [vatMultiplierRowNum, billableDaysRowNum, utilisationRowNum, xChargeableRowNum]) {
+    for (let c = 1; c <= 9; c++) applyFill(ws.getCell(plainRowNum, c), 'FFF8F8F8')
+    ws.getCell(plainRowNum, 1).font = { color: { argb: 'FF8F9495' }, size: 10 }
+  }
 
   const dayRateRowNum = ws.rowCount + 1
   const dayRateRow = ws.addRow([
