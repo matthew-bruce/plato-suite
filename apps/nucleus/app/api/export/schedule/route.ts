@@ -52,6 +52,13 @@ function deriveFilename(periodName: string, stamp: string): string {
   return `Rate_Calculator_FY${fy}_Q${q}_Web_${stamp}.xlsx`
 }
 
+// "Q4 FY 25/26" → { quarterLabel: "Q4", fyShort: "25-26" }
+function derivePeriodLabels(periodName: string): { quarterLabel: string; fyShort: string } {
+  const match = periodName.match(/Q(\d)\s+FY\s+(\d{2}\/\d{2})/)
+  if (!match) return { quarterLabel: periodName, fyShort: '' }
+  return { quarterLabel: `Q${match[1]}`, fyShort: match[2].replace('/', '-') }
+}
+
 /* ── Cell helpers ──────────────────────────────────────────────────── */
 
 function currency(ws: ExcelJS.Worksheet, row: number, col: number) {
@@ -283,12 +290,18 @@ export async function GET(request: Request): Promise<Response> {
     (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
   )
 
-  /* ── Timestamp (single instance shared by filename and hero row) ── */
-  const now = new Date()
+  /* ── Timestamp in UK timezone (server runs UTC) ── */
   const pad = (n: number) => String(n).padStart(2, '0')
-  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const exportedAt = `Exported ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()} at ${pad(now.getHours())}:${pad(now.getMinutes())}`
+  const nowUtc = new Date()
+  const ukParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(nowUtc)
+  const get = (type: string) => ukParts.find((p) => p.type === type)?.value ?? '00'
+  const stamp = `${get('year')}${get('month')}${get('day')}_${get('hour')}${get('minute')}`
+  const exportedAt = `Exported ${parseInt(get('day'))} ${months[parseInt(get('month')) - 1]} ${get('year')} at ${get('hour')}:${get('minute')}`
 
   /* ══════════════════════════════════════════════════════════════════
      Build the workbook
@@ -303,16 +316,22 @@ export async function GET(request: Request): Promise<Response> {
   // Tab order follows creation order in ExcelJS: create Summary first so it is
   // the leftmost (first) tab, then the Rate Calculator. Both are written below.
   const ws2 = wb.addWorksheet(sanitiseSheetName('Summary'))
+  ws2.views = [{ showGridLines: false }]
   ws2.columns = [
-    { width: 35 }, // A
-    { width: 18 }, // B
-    { width: 18 }, // C
-    { width: 14 }, // D
-    { width: 12 }, // E
+    { width: 28 }, // A
+    { width: 14 }, // B
+    { width: 14 }, // C
+    { width: 9 },  // D
+    { width: 9 },  // E
+    { width: 9 },  // F
+    { width: 9 },  // G
+    { width: 9 },  // H
   ]
 
-  const tabName = sanitiseSheetName(`Rate Calculator - ${period.period_name}`)
-  const ws = wb.addWorksheet(tabName)
+  const { quarterLabel, fyShort } = derivePeriodLabels(period.period_name)
+  const tab1Name = sanitiseSheetName(`Web - ${quarterLabel} FY${fyShort}`)
+  const ws = wb.addWorksheet(tab1Name)
+  ws.views = [{ showGridLines: false }]
 
   // Column widths (A–M)
   ws.columns = [
@@ -340,7 +359,6 @@ export async function GET(request: Request): Promise<Response> {
   ]
 
   const HEADER_ARGB = 'FF404044'
-  const LABEL_ARGB = 'FF8F9495'
   const NUM_COLS = 13
 
   /* ── Row 1: empty ── */
@@ -384,12 +402,6 @@ export async function GET(request: Request): Promise<Response> {
   const capitalise = (s: string | null): string =>
     s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 
-  const planviewStyles: Record<string, { bg: string; fg: string }> = {
-    PR: { bg: 'FFE8F5E9', fg: 'FF1B5E20' },
-    F_Gov: { bg: 'FFE3F2FD', fg: 'FF0D47A1' },
-    BAU: { bg: 'FFF0F0F0', fg: 'FF888888' },
-  }
-
   for (const group of supplierGroupsOrdered) {
     // Band header row immediately before this supplier's resource rows.
     const bandRowNum = ws.rowCount + 1
@@ -427,27 +439,14 @@ export async function GET(request: Request): Promise<Response> {
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
 
-      /* ── Row background: vacant > BAU > supplier tint ── */
-      const isBau = alloc.planview_code === 'BAU'
+      /* ── Row background: vacant amber, else supplier tint ── */
       const isVacant = !alloc.resource_id
+      const isZeroCost = (alloc.capacity_days ?? 0) === 0 || alloc.utilisation_percent === 0
 
-      let rowArgb: string
-      if (isVacant) {
-        rowArgb = 'FFFEF9E7'
-      } else if (isBau) {
-        rowArgb = 'FFF5F5F5'
-      } else {
-        rowArgb = supplierTint(alloc.supplier_colour ?? '#888888')
-      }
+      const rowArgb = isVacant
+        ? 'FFFEF9E7'
+        : supplierTint(alloc.supplier_colour ?? '#888888')
       setRowFill(ws, rowNum, rowArgb, NUM_COLS)
-
-      /* ── Column E — planview badge ── */
-      const ps = planviewStyles[alloc.planview_code ?? '']
-      if (ps) {
-        const planviewCell = ws.getCell(`E${rowNum}`)
-        applyFill(planviewCell, ps.bg)
-        planviewCell.font = { bold: true, color: { argb: ps.fg }, size: 10 }
-      }
 
       /* ── Column K — Chargeable Yes/No colour ── */
       const isChargeable = alloc.planview_code === 'PR'
@@ -462,15 +461,13 @@ export async function GET(request: Request): Promise<Response> {
         ws.getCell(`B${rowNum}`).font = { italic: true, color: { argb: 'FF8A6000' }, size: 10 }
       }
 
-      /* ── BAU rows — L/M not platform-borne, shown as em dash ── */
-      if (isBau) {
+      /* ── Zero-cost rows — em dash in Total/+VAT (no cost generated) ── */
+      if (isZeroCost) {
         ws.getCell(`L${rowNum}`).value = '—'
         ws.getCell(`M${rowNum}`).value = '—'
-        ws.getCell(`L${rowNum}`).font = { color: { argb: 'FFBBBBBB' }, size: 10 }
-        ws.getCell(`M${rowNum}`).font = { color: { argb: 'FFBBBBBB' }, size: 10 }
       }
 
-      if (alloc.vat_applies && !isBau) vatRows.push(rowNum)
+      if (alloc.vat_applies && !isZeroCost) vatRows.push(rowNum)
     }
   }
 
@@ -625,294 +622,128 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   /* ══════════════════════════════════════════════════════════════════
-     Tab 2 (created first for tab order): write the Summary content
+     Tab 2 (created first for tab order): write the Summary content (v4)
   ══════════════════════════════════════════════════════════════════ */
-  const ref = `'${tabName}'` // cross-sheet reference prefix
+  const ref = `'${tab1Name}'` // cross-sheet reference prefix
+  const resRange = (col: string) => `${ref}!${col}${FIRST_DATA_ROW}:${col}${lastResourceRow}`
 
+  /* ── Aggregates computed in TS (literal values — robust to layout) ── */
+  const resBaseVat = allocations.reduce((s, a) => {
+    const total = (a.utilisation_percent / 100) * (a.capacity_days ?? 0) * (a.day_rate / 100)
+    return s + (a.vat_applies ? total * vatMultiplier : total)
+  }, 0)
+  const adhocTotal = adhocItems.reduce((s, i) => s + i.amount_pence / 100, 0)
+  const resourcesAdhocVat = resBaseVat + adhocTotal
+  const etpSsTotal = etpSsItems.reduce((s, i) => s + i.amount_pence / 100, 0)
+  const grandTotalVat = resourcesAdhocVat + etpSsTotal
+  const xChargeableDays = allocations.reduce(
+    (s, a) => (a.planview_code === 'PR' ? s + (a.capacity_days ?? 0) : s),
+    0,
+  )
+  const advisedRate = xChargeableDays > 0 ? grandTotalVat / xChargeableDays : 0
+  const currentRate = blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
+
+  /* ── Date range + working-day count for the hero ── */
+  const pStart = new Date(period.period_start_date)
+  const pEnd = new Date(period.period_end_date)
+  const fmtDdMon = (d: Date) => `${pad(d.getUTCDate())} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+  let workingDays = 0
+  for (const cur = new Date(pStart); cur <= pEnd; cur.setUTCDate(cur.getUTCDate() + 1)) {
+    const dow = cur.getUTCDay()
+    if (dow !== 0 && dow !== 6) workingDays++
+  }
+  const dateRange = `${fmtDdMon(pStart)} – ${fmtDdMon(pEnd)} · ${workingDays} working days`
+
+  /* ── Rich-text coloured square indicator ── */
+  const squareRich = (colourHex: string, text: string, textArgb: string, size = 11) => ({
+    richText: [
+      { text: '■ ', font: { color: { argb: 'FF' + colourHex.replace('#', '') }, size } },
+      { text, font: { color: { argb: textArgb }, size } },
+    ],
+  })
+
+  const DARK = 'FF2A2A2D'
   let s2Row = 1
 
-  // Hero band
-  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), HEADER_ARGB)
-  ws2.getCell(s2Row, 1).value = period.period_name
-  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 16 }
+  /* ── Hero section (rows 1–6) ── */
+  // Row 1 — empty dark band
+  setRowFill(ws2, s2Row, DARK, 8)
   s2Row++
-  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), HEADER_ARGB)
+  // Row 2 — quarter name + date range
+  setRowFill(ws2, s2Row, DARK, 8)
+  ws2.getCell(s2Row, 1).value = period.period_name
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 18 }
+  ws2.getCell(s2Row, 3).value = dateRange
+  ws2.getCell(s2Row, 3).font = { color: { argb: 'FF8F9495' }, size: 10 }
+  s2Row++
+  // Row 3 — strapline
+  setRowFill(ws2, s2Row, DARK, 8)
   ws2.getCell(s2Row, 1).value = 'WEB PLATFORM — COST SCHEDULE'
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
   s2Row++
-  // Exported-at row — dark background, grey italic timestamp
-  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), 'FF2A2A2D')
+  // Row 4 — exported-at
+  setRowFill(ws2, s2Row, DARK, 8)
   ws2.getCell(s2Row, 1).value = exportedAt
-  ws2.getCell(s2Row, 1).font = { italic: true, color: { argb: 'FF8F9495' }, size: 10 }
+  ws2.getCell(s2Row, 1).font = { italic: true, color: { argb: 'FF555555' }, size: 10 }
+  s2Row++
+  // Row 5 — KPI labels
+  setRowFill(ws2, s2Row, DARK, 8)
+  ws2.getCell(s2Row, 1).value = 'TOTAL PLATFORM COST'
+  ws2.getCell(s2Row, 2).value = 'ADVISED RATE'
+  ws2.getCell(s2Row, 3).value = 'CURRENT RATE'
+  ws2.getCell(s2Row, 4).value = 'VARIANCE'
+  for (const col of [1, 2, 3, 4]) {
+    ws2.getCell(s2Row, col).font = { bold: true, color: { argb: 'FF8F9495' }, size: 9 }
+  }
+  s2Row++
+  // Row 6 — KPI values
+  setRowFill(ws2, s2Row, DARK, 8)
+  ws2.getRow(s2Row).height = 22
+  ws2.getCell(s2Row, 1).value = grandTotalVat
+  ws2.getCell(s2Row, 1).numFmt = '£#,##0'
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 17 }
+  ws2.getCell(s2Row, 2).value = advisedRate
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0" / day"'
+  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FFFDDA24' }, size: 17 }
+  ws2.getCell(s2Row, 3).value = currentRate
+  ws2.getCell(s2Row, 3).numFmt = '£#,##0" / day"'
+  ws2.getCell(s2Row, 3).font = { bold: true, color: { argb: 'FF7EC8A4' }, size: 17 }
+  ws2.getCell(s2Row, 4).value = advisedRate - currentRate
+  ws2.getCell(s2Row, 4).numFmt = '"▲ "£#,##0" / day";"▼ "£#,##0" / day"'
+  ws2.getCell(s2Row, 4).font = { bold: true, color: { argb: 'FFF07070' }, size: 17 }
+  s2Row++
+  // Row 7 — blank separator
+  ws2.getRow(s2Row).height = 6
   s2Row += 2
 
-  // Quarter overview
-  ws2.getCell(s2Row, 1).value = 'QUARTER OVERVIEW'
-  ws2.getCell(s2Row, 1).font = { bold: true, size: 11 }
-  s2Row++
-
-  ws2.getCell(s2Row, 1).value = 'Period'
-  ws2.getCell(s2Row, 2).value = period.period_name
-  s2Row++
-
-  ws2.getCell(s2Row, 1).value = 'Start Date'
-  ws2.getCell(s2Row, 2).value = new Date(period.period_start_date)
-  ws2.getCell(s2Row, 2).numFmt = 'dd/mm/yyyy'
-  s2Row++
-
-  ws2.getCell(s2Row, 1).value = 'End Date'
-  ws2.getCell(s2Row, 2).value = new Date(period.period_end_date)
-  ws2.getCell(s2Row, 2).numFmt = 'dd/mm/yyyy'
-  s2Row++
-
-  ws2.getCell(s2Row, 1).value = 'Total BASE (ex-VAT)'
-  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow})` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  s2Row++
-
-  ws2.getCell(s2Row, 1).value = 'Total +VAT'
-  ws2.getCell(s2Row, 2).value = { formula: `=SUBTOTAL(9,${ref}!M${FIRST_DATA_ROW}:M${lastDataRow})` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  s2Row += 2
-
-  // Supplier breakdown table
-  ws2.getCell(s2Row, 1).value = 'SUPPLIER BREAKDOWN'
-  ws2.getCell(s2Row, 1).font = { bold: true, size: 11 }
-  s2Row++
-
-  const supplierHeaderRow = ws2.getRow(s2Row)
-  ;['Supplier', 'Base Cost', '+VAT Cost', '% of Total', 'Resources'].forEach((h, i) => {
-    const cell = supplierHeaderRow.getCell(i + 1)
-    cell.value = h
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_ARGB } }
-  })
-  s2Row++
-
-  const uniqueSuppliers = [...new Set(
-    allocations.map((a) => a.supplier_name).filter((s): s is string => s !== null && s !== '')
-  )]
-  const supplierDataStart = s2Row
-
-  for (const supplier of uniqueSuppliers) {
-    ws2.getCell(s2Row, 1).value = supplier
-    ws2.getCell(s2Row, 2).value = {
-      formula: `=SUMIF(${ref}!F${FIRST_DATA_ROW}:F${lastResourceRow},"${supplier}",${ref}!L${FIRST_DATA_ROW}:L${lastResourceRow})`,
+  /* ── Local section + column-header helpers (8-col Summary) ── */
+  const sectionHeader = (label: string, argb = 'FF404044', size = 10) => {
+    for (let c = 1; c <= 8; c++) {
+      applyFill(ws2.getCell(s2Row, c), argb)
+      ws2.getCell(s2Row, c).font = { bold: true, color: { argb: 'FFFFFFFF' }, size }
     }
-    ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-    ws2.getCell(s2Row, 3).value = {
-      formula: `=SUMIF(${ref}!F${FIRST_DATA_ROW}:F${lastResourceRow},"${supplier}",${ref}!M${FIRST_DATA_ROW}:M${lastResourceRow})`,
-    }
-    ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
-    ws2.getCell(s2Row, 4).value = {
-      formula: `=IF(SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow})=0,0,B${s2Row}/SUBTOTAL(9,${ref}!L${FIRST_DATA_ROW}:L${lastDataRow}))`,
-    }
-    ws2.getCell(s2Row, 4).numFmt = '0.0%'
-    ws2.getCell(s2Row, 5).value = {
-      formula: `=COUNTIF(${ref}!F${FIRST_DATA_ROW}:F${lastResourceRow},"${supplier}")`,
-    }
+    ws2.getCell(s2Row, 1).value = label
     s2Row++
   }
-  const supplierDataEnd = s2Row - 1
-
-  // Supplier totals row
-  ws2.getCell(s2Row, 1).value = 'Total'
-  ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=SUM(B${supplierDataStart}:B${supplierDataEnd})` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  ws2.getCell(s2Row, 2).font = { bold: true }
-  ws2.getCell(s2Row, 3).value = { formula: `=SUM(C${supplierDataStart}:C${supplierDataEnd})` }
-  ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
-  ws2.getCell(s2Row, 3).font = { bold: true }
-  ws2.getCell(s2Row, 5).value = { formula: `=SUM(E${supplierDataStart}:E${supplierDataEnd})` }
-  ws2.getCell(s2Row, 5).font = { bold: true }
-  s2Row += 2
-
-  // Planview code split
-  ws2.getCell(s2Row, 1).value = 'PLANVIEW CODE SPLIT'
-  ws2.getCell(s2Row, 1).font = { bold: true, size: 11 }
-  s2Row++
-
-  const planviewHeaderRow = ws2.getRow(s2Row)
-  ;['Code', 'Base Cost', '+VAT Cost', 'Headcount'].forEach((h, i) => {
-    const cell = planviewHeaderRow.getCell(i + 1)
-    cell.value = h
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_ARGB } }
-  })
-  s2Row++
-
-  // ETP is a cost_item_category, not a planview code — excluded here.
-  const planviewMeta: Record<string, { label: string; fill: string; font: string }> = {
-    PR: { label: 'PR  —  Platform Request · recoverable', fill: 'FFE8F5E9', font: 'FF1B5E20' },
-    F_Gov: { label: 'F_GOV  —  Factory Governance · overhead', fill: 'FFE3F2FD', font: 'FF0D47A1' },
-    BAU: { label: 'BAU  —  Business as Usual · not platform-borne', fill: 'FFF5F5F5', font: 'FF888888' },
-  }
-  for (const code of ['PR', 'F_Gov', 'BAU'] as const) {
-    const meta = planviewMeta[code]
-    for (let c = 1; c <= 4; c++) applyFill(ws2.getCell(s2Row, c), meta.fill)
-    ws2.getCell(s2Row, 1).value = meta.label
-    ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: meta.font } }
-    ws2.getCell(s2Row, 2).value = {
-      formula: `=SUMIF(${ref}!E${FIRST_DATA_ROW}:E${lastResourceRow},"${code}",${ref}!L${FIRST_DATA_ROW}:L${lastResourceRow})`,
-    }
-    ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-    ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: meta.font } }
-    ws2.getCell(s2Row, 3).value = {
-      formula: `=SUMIF(${ref}!E${FIRST_DATA_ROW}:E${lastResourceRow},"${code}",${ref}!M${FIRST_DATA_ROW}:M${lastResourceRow})`,
-    }
-    ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
-    ws2.getCell(s2Row, 3).font = { bold: true, color: { argb: meta.font } }
-    ws2.getCell(s2Row, 4).value = {
-      formula: `=COUNTIF(${ref}!E${FIRST_DATA_ROW}:E${lastResourceRow},"${code}")`,
-    }
-    ws2.getCell(s2Row, 4).font = { color: { argb: meta.font } }
+  const colHeaderRow = (labels: string[], aligns: Record<number, 'left' | 'center' | 'right'> = {}) => {
+    for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
+    labels.forEach((h, i) => {
+      const cell = ws2.getCell(s2Row, i + 1)
+      cell.value = h
+      cell.font = { bold: true, color: { argb: 'FF555555' }, size: 10 }
+      if (aligns[i + 1]) cell.alignment = { horizontal: aligns[i + 1] }
+    })
     s2Row++
   }
-  s2Row++
 
-  // Blended rate summary
-  ws2.getCell(s2Row, 1).value = 'BLENDED RATE SUMMARY'
-  ws2.getCell(s2Row, 1).font = { bold: true, size: 11 }
-  s2Row++
+  /* ══ SUPPLIER & LOCATION BREAKDOWN ══ */
+  sectionHeader('SUPPLIER & LOCATION BREAKDOWN')
+  colHeaderRow(
+    ['Supplier', 'Base Cost', '+VAT Cost', '% Total', 'Onshore', 'Nearshore', 'Offshore', 'Total'],
+    { 2: 'right', 3: 'right', 4: 'center', 5: 'center', 6: 'center', 7: 'center', 8: 'center' },
+  )
 
-  ws2.getCell(s2Row, 1).value = 'Advised Rate'
-  ws2.getCell(s2Row, 2).value = { formula: `='${tabName}'!I${dayRateRowNum}` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  s2Row++
-
-  // ETP & SS total — cross-sheet SUM of the actual ETP/SS rows (no hardcode).
-  ws2.getCell(s2Row, 1).value = 'ETP & Shared Services Total'
-  ws2.getCell(s2Row, 2).value =
-    etpSsItems.length > 0
-      ? { formula: `=SUM('${tabName}'!L${firstEtpRow}:L${lastEtpRow})` }
-      : 0
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  s2Row++
-
-  // Full platform rate = total +VAT subtotal (incl. ETP & SS) / X-Chargeable Days.
-  const summaryAdvisedRow = s2Row
-  ws2.getCell(s2Row, 1).value = 'Advised Rate (incl. ETP & SS)'
-  ws2.getCell(s2Row, 2).value = {
-    formula: `=IF('${tabName}'!I${xChargeableRowNum}=0,0,'${tabName}'!M${subtotalRowNum}/'${tabName}'!I${xChargeableRowNum})`,
-  }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  // Yellow accent.
-  for (let c = 1; c <= 3; c++) applyFill(ws2.getCell(s2Row, c), 'FFFFFDE7')
-  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF5A4000' }, size: 10 }
-  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFFDDA24' } } }
-  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF5A4000' }, size: 10 }
-  s2Row++
-
-  // Current Rate — the rate agreed with Finance, read from the DB override.
-  const summaryCurrentRow = s2Row
-  ws2.getCell(s2Row, 1).value = 'Current Rate'
-  ws2.getCell(s2Row, 2).value =
-    blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  ws2.getCell(s2Row, 3).value = '(agreed with Finance)'
-  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: LABEL_ARGB } }
-  // Green accent.
-  for (let c = 1; c <= 2; c++) applyFill(ws2.getCell(s2Row, c), 'FFE8F5E9')
-  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF1B5E20' }, size: 10 }
-  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FF66BB6A' } } }
-  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF1B5E20' }, size: 10 }
-  s2Row++
-
-  // Shortfall — per-day under-recovery and the quarterly figure at the current rate.
-  const shortfallRowNum = s2Row
-  ws2.getCell(s2Row, 1).value = '▲ Shortfall'
-  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryAdvisedRow}-B${summaryCurrentRow}` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  ws2.getCell(s2Row, 3).value = {
-    formula: `="Under-recovery at current rate — "&TEXT((B${summaryAdvisedRow}-B${summaryCurrentRow})*'${tabName}'!I${xChargeableRowNum},"£#,##0")&" over the quarter"`,
-  }
-  // Static fill removed — conditional formatting owns the shortfall cell colour.
-  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF721C24' }, size: 10 }
-  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFE2001A' } } }
-  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF721C24' }, size: 10 }
-  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF721C24' } }
-  s2Row += 2
-
-  /* ══════════════════════════════════════════════════════════════════
-     Resource location breakdown
-  ══════════════════════════════════════════════════════════════════ */
-  const tab1 = `'${tabName}'`
-  const locRange = `${tab1}!G${FIRST_DATA_ROW}:G${lastResourceRow}`
-
-  writeSectionHeader(ws2, s2Row, 'RESOURCE LOCATION BREAKDOWN', 5)
-  s2Row++
-
-  const locHeaderRow = ws2.getRow(s2Row)
-  ;['Location', 'Resources', '% of Total', 'Base Cost', '+VAT Cost'].forEach((h, i) => {
-    const cell = locHeaderRow.getCell(i + 1)
-    cell.value = h
-    cell.font = { bold: true, size: 10 }
-    applyFill(cell, 'FFF5F5F5')
-  })
-  s2Row++
-
-  const locations: { name: string; fill: string }[] = [
-    { name: 'Onshore', fill: 'FFF0F4FF' },
-    { name: 'Nearshore', fill: 'FFFFF8F0' },
-    { name: 'Offshore', fill: 'FFF0FFF4' },
-  ]
-  const locDataStart = s2Row
-  for (const loc of locations) {
-    for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), loc.fill)
-    ws2.getCell(s2Row, 1).value = loc.name
-    ws2.getCell(s2Row, 2).value = { formula: `=COUNTIF(${locRange},"${loc.name}")` }
-    ws2.getCell(s2Row, 2).alignment = { horizontal: 'center' }
-    ws2.getCell(s2Row, 3).value = {
-      formula: `=IF(COUNTA(${locRange})=0,0,COUNTIF(${locRange},"${loc.name}")/COUNTA(${locRange}))`,
-    }
-    ws2.getCell(s2Row, 3).numFmt = '0.0%'
-    ws2.getCell(s2Row, 3).alignment = { horizontal: 'center' }
-    ws2.getCell(s2Row, 4).value = {
-      formula: `=SUMIF(${locRange},"${loc.name}",${tab1}!L${FIRST_DATA_ROW}:L${lastResourceRow})`,
-    }
-    ws2.getCell(s2Row, 4).numFmt = '£#,##0'
-    ws2.getCell(s2Row, 4).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 5).value = {
-      formula: `=SUMIF(${locRange},"${loc.name}",${tab1}!M${FIRST_DATA_ROW}:M${lastResourceRow})`,
-    }
-    ws2.getCell(s2Row, 5).numFmt = '£#,##0'
-    ws2.getCell(s2Row, 5).alignment = { horizontal: 'right' }
-    s2Row++
-  }
-  const locDataEnd = s2Row - 1
-
-  // Location total row
-  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
-  ws2.getCell(s2Row, 1).value = 'Total'
-  ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=SUM(B${locDataStart}:B${locDataEnd})` }
-  ws2.getCell(s2Row, 2).font = { bold: true }
-  ws2.getCell(s2Row, 2).alignment = { horizontal: 'center' }
-  ws2.getCell(s2Row, 4).value = { formula: `=SUM(D${locDataStart}:D${locDataEnd})` }
-  ws2.getCell(s2Row, 4).numFmt = '£#,##0'
-  ws2.getCell(s2Row, 4).font = { bold: true }
-  ws2.getCell(s2Row, 4).alignment = { horizontal: 'right' }
-  ws2.getCell(s2Row, 5).value = { formula: `=SUM(E${locDataStart}:E${locDataEnd})` }
-  ws2.getCell(s2Row, 5).numFmt = '£#,##0'
-  ws2.getCell(s2Row, 5).font = { bold: true }
-  ws2.getCell(s2Row, 5).alignment = { horizontal: 'right' }
-  s2Row += 2
-
-  /* ── Supplier × location cross-table ── */
-  writeSectionHeader(ws2, s2Row, 'BY SUPPLIER', 5)
-  s2Row++
-
-  const xHeaderRow = ws2.getRow(s2Row)
-  ;['Supplier', 'Onshore', 'Nearshore', 'Offshore', 'Total'].forEach((h, i) => {
-    const cell = xHeaderRow.getCell(i + 1)
-    cell.value = h
-    cell.font = { bold: true, size: 10 }
-    applyFill(cell, 'FFF5F5F5')
-  })
-  s2Row++
-
-  // Suppliers in sort_order, carrying their tint colour.
+  // Suppliers in sort_order with colour
   const supplierColourMap = new Map<string, string | null>()
   const supplierOrderMap = new Map<string, number>()
   for (const a of allocations) {
@@ -925,40 +756,216 @@ export async function GET(request: Request): Promise<Response> {
     (a, b) => (supplierOrderMap.get(a) ?? Infinity) - (supplierOrderMap.get(b) ?? Infinity),
   )
 
-  const sRange = `${tab1}!F${FIRST_DATA_ROW}:F${lastResourceRow}`
-  const lRange = `${tab1}!G${FIRST_DATA_ROW}:G${lastResourceRow}`
-  const xDataStart = s2Row
+  const supplierDataStart = s2Row
+  const supplierTotalRow = supplierDataStart + orderedSuppliers.length
+  const sF = resRange('F') // organisation column on Rate Calc
+  const sG = resRange('G') // location column
+  const sL = resRange('L') // base cost
+  const sM = resRange('M') // +VAT cost
+
   for (const supplierName of orderedSuppliers) {
-    const tint = supplierTint(supplierColourMap.get(supplierName) ?? '#888888')
-    for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), tint)
-    ws2.getCell(s2Row, 1).value = supplierName
-    ws2.getCell(s2Row, 2).value = {
-      formula: `=COUNTIFS(${sRange},"${supplierName}",${lRange},"Onshore")`,
-    }
-    ws2.getCell(s2Row, 3).value = {
-      formula: `=COUNTIFS(${sRange},"${supplierName}",${lRange},"Nearshore")`,
-    }
-    ws2.getCell(s2Row, 4).value = {
-      formula: `=COUNTIFS(${sRange},"${supplierName}",${lRange},"Offshore")`,
-    }
-    ws2.getCell(s2Row, 5).value = { formula: `=SUM(B${s2Row}:D${s2Row})` }
-    for (let c = 2; c <= 5; c++) ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
+    const colour = supplierColourMap.get(supplierName) ?? '#888888'
+    for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), supplierTint(colour))
+    ws2.getCell(s2Row, 1).value = squareRich(colour, supplierName, 'FF2A2A2D')
+    ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sF},"${supplierName}",${sL})` }
+    ws2.getCell(s2Row, 2).numFmt = '£#,##0'
+    ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sF},"${supplierName}",${sM})` }
+    ws2.getCell(s2Row, 3).numFmt = '£#,##0'
+    ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).numFmt = '0.0%'
+    ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
+    ws2.getCell(s2Row, 5).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Onshore")` }
+    ws2.getCell(s2Row, 6).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Nearshore")` }
+    ws2.getCell(s2Row, 7).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Offshore")` }
+    ws2.getCell(s2Row, 8).value = { formula: `=E${s2Row}+F${s2Row}+G${s2Row}` }
+    ws2.getCell(s2Row, 8).font = { bold: true }
+    for (let c = 5; c <= 8; c++) ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
     s2Row++
   }
-  const xDataEnd = s2Row - 1
+  const supplierDataEnd = s2Row - 1
 
-  // Cross-table total row
-  for (let c = 1; c <= 5; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
-  ws2.getCell(s2Row, 1).value = 'Total'
+  // Supplier total row
+  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
+  ws2.getCell(s2Row, 1).value = 'Supplier total'
   ws2.getCell(s2Row, 1).font = { bold: true }
-  for (let c = 2; c <= 5; c++) {
-    const colLetter = String.fromCharCode(64 + c)
-    ws2.getCell(s2Row, c).value = { formula: `=SUM(${colLetter}${xDataStart}:${colLetter}${xDataEnd})` }
+  ws2.getCell(s2Row, 2).value = { formula: `=SUM(B${supplierDataStart}:B${supplierDataEnd})` }
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0'
+  ws2.getCell(s2Row, 3).value = { formula: `=SUM(C${supplierDataStart}:C${supplierDataEnd})` }
+  ws2.getCell(s2Row, 3).numFmt = '£#,##0'
+  ws2.getCell(s2Row, 4).value = '100%'
+  for (let c = 5; c <= 8; c++) {
+    const cl = String.fromCharCode(64 + c)
+    ws2.getCell(s2Row, c).value = { formula: `=SUM(${cl}${supplierDataStart}:${cl}${supplierDataEnd})` }
+  }
+  for (let c = 1; c <= 8; c++) {
     ws2.getCell(s2Row, c).font = { bold: true }
-    ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
+    if (c >= 2) ws2.getCell(s2Row, c).alignment = { horizontal: c <= 3 ? 'right' : 'center' }
+  }
+  for (const c of [2, 3, 8]) {
+    ws2.getCell(s2Row, c).border = { top: { style: 'thin', color: { argb: 'FF888888' } } }
+  }
+  s2Row++
+
+  // Location sub-header
+  for (let c = 1; c <= 8; c++) {
+    applyFill(ws2.getCell(s2Row, c), 'FF5A5A5E')
+    ws2.getCell(s2Row, c).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+  }
+  ws2.getCell(s2Row, 1).value = 'LOCATION TOTALS'
+  s2Row++
+
+  const locMeta: { name: string; fill: string; font: string; col: number }[] = [
+    { name: 'Onshore', fill: 'FFF0F4FF', font: 'FF1A2B5B', col: 5 },
+    { name: 'Nearshore', fill: 'FFFFF8F0', font: 'FF7A4400', col: 6 },
+    { name: 'Offshore', fill: 'FFF0FFF4', font: 'FF1B5E20', col: 7 },
+  ]
+  for (const loc of locMeta) {
+    for (let c = 1; c <= 8; c++) {
+      applyFill(ws2.getCell(s2Row, c), loc.fill)
+      ws2.getCell(s2Row, c).font = { italic: true, color: { argb: loc.font } }
+    }
+    ws2.getCell(s2Row, 1).value = `↳ ${loc.name}`
+    ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sG},"${loc.name}",${sL})` }
+    ws2.getCell(s2Row, 2).numFmt = '£#,##0'
+    ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sG},"${loc.name}",${sM})` }
+    ws2.getCell(s2Row, 3).numFmt = '£#,##0'
+    ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).numFmt = '0.0%'
+    ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
+    // Count only appears in this location's own column; the others show a dash
+    for (const col of [5, 6, 7]) {
+      ws2.getCell(s2Row, col).value =
+        col === loc.col ? { formula: `=COUNTIF(${sG},"${loc.name}")` } : '—'
+      ws2.getCell(s2Row, col).alignment = { horizontal: 'center' }
+    }
+    ws2.getCell(s2Row, 8).value = { formula: `=COUNTIF(${sG},"${loc.name}")` }
+    ws2.getCell(s2Row, 8).font = { bold: true, italic: true, color: { argb: loc.font } }
+    ws2.getCell(s2Row, 8).alignment = { horizontal: 'center' }
+    s2Row++
   }
 
-  /* ── Conditional formatting: shortfall cell on Summary tab ── */
+  // Blank separator
+  ws2.getRow(s2Row).height = 6
+  s2Row += 2
+
+  /* ══ PLANVIEW CODE SPLIT ══ */
+  sectionHeader('PLANVIEW CODE SPLIT')
+  colHeaderRow(['Code', 'Base Cost', '+VAT Cost', 'Headcount'], { 2: 'right', 3: 'right', 4: 'center' })
+
+  const planviewRows: { code: string; label: string; fill: string; font: string; zero?: boolean }[] = [
+    { code: 'PR', label: 'PR  Platform Request — recoverable', fill: 'FFE8F5E9', font: 'FF1B5E20' },
+    { code: 'F_Gov', label: 'F_Gov  Factory Governance — overhead', fill: 'FFE3F2FD', font: 'FF0D47A1' },
+    { code: 'BAU', label: 'BAU  Business as Usual — not platform-borne', fill: 'FFF5F5F5', font: 'FF888888', zero: true },
+  ]
+  const sE = resRange('E') // planview column on Rate Calc
+  for (const pv of planviewRows) {
+    for (let c = 1; c <= 8; c++) {
+      applyFill(ws2.getCell(s2Row, c), pv.fill)
+      ws2.getCell(s2Row, c).font = { color: { argb: pv.font } }
+    }
+    ws2.getCell(s2Row, 1).value = squareRich(pv.font, pv.label, pv.font)
+    if (pv.zero) {
+      ws2.getCell(s2Row, 2).value = 0
+      ws2.getCell(s2Row, 3).value = 0
+    } else {
+      ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sE},"${pv.code}",${sL})` }
+      ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sE},"${pv.code}",${sM})` }
+    }
+    ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+    ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: pv.font } }
+    ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
+    ws2.getCell(s2Row, 3).font = { bold: true, color: { argb: pv.font } }
+    ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
+    ws2.getCell(s2Row, 4).value = { formula: `=COUNTIF(${sE},"${pv.code}")` }
+    ws2.getCell(s2Row, 4).font = { bold: true, color: { argb: pv.font } }
+    ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
+    s2Row++
+  }
+
+  // Blank separator
+  ws2.getRow(s2Row).height = 6
+  s2Row += 2
+
+  /* ══ BLENDED RATE SUMMARY ══ */
+  sectionHeader('BLENDED RATE SUMMARY')
+  colHeaderRow(['Component', 'Value'])
+
+  // Resources + Ad-hoc (inc. VAT) — literal
+  ws2.getCell(s2Row, 1).value = 'Resources + Ad-hoc (inc. VAT)'
+  ws2.getCell(s2Row, 2).value = resourcesAdhocVat
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  s2Row++
+  // ETP & Shared Services — literal
+  ws2.getCell(s2Row, 1).value = 'ETP & Shared Services'
+  ws2.getCell(s2Row, 2).value = etpSsTotal
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  s2Row++
+  // Total row
+  const blendedTotalRow = s2Row
+  ws2.getCell(s2Row, 1).value = 'Total platform cost (inc. VAT)'
+  ws2.getCell(s2Row, 1).font = { bold: true }
+  ws2.getCell(s2Row, 2).value = { formula: `=B${s2Row - 2}+B${s2Row - 1}` }
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  ws2.getCell(s2Row, 2).font = { bold: true }
+  for (const c of [1, 2]) {
+    ws2.getCell(s2Row, c).border = { top: { style: 'thin', color: { argb: 'FF888888' } } }
+  }
+  s2Row++
+  // X-Chargeable Days
+  const xChargRow = s2Row
+  ws2.getCell(s2Row, 1).value = 'X-Chargeable Days (PR allocations)'
+  ws2.getCell(s2Row, 1).font = { color: { argb: 'FF777777' } }
+  ws2.getCell(s2Row, 2).value = xChargeableDays
+  ws2.getCell(s2Row, 2).font = { color: { argb: 'FF777777' } }
+  s2Row++
+  // Advised Rate
+  const summaryAdvisedRateRow = s2Row
+  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFFFFDE7')
+  ws2.getCell(s2Row, 1).value = 'Advised Rate'
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF5A4000' } }
+  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFFDDA24' } } }
+  ws2.getCell(s2Row, 2).value = { formula: `=IF(B${xChargRow}=0,0,B${blendedTotalRow}/B${xChargRow})` }
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF5A4000' } }
+  ws2.getCell(s2Row, 3).value = 'Cost recovery rate based on current schedule decisions'
+  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF999999' } }
+  s2Row++
+  // Current Rate
+  const summaryCurrentRateRow = s2Row
+  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFE8F5E9')
+  ws2.getCell(s2Row, 1).value = 'Current Rate'
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF1B5E20' } }
+  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FF66BB6A' } } }
+  ws2.getCell(s2Row, 2).value = currentRate
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF1B5E20' } }
+  ws2.getCell(s2Row, 3).value = 'Rate in effect as agreed with Finance and Platform Directors'
+  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF999999' } }
+  s2Row++
+  // Shortfall
+  const shortfallRowNum = s2Row
+  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFFEECEC')
+  ws2.getCell(s2Row, 1).value = '▲ Shortfall'
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF721C24' } }
+  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFE2001A' } } }
+  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryAdvisedRateRow}-B${summaryCurrentRateRow}` }
+  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
+  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF721C24' } }
+  ws2.getCell(s2Row, 3).value = {
+    formula: `="Under-recovery at current rate — "&TEXT(B${shortfallRowNum}*${xChargeableDays},"£#,##0")&" over the quarter"`,
+  }
+  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF721C24' } }
+  s2Row += 2
+
+  // Final empty row at the bottom of the sheet
+  ws2.getCell(s2Row, 1).value = ''
+
+  /* ── Conditional formatting: shortfall cell (five-tier symmetric) ── */
   const shortfallCf = [
     { operator: 'greaterThan', formulae: ['50'], priority: 1, fill: 'FFFDE8E8', font: 'FF8B0000' },
     { operator: 'greaterThan', formulae: ['20'], priority: 2, fill: 'FFFEF9C3', font: 'FF7A5A00' },
@@ -1030,6 +1037,47 @@ export async function GET(request: Request): Promise<Response> {
     r.getCell(12).numFmt = '£#,##0.00'
     r.getCell(13).numFmt = '£#,##0.00'
   }
+
+  /* ── Config section (plain, mirrors the original Finance spreadsheet) ── */
+  const rawLastDataRow = ws3.rowCount
+  const rawSubtotalRow = rawLastDataRow + 3 // two blank rows then SUBTOTAL
+
+  ws3.getCell(rawSubtotalRow, 1).value = 'SUBTOTAL'
+  ws3.getCell(rawSubtotalRow, 1).font = { bold: true }
+  ws3.getCell(rawSubtotalRow, 12).value = { formula: `=SUBTOTAL(9,L1:L${rawLastDataRow})` }
+  ws3.getCell(rawSubtotalRow, 12).numFmt = '£#,##0.00'
+  ws3.getCell(rawSubtotalRow, 13).value = { formula: `=SUBTOTAL(9,M1:M${rawLastDataRow})` }
+  ws3.getCell(rawSubtotalRow, 13).numFmt = '£#,##0.00'
+
+  const rawVatRow = rawSubtotalRow + 2
+  ws3.getCell(rawVatRow, 1).value = 'VAT Multiplier'
+  ws3.getCell(rawVatRow, 9).value = vatMultiplier
+  ws3.getCell(rawVatRow, 9).numFmt = '0.00000'
+
+  const rawBillableRow = rawSubtotalRow + 3
+  ws3.getCell(rawBillableRow, 1).value = 'Total Billable Days'
+  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMIF(K1:K${rawLastDataRow},"Yes",I1:I${rawLastDataRow})` }
+
+  const rawUtilRow = rawSubtotalRow + 4
+  ws3.getCell(rawUtilRow, 1).value = 'Utilisation'
+  ws3.getCell(rawUtilRow, 9).value = 1
+
+  const rawXChargRow = rawSubtotalRow + 5
+  ws3.getCell(rawXChargRow, 1).value = 'X-Chargeable Days'
+  ws3.getCell(rawXChargRow, 9).value = { formula: `=I${rawBillableRow}*I${rawUtilRow}` }
+
+  const rawAdvisedRow = rawSubtotalRow + 6
+  ws3.getCell(rawAdvisedRow, 1).value = 'Advised Rate'
+  ws3.getCell(rawAdvisedRow, 1).font = { bold: true }
+  ws3.getCell(rawAdvisedRow, 9).value = { formula: `=M${rawSubtotalRow}/I${rawXChargRow}` }
+  ws3.getCell(rawAdvisedRow, 9).numFmt = '£#,##0.00'
+
+  const rawCurrentRow = rawSubtotalRow + 7
+  ws3.getCell(rawCurrentRow, 1).value = 'Current Rate'
+  ws3.getCell(rawCurrentRow, 1).font = { bold: true }
+  ws3.getCell(rawCurrentRow, 9).value =
+    blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
+  ws3.getCell(rawCurrentRow, 9).numFmt = '£#,##0.00'
 
   /* ── Serialise to buffer ── */
   const buffer = await wb.xlsx.writeBuffer()
