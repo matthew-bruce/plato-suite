@@ -319,9 +319,9 @@ export async function GET(request: Request): Promise<Response> {
   ws2.views = [{ showGridLines: false }]
   ws2.columns = [
     { width: 28 }, // A
-    { width: 14 }, // B
-    { width: 14 }, // C
-    { width: 9 },  // D
+    { width: 18 }, // B
+    { width: 18 }, // C
+    { width: 16 }, // D
     { width: 9 },  // E
     { width: 9 },  // F
     { width: 9 },  // G
@@ -779,7 +779,7 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 5).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Onshore")` }
     ws2.getCell(s2Row, 6).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Nearshore")` }
     ws2.getCell(s2Row, 7).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Offshore")` }
-    ws2.getCell(s2Row, 8).value = { formula: `=E${s2Row}+F${s2Row}+G${s2Row}` }
+    ws2.getCell(s2Row, 8).value = { formula: `=COUNTIF(${sF},"${supplierName}")` }
     ws2.getCell(s2Row, 8).font = { bold: true }
     for (let c = 5; c <= 8; c++) ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
     s2Row++
