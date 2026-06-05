@@ -63,4 +63,5 @@ export type PlatformCostItem = {
   vat_applies: boolean
   sort_order: number
   notes: string | null
+  cost_item_category: string
 }

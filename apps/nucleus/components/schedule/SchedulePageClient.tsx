@@ -43,8 +43,6 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-const ETP_AND_SS_PENCE = 11_743_400 // £117,434
-
 const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
@@ -186,12 +184,28 @@ export function SchedulePageClient({ data }: Props) {
         isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
     )
-    const adHocVat = localCostItems.reduce(
-      (s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct),
-      0,
+    const vatMultiplier = 1 + vatPct / 100
+
+    // Split cost items by category
+    const adHocItems = localCostItems.filter((i) => i.cost_item_category === 'ADHOC')
+    const etpAndSsItems = localCostItems.filter(
+      (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
     )
+
+    // adHocVat: only ADHOC items (with VAT applied per item's vat_applies flag)
+    const adHocVat = adHocItems.reduce((sum, item) => {
+      const base = item.amount_pence
+      return sum + (item.vat_applies ? Math.round(base * vatMultiplier) : base)
+    }, 0)
+
+    // ETP + SS total: read directly from DB rows (VAT already embedded in ETP figure)
+    const etpAndSsPence = etpAndSsItems.reduce((sum, i) => sum + i.amount_pence, 0)
+
+    // Platform total WITHOUT ETP+SS (allocations + VAT + ad-hoc only)
     const totalPlatform = allocsVat + adHocVat
-    const totalPlatformIncEtp = totalPlatform + ETP_AND_SS_PENCE
+
+    // Platform total WITH ETP+SS
+    const totalPlatformIncEtp = totalPlatform + etpAndSsPence
     const chargeableDays = localAllocations
       .filter((a) => isChargeableRow(a.planview_code))
       .reduce((s, a) => s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100), 0)
@@ -201,6 +215,7 @@ export function SchedulePageClient({ data }: Props) {
       allocsBase,
       allocsVat,
       adHocVat,
+      etpAndSsPence,
       totalPlatform,
       totalPlatformIncEtp,
       chargeableDays,
@@ -244,7 +259,7 @@ export function SchedulePageClient({ data }: Props) {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
       .from('platform_cost_items')
-      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
       .eq('period_id', period.period_id)
       .is('deleted_at', null)
       .order('sort_order')
@@ -281,6 +296,7 @@ export function SchedulePageClient({ data }: Props) {
       vat_applies: false,
       sort_order: maxSort + 1,
       notes: null,
+      cost_item_category: 'ADHOC',
     })
     await refetchCostItems()
   }
@@ -616,6 +632,7 @@ function KpiStrip({
   totals: {
     totalPlatform: number
     totalPlatformIncEtp: number
+    etpAndSsPence: number
     calcRatePence: number
     calcRateIncEtp: number
     headcount: number
@@ -641,7 +658,7 @@ function KpiStrip({
       <KpiCard
         label="Inc. ETP & Shared Services"
         value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
-        sub="+£117,434 ETP & SS"
+        sub={`+${formatMoney(totals.etpAndSsPence, { decimals: 0 })} ETP & SS`}
         accent="#404044"
       />
       <KpiCard
@@ -868,7 +885,7 @@ function ScheduleTable({
           )
         })}
         {isUnfiltered && <AdHocSection
-          items={costItems}
+          items={costItems.filter((i) => i.cost_item_category === 'ADHOC')}
           editingAdHoc={editingAdHoc}
           onToggleEditAdHoc={onToggleEditAdHoc}
           onUpdate={onUpdateCostItem}
@@ -876,6 +893,14 @@ function ScheduleTable({
           onAdd={onAddCostItem}
           vatPct={vatPct}
           isClosed={isClosed}
+        />}
+        {isUnfiltered && costItems.some(
+          (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+        ) && <EtpSsSection
+          items={costItems.filter(
+            (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+          )}
+          vatPct={vatPct}
         />}
         <div
           style={{
@@ -1377,6 +1402,113 @@ function AdHocSection({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ── EtpSsSection ──────────────────────────────────────────────── */
+
+const ETP_SS_COLOUR = '#5A5A5E'
+
+function EtpSsSection({
+  items,
+  vatPct,
+}: {
+  items: PlatformCostItem[]
+  vatPct: number
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const base = items.reduce((s, item) => s + item.amount_pence, 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
+  return (
+    <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
+      <div
+        className={styles.bandRow}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SCHEDULE_COLS,
+          padding: COL_PADDING,
+          background: '#F3F4F6',
+          cursor: 'pointer',
+        }}
+      >
+        <div
+          className={styles.bandLeft}
+          style={{ gridColumn: '1 / span 8' }}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span
+            style={{
+              transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms ease',
+              color: ETP_SS_COLOUR,
+              display: 'inline-flex',
+            }}
+            aria-hidden
+          >
+            <ChevronSmall />
+          </span>
+          <span
+            style={{
+              background: ETP_SS_COLOUR,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '4px 12px',
+              borderRadius: 6,
+            }}
+          >
+            ETP & Shared Services
+          </span>
+          <span style={{ fontSize: 12, color: '#8F9495' }}>
+            {items.length} {items.length === 1 ? 'item' : 'items'}
+          </span>
+        </div>
+        <div className={styles.bandMobileRow}>
+          <div
+            style={{
+              gridColumn: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(vat)}
+          </div>
+        </div>
+      </div>
+
+      {expanded && items.map((item) => (
+        <AdHocRow
+          key={item.cost_item_id}
+          item={item}
+          editing={false}
+          vatPct={vatPct}
+          onUpdate={async () => {}}
+          onDelete={async () => {}}
+        />
+      ))}
     </div>
   )
 }

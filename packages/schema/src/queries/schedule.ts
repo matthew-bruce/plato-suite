@@ -168,7 +168,7 @@ export async function getSchedulePageData(
       .is('deleted_at', null),
     supabase
       .from('platform_cost_items')
-      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
       .eq('period_id', activePeriodId)
       .is('deleted_at', null)
       .order('sort_order'),
