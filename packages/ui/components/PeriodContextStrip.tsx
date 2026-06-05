@@ -297,6 +297,7 @@ export function PeriodContextStrip({
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [isPickerOpen])
 
+  const status = getPeriodStatus(periodStart, periodEnd)
   const identity = getPeriodIdentity(periodStart)
   const dateRange = `${formatPeriodDate(periodStart)} – ${formatPeriodDate(periodEnd)}`
 
@@ -428,16 +429,6 @@ export function PeriodContextStrip({
         </>
       )}
       {exportButton}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexShrink: 0,
-          marginLeft: isMobile ? 0 : 18,
-        }}
-      >
-        <LockToggle locked={locked} onToggle={onLockToggle} variant="light" disabled={lockPending} />
-      </div>
     </div>
   )
 
@@ -566,10 +557,49 @@ export function PeriodContextStrip({
     borderTop: '1px solid rgba(0,0,0,0.08)',
   }
 
-  // The banner is a read-only notice driven purely by the lock state —
-  // period status (active/historic/draft) does not affect its visibility.
-  // Locking/unlocking is done via the lock toggle in the top row.
-  const banner: React.ReactNode = locked ? (
+  // Status banner — always rendered, coloured by period status. This is the
+  // only place the lock/unlock toggle lives. It is independent of lock state.
+  const statusBanner: React.ReactNode = (() => {
+    const cfg =
+      status === 'active'
+        ? {
+            background: COLORS.bannerActive,
+            icon: <ActiveIcon />,
+            title: 'This is the current active period',
+            textColor: '#fff',
+            toggleVariant: 'light' as const,
+          }
+        : status === 'draft'
+          ? {
+              background: COLORS.bannerDraft,
+              icon: <DraftIcon />,
+              title: 'This is a future draft period',
+              textColor: '#fff',
+              toggleVariant: 'light' as const,
+            }
+          : {
+              background: COLORS.bannerHistoric,
+              icon: <HistoricIcon />,
+              title: 'This period is historic',
+              textColor: '#2A2A2D',
+              toggleVariant: 'dark' as const,
+            }
+    return (
+      <div style={{ ...bannerLayout, background: cfg.background }}>
+        {cfg.icon}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: cfg.textColor }}>{cfg.title}</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <LockToggle locked={locked} onToggle={onLockToggle} variant={cfg.toggleVariant} disabled={lockPending} />
+        </div>
+      </div>
+    )
+  })()
+
+  // Locked banner — separate read-only notice shown only when locked. The
+  // lock toggle lives in the status banner above, not here.
+  const lockedBanner: React.ReactNode = locked ? (
     <div style={{ ...bannerLayout, background: COLORS.bannerHistoric }}>
       <HistoricIcon />
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -579,9 +609,6 @@ export function PeriodContextStrip({
         <div style={{ fontSize: 11, color: 'rgba(42,42,45,0.65)' }}>
           Unlock from the toggle above to make changes.
         </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <LockToggle locked={locked} onToggle={onLockToggle} variant="dark" disabled={lockPending} />
       </div>
     </div>
   ) : null
@@ -599,7 +626,8 @@ export function PeriodContextStrip({
       {topRow}
       {mobileMetaGrid}
       {picker}
-      {banner}
+      {statusBanner}
+      {lockedBanner}
     </div>
   )
 }
