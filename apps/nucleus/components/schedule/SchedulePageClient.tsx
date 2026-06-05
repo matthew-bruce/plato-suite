@@ -21,7 +21,7 @@ import {
   useLoadingOverlay,
 } from '@plato/ui'
 import type { PeriodOption } from '@plato/ui'
-import { getPeriodStatus } from '@plato/ui'
+import { togglePeriodLocked } from '@/app/actions/schedule'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -78,19 +78,19 @@ export function SchedulePageClient({ data }: Props) {
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
+  const [editingEtpSs, setEditingEtpSs] = useState(false)
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
   const [editingSchedule, setEditingSchedule] = useState(false)
-  const [locked, setLocked] = useState(() =>
-    getPeriodStatus(new Date(period.period_start_date), new Date(period.period_end_date)) === 'historic',
-  )
+  // Editability is driven solely by the period's locked flag (not status).
+  const [isLocked, setIsLocked] = useState(period.locked)
+  const [lockPending, setLockPending] = useState(false)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
     setEditingSchedule(false)
     setEditingAdHoc(false)
-    setLocked(
-      getPeriodStatus(new Date(period.period_start_date), new Date(period.period_end_date)) === 'historic',
-    )
+    setEditingEtpSs(false)
+    setIsLocked(period.locked)
     // New schedule data has arrived for the selected period — dismiss the overlay.
     clearLoading()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -255,6 +255,21 @@ export function SchedulePageClient({ data }: Props) {
     }
   }
 
+  async function handleToggleLocked() {
+    if (lockPending) return
+    const next = !isLocked
+    setLockPending(true)
+    try {
+      const res = await togglePeriodLocked(period.period_id, next)
+      setIsLocked(res.locked)
+    } catch (err) {
+      // On error leave isLocked unchanged so the UI reflects the true state.
+      console.error('Failed to toggle period lock:', err)
+    } finally {
+      setLockPending(false)
+    }
+  }
+
   async function refetchCostItems() {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
@@ -268,7 +283,7 @@ export function SchedulePageClient({ data }: Props) {
 
   async function handleUpdateCostItem(
     id: string,
-    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>,
+    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>,
   ) {
     setLocalCostItems((prev) => prev.map((item) => item.cost_item_id === id ? { ...item, ...updates } : item))
     const supabase = getSupabaseBrowserClient()
@@ -297,6 +312,24 @@ export function SchedulePageClient({ data }: Props) {
       sort_order: maxSort + 1,
       notes: null,
       cost_item_category: 'ADHOC',
+    })
+    await refetchCostItems()
+  }
+
+  async function handleAddEtpSsItem() {
+    const supabase = getSupabaseBrowserClient()
+    const maxSort = localCostItems.length > 0
+      ? Math.max(...localCostItems.map((i) => i.sort_order))
+      : 0
+    // ETP/SS items embed VAT in their amount, so vat_applies is always false.
+    await supabase.from('platform_cost_items').insert({
+      period_id: period.period_id,
+      label: 'New item',
+      amount_pence: 0,
+      vat_applies: false,
+      sort_order: maxSort + 1,
+      notes: null,
+      cost_item_category: 'ETP',
     })
     await refetchCostItems()
   }
@@ -398,8 +431,6 @@ export function SchedulePageClient({ data }: Props) {
     })
   }
 
-  const isClosed = period.period_status === 'closed'
-
   return (
     <>
     <div
@@ -436,10 +467,9 @@ export function SchedulePageClient({ data }: Props) {
           params.set('period', id)
           router.push(`/schedule?${params.toString()}`)
         }}
-        locked={locked}
-        onLockToggle={() => setLocked((v) => !v)}
-        onDuplicate={() => console.log('Duplicate period: coming soon')}
-        onActivate={() => console.log('Activate period: coming soon')}
+        locked={isLocked}
+        onLockToggle={handleToggleLocked}
+        lockPending={lockPending}
         onExport={handleExportToExcel}
       />
 
@@ -497,7 +527,7 @@ export function SchedulePageClient({ data }: Props) {
                   expanded={allExpanded}
                   onToggle={toggleAll}
                 />
-                {!isClosed && (
+                {!isLocked && (
                   <button
                     type="button"
                     onClick={() => setEditingSchedule((v) => !v)}
@@ -555,16 +585,19 @@ export function SchedulePageClient({ data }: Props) {
         sort={sort}
         onSort={onHeaderClick}
         vatPct={vatPct}
-        isClosed={isClosed}
+        locked={isLocked}
         activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
         searchQuery={search}
         costItems={localCostItems}
         isUnfiltered={isUnfiltered}
         editingAdHoc={editingAdHoc}
         onToggleEditAdHoc={() => setEditingAdHoc((v) => !v)}
+        editingEtpSs={editingEtpSs}
+        onToggleEditEtpSs={() => setEditingEtpSs((v) => !v)}
         onUpdateCostItem={handleUpdateCostItem}
         onDeleteCostItem={handleDeleteCostItem}
         onAddCostItem={handleAddCostItem}
+        onAddEtpSsItem={handleAddEtpSsItem}
         editingSchedule={editingSchedule}
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
@@ -784,16 +817,19 @@ function ScheduleTable({
   sort,
   onSort,
   vatPct,
-  isClosed,
+  locked,
   activeTeamFilter,
   searchQuery,
   costItems,
   isUnfiltered,
   editingAdHoc,
   onToggleEditAdHoc,
+  editingEtpSs,
+  onToggleEditEtpSs,
   onUpdateCostItem,
   onDeleteCostItem,
   onAddCostItem,
+  onAddEtpSsItem,
   editingSchedule,
   onUpdateAllocation,
   onDeleteAllocation,
@@ -805,16 +841,19 @@ function ScheduleTable({
   sort: SortState
   onSort: (col: SortableCol) => void
   vatPct: number
-  isClosed: boolean
+  locked: boolean
   searchQuery: string
   activeTeamFilter: string | null
   costItems: PlatformCostItem[]
   isUnfiltered: boolean
   editingAdHoc: boolean
   onToggleEditAdHoc: () => void
-  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  editingEtpSs: boolean
+  onToggleEditEtpSs: () => void
+  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
   onDeleteCostItem: (id: string) => Promise<void>
   onAddCostItem: () => Promise<void>
+  onAddEtpSsItem: () => Promise<void>
   editingSchedule: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
@@ -844,7 +883,7 @@ function ScheduleTable({
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
-        <HeaderRow sort={sort} onSort={onSort} isClosed={isClosed} />
+        <HeaderRow sort={sort} onSort={onSort} locked={locked} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
@@ -892,15 +931,21 @@ function ScheduleTable({
           onDelete={onDeleteCostItem}
           onAdd={onAddCostItem}
           vatPct={vatPct}
-          isClosed={isClosed}
+          locked={locked}
         />}
-        {isUnfiltered && costItems.some(
+        {isUnfiltered && (costItems.some(
           (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
-        ) && <EtpSsSection
+        ) || editingEtpSs) && <EtpSsSection
           items={costItems.filter(
             (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
           )}
           vatPct={vatPct}
+          locked={locked}
+          editingEtpSs={editingEtpSs}
+          onToggleEditEtpSs={onToggleEditEtpSs}
+          onUpdate={onUpdateCostItem}
+          onDelete={onDeleteCostItem}
+          onAdd={onAddEtpSsItem}
         />}
         <div
           style={{
@@ -946,11 +991,11 @@ const HEADERS: { col: SortableCol; label: string; align?: 'right' }[] = [
 function HeaderRow({
   sort,
   onSort,
-  isClosed,
+  locked,
 }: {
   sort: SortState
   onSort: (col: SortableCol) => void
-  isClosed: boolean
+  locked: boolean
 }) {
   return (
     <div
@@ -982,7 +1027,7 @@ function HeaderRow({
         sort={sort}
         onSort={onSort}
         align="right"
-        trailing={isClosed ? LockIcon(11, 0.35) : null}
+        trailing={locked ? LockIcon(11, 0.35) : null}
       />
       <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
@@ -1248,7 +1293,7 @@ function AdHocSection({
   onDelete,
   onAdd,
   vatPct,
-  isClosed,
+  locked,
 }: {
   items: PlatformCostItem[]
   editingAdHoc: boolean
@@ -1257,7 +1302,7 @@ function AdHocSection({
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
   vatPct: number
-  isClosed: boolean
+  locked: boolean
 }) {
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
@@ -1306,7 +1351,7 @@ function AdHocSection({
           <span style={{ fontSize: 12, color: '#8F9495' }}>
             {items.length} {items.length === 1 ? 'item' : 'items'}
           </span>
-          {!isClosed && (
+          {!locked && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onToggleEditAdHoc() }}
@@ -1410,12 +1455,29 @@ function AdHocSection({
 
 const ETP_SS_COLOUR = '#5A5A5E'
 
+const ETP_SS_CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'ETP', label: 'Enterprise Tooling Platform' },
+  { value: 'SHARED_SERVICES', label: 'Shared Services' },
+]
+
 function EtpSsSection({
   items,
   vatPct,
+  locked,
+  editingEtpSs,
+  onToggleEditEtpSs,
+  onUpdate,
+  onDelete,
+  onAdd,
 }: {
   items: PlatformCostItem[]
   vatPct: number
+  locked: boolean
+  editingEtpSs: boolean
+  onToggleEditEtpSs: () => void
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  onAdd: () => Promise<void>
 }) {
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
@@ -1464,6 +1526,26 @@ function EtpSsSection({
           <span style={{ fontSize: 12, color: '#8F9495' }}>
             {items.length} {items.length === 1 ? 'item' : 'items'}
           </span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleEditEtpSs() }}
+              style={{
+                marginLeft: 8,
+                background: editingEtpSs ? ETP_SS_COLOUR : 'transparent',
+                color: editingEtpSs ? 'white' : ETP_SS_COLOUR,
+                border: `1px solid ${ETP_SS_COLOUR}`,
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {editingEtpSs ? 'Done' : 'Edit items'}
+            </button>
+          )}
         </div>
         <div className={styles.bandMobileRow}>
           <div
@@ -1500,15 +1582,161 @@ function EtpSsSection({
       </div>
 
       {expanded && items.map((item) => (
-        <AdHocRow
-          key={item.cost_item_id}
-          item={item}
-          editing={false}
-          vatPct={vatPct}
-          onUpdate={async () => {}}
-          onDelete={async () => {}}
-        />
+        editingEtpSs ? (
+          <EtpSsEditRow
+            key={item.cost_item_id}
+            item={item}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ) : (
+          <AdHocRow
+            key={item.cost_item_id}
+            item={item}
+            editing={false}
+            vatPct={vatPct}
+            onUpdate={async () => {}}
+            onDelete={async () => {}}
+          />
+        )
       ))}
+
+      {expanded && editingEtpSs && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            borderTop: '1px solid #EEEEEE',
+          }}
+        >
+          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+            <button
+              type="button"
+              onClick={onAdd}
+              style={{
+                background: 'transparent',
+                border: `1px dashed ${ETP_SS_COLOUR}`,
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: ETP_SS_COLOUR,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              + Add item
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EtpSsEditRow({
+  item,
+  onUpdate,
+  onDelete,
+}: {
+  item: PlatformCostItem
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [labelValue, setLabelValue] = useState(item.label)
+  const [amountValue, setAmountValue] = useState((item.amount_pence / 100).toFixed(2))
+  useEffect(() => setLabelValue(item.label), [item.label])
+  useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: SCHEDULE_COLS,
+        padding: COL_PADDING,
+        borderTop: '1px solid #EEEEEE',
+        background: 'rgba(90,90,94,0.03)',
+      }}
+    >
+      <div style={{ gridColumn: '1 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="text"
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: '5 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <select
+          value={item.cost_item_category}
+          onChange={(e) => onUpdate(item.cost_item_id, { cost_item_category: e.target.value })}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+            background: '#fff',
+          }}
+        >
+          {ETP_SS_CATEGORY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ gridColumn: '8 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+        <input
+          type="number"
+          value={amountValue}
+          step="0.01"
+          min="0"
+          onChange={(e) => setAmountValue(e.target.value)}
+          onBlur={() => {
+            const pence = Math.round(parseFloat(amountValue) * 100)
+            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+          }}
+          style={{
+            width: '100px',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => onDelete(item.cost_item_id)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#DA202A',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'var(--rmg-font-body)',
+            padding: '2px 6px',
+          }}
+        >
+          Remove
+        </button>
+      </div>
     </div>
   )
 }

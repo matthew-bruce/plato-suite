@@ -92,11 +92,11 @@ export function withAlpha(bgHex: string, alphaHex: string): string {
 }
 
 // Default-period selection: prefer the active period, otherwise the most
-// recent non-draft (i.e. closed). Periods MUST be provided in
+// recent non-draft (i.e. historic). Periods MUST be provided in
 // start-date-descending order — the first matching entry wins.
 interface PickablePeriod {
   period_id: string
-  period_status: 'draft' | 'active' | 'closed'
+  period_status: 'draft' | 'active' | 'historic'
 }
 
 export function pickDefaultPeriodId<T extends PickablePeriod>(
@@ -105,8 +105,8 @@ export function pickDefaultPeriodId<T extends PickablePeriod>(
   if (!periods || periods.length === 0) return null
   const active = periods.find((p) => p.period_status === 'active')
   if (active) return active.period_id
-  const closed = periods.find((p) => p.period_status === 'closed')
-  if (closed) return closed.period_id
+  const historic = periods.find((p) => p.period_status === 'historic')
+  if (historic) return historic.period_id
   return null
 }
 

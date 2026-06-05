@@ -222,18 +222,18 @@ describe('pickDefaultPeriodId', () => {
     const out = pickDefaultPeriodId([
       { period_id: 'p1', period_status: 'draft' },
       { period_id: 'p2', period_status: 'active' },
-      { period_id: 'p3', period_status: 'closed' },
+      { period_id: 'p3', period_status: 'historic' },
     ])
     expect(out).toBe('p2')
   })
-  it('falls back to most-recent closed when no active', () => {
-    // Input is start-date-desc; first closed is most recent.
+  it('falls back to most-recent historic when no active', () => {
+    // Input is start-date-desc; first historic is most recent.
     const out = pickDefaultPeriodId([
       { period_id: 'future-draft', period_status: 'draft' },
-      { period_id: 'recent-closed', period_status: 'closed' },
-      { period_id: 'older-closed', period_status: 'closed' },
+      { period_id: 'recent-historic', period_status: 'historic' },
+      { period_id: 'older-historic', period_status: 'historic' },
     ])
-    expect(out).toBe('recent-closed')
+    expect(out).toBe('recent-historic')
   })
   it('returns null on empty list', () => {
     expect(pickDefaultPeriodId([])).toBeNull()
@@ -248,8 +248,8 @@ describe('pickDefaultPeriodId', () => {
   it('ignores draft periods when picking', () => {
     const out = pickDefaultPeriodId([
       { period_id: 'draft', period_status: 'draft' },
-      { period_id: 'closed', period_status: 'closed' },
+      { period_id: 'historic', period_status: 'historic' },
     ])
-    expect(out).toBe('closed')
+    expect(out).toBe('historic')
   })
 })

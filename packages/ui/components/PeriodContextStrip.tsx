@@ -37,8 +37,8 @@ export interface PeriodContextStripProps {
   onPeriodSelect: (id: string) => void
   locked: boolean
   onLockToggle: () => void
-  onDuplicate?: () => void
-  onActivate?: () => void
+  /** When true the lock toggle is disabled and shows an in-flight state. */
+  lockPending?: boolean
   onExport?: () => void
 }
 
@@ -131,10 +131,12 @@ function LockToggle({
   locked,
   onToggle,
   variant,
+  disabled,
 }: {
   locked: boolean
   onToggle: () => void
   variant: 'light' | 'dark' // light = active (green), dark = historic (yellow)
+  disabled?: boolean
 }) {
   const on = !locked // ON = unlocked
   const trackColor =
@@ -153,13 +155,15 @@ function LockToggle({
       role="switch"
       aria-checked={on}
       onClick={onToggle}
+      disabled={disabled}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: 8,
         background: 'transparent',
         border: 'none',
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
         padding: 0,
         flexShrink: 0,
       }}
@@ -266,8 +270,7 @@ export function PeriodContextStrip({
   onPeriodSelect,
   locked,
   onLockToggle,
-  onDuplicate,
-  onActivate,
+  lockPending,
   onExport,
 }: PeriodContextStripProps) {
   const [isMobile, setIsMobile] = useState(false)
@@ -294,7 +297,6 @@ export function PeriodContextStrip({
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [isPickerOpen])
 
-  const status = getPeriodStatus(periodStart, periodEnd)
   const identity = getPeriodIdentity(periodStart)
   const dateRange = `${formatPeriodDate(periodStart)} – ${formatPeriodDate(periodEnd)}`
 
@@ -426,6 +428,16 @@ export function PeriodContextStrip({
         </>
       )}
       {exportButton}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          marginLeft: isMobile ? 0 : 18,
+        }}
+      >
+        <LockToggle locked={locked} onToggle={onLockToggle} variant="light" disabled={lockPending} />
+      </div>
     </div>
   )
 
@@ -554,69 +566,25 @@ export function PeriodContextStrip({
     borderTop: '1px solid rgba(0,0,0,0.08)',
   }
 
-  let banner: React.ReactNode
-
-  if (status === 'active') {
-    banner = (
-      <div style={{ ...bannerLayout, background: COLORS.bannerActive }}>
-        <ActiveIcon />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
-            This period is currently active
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>
-            All values are editable. Lock to prevent accidental changes.
-          </div>
+  // The banner is a read-only notice driven purely by the lock state —
+  // period status (active/historic/draft) does not affect its visibility.
+  // Locking/unlocking is done via the lock toggle in the top row.
+  const banner: React.ReactNode = locked ? (
+    <div style={{ ...bannerLayout, background: COLORS.bannerHistoric }}>
+      <HistoricIcon />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#2A2A2D' }}>
+          This period is locked — All values are read-only.
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <LockToggle locked={locked} onToggle={onLockToggle} variant="light" />
-          {onDuplicate && (
-            <PillButton onClick={onDuplicate} variant="light">
-              Duplicate
-            </PillButton>
-          )}
+        <div style={{ fontSize: 11, color: 'rgba(42,42,45,0.65)' }}>
+          Unlock from the toggle above to make changes.
         </div>
       </div>
-    )
-  } else if (status === 'historic') {
-    banner = (
-      <div style={{ ...bannerLayout, background: COLORS.bannerHistoric }}>
-        <HistoricIcon />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#2A2A2D' }}>
-            {locked ? 'This period is historic' : 'This period is historic — editing unlocked'}
-          </div>
-          <div style={{ fontSize: 11, color: 'rgba(42,42,45,0.65)' }}>
-            {locked
-              ? 'All values are read-only. Unlock to make changes.'
-              : 'Changes now permitted. Lock again when done.'}
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <LockToggle locked={locked} onToggle={onLockToggle} variant="dark" />
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <LockToggle locked={locked} onToggle={onLockToggle} variant="dark" disabled={lockPending} />
       </div>
-    )
-  } else {
-    banner = (
-      <div style={{ ...bannerLayout, background: COLORS.bannerDraft }}>
-        <DraftIcon />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>This period is in draft</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.72)' }}>
-            Review all resources before activating this period.
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          {onActivate && (
-            <PillButton onClick={onActivate} variant="light">
-              Activate
-            </PillButton>
-          )}
-        </div>
-      </div>
-    )
-  }
+    </div>
+  ) : null
 
   return (
     <div

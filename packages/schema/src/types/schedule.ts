@@ -2,7 +2,7 @@
 // Money fields are stored as integer pence per ADR-029.
 
 export type PlanviewCode = 'PR' | 'F_Gov' | 'BAU' | 'ETP'
-export type PeriodStatus = 'draft' | 'active' | 'closed'
+export type PeriodStatus = 'draft' | 'active' | 'historic'
 export type ResourceLocation = 'onshore' | 'nearshore' | 'offshore'
 
 export interface Period {
@@ -11,6 +11,7 @@ export interface Period {
   period_start_date: string
   period_end_date: string
   period_status: PeriodStatus
+  locked: boolean
 }
 
 export interface CostConfiguration {
