@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { EyeOff } from 'lucide-react'
+import { usePrivacyMode } from '@/context/PrivacyModeContext'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -675,6 +677,8 @@ function KpiStrip({
   }
   costConfig: SchedulePageData['costConfig']
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   const overrideSet =
     costConfig?.blended_day_rate_override !== undefined &&
     costConfig?.blended_day_rate_override !== null
@@ -689,12 +693,14 @@ function KpiStrip({
         value={formatMoney(totals.totalPlatform, { decimals: 0 })}
         sub="Allocations + VAT + ad-hoc"
         accent="#DA202A"
+        blur={isPrivate}
       />
       <KpiCard
         label="Inc. ETP & Shared Services"
         value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
         sub={`+${formatMoney(totals.etpAndSsPence, { decimals: 0 })} ETP & SS`}
         accent="#404044"
+        blur={isPrivate}
       />
       <KpiCard
         label="Current Day Rate"
@@ -735,6 +741,7 @@ function KpiCard({
   accent,
   valueColor,
   emphasised,
+  blur,
 }: {
   label: string
   value: React.ReactNode
@@ -742,7 +749,12 @@ function KpiCard({
   accent: string
   valueColor?: string
   emphasised?: boolean
+  blur?: boolean
 }) {
+  const blurStyle: React.CSSProperties | undefined = blur
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   return (
     <div
       style={{
@@ -776,11 +788,12 @@ function KpiCard({
           color: valueColor ?? '#2A2A2D',
           letterSpacing: '-0.03em',
           lineHeight: 1,
+          ...blurStyle,
         }}
       >
         {value}
       </div>
-      <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4 }}>{sub}</div>
+      <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4, ...blurStyle }}>{sub}</div>
       <div
         style={{
           position: 'absolute',
@@ -865,6 +878,8 @@ function ScheduleTable({
   blendedDayRate: number
   periodWorkingDays: number
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
     : 'Filtered totals'
@@ -977,10 +992,10 @@ function ScheduleTable({
             {footerLabel}
           </div>
           <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} />
+            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />
           </div>
           <div style={{ gridColumn: 11 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
         </div>
         {activeTeamFilter && (
@@ -1101,6 +1116,8 @@ function HeaderRow({
   onSort: (col: SortableCol) => void
   locked: boolean
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   return (
     <div
       className={styles.header}
@@ -1132,9 +1149,10 @@ function HeaderRow({
         onSort={onSort}
         align="right"
         trailing={locked ? LockIcon(11, 0.35) : null}
+        privacyIcon={isPrivate}
       />
-      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
-      <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
+      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
+      <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
     </div>
   )
 }
@@ -1146,6 +1164,7 @@ function Th({
   onSort,
   align,
   trailing,
+  privacyIcon,
 }: {
   label: string
   col: SortableCol | null
@@ -1153,6 +1172,7 @@ function Th({
   onSort: (col: SortableCol) => void
   align?: 'right'
   trailing?: React.ReactNode
+  privacyIcon?: boolean
 }) {
   const active = col !== null && sort.col === col
   const clickable = col !== null
@@ -1168,7 +1188,11 @@ function Th({
         fontWeight: 700,
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
-        color: hovered && clickable ? '#DA202A' : '#404044',
+        color: privacyIcon
+          ? 'var(--color-text-secondary)'
+          : hovered && clickable
+            ? '#DA202A'
+            : '#404044',
         cursor: clickable ? 'pointer' : 'default',
         userSelect: 'none',
         display: 'flex',
@@ -1178,6 +1202,7 @@ function Th({
         transition: 'color 120ms',
       }}
     >
+      {privacyIcon && <EyeOff size={11} />}
       {label}
       {trailing}
       {clickable && (
@@ -1971,7 +1996,11 @@ function AdHocRow({
   )
 }
 
-function BandTotal({ label, value }: { label: string; value: string }) {
+function BandTotal({ label, value, blur }: { label: string; value: string; blur?: boolean }) {
+  const blurStyle: React.CSSProperties | undefined = blur
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   return (
     <div
       style={{
@@ -1988,6 +2017,7 @@ function BandTotal({ label, value }: { label: string; value: string }) {
           letterSpacing: '0.06em',
           color: '#8F9495',
           marginBottom: 2,
+          ...blurStyle,
         }}
       >
         {label}
@@ -1998,6 +2028,7 @@ function BandTotal({ label, value }: { label: string; value: string }) {
           fontWeight: 600,
           color: '#2A2A2D',
           fontVariantNumeric: 'tabular-nums',
+          ...blurStyle,
         }}
       >
         {value}
@@ -2043,6 +2074,11 @@ function AllocationRow({
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   const [pendingDelete, setPendingDelete] = useState(false)
   const [roleValue, setRoleValue] = useState(row.role_title ?? '')
   const [dayRateValue, setDayRateValue] = useState(String(row.day_rate / 100))
@@ -2432,7 +2468,7 @@ function AllocationRow({
 
       {/* 9 Day Rate */}
       <Cell align="right" dataLabel="Day Rate">
-        <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
           {formatMoney(row.day_rate, { decimals: 2 })}
         </span>
       </Cell>
@@ -2446,6 +2482,7 @@ function AllocationRow({
             color: displayBase === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            ...blurStyle,
           }}
         >
           {formatMoney(displayBase)}
@@ -2461,6 +2498,7 @@ function AllocationRow({
             color: displayVat === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            ...blurStyle,
           }}
         >
           {formatMoney(displayVat)}
