@@ -686,6 +686,29 @@ function KpiStrip({
     ? formatMoney(costConfig!.blended_day_rate_override!, { decimals: 2 })
     : formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })
 
+  const currentRate = (costConfig?.blended_day_rate_override ?? 0) / 100
+  const advisedRate = Math.round(totals.calcRateIncEtp) / 100
+  const totalPRDays = totals.chargeableDays
+  const recoveryVariance = (currentRate - advisedRate) * totalPRDays
+  const recoveryVarianceFormatted = Math.abs(recoveryVariance).toLocaleString('en-GB', { maximumFractionDigits: 0 })
+
+  let recoveryVarianceValue: string
+  let recoveryVarianceColor: string
+  let recoveryVarianceSub: string
+  if (recoveryVariance < 0) {
+    recoveryVarianceValue = `−£${recoveryVarianceFormatted}`
+    recoveryVarianceColor = '#C8102E'
+    recoveryVarianceSub = 'shortfall this period'
+  } else if (recoveryVariance > 0) {
+    recoveryVarianceValue = `+£${recoveryVarianceFormatted}`
+    recoveryVarianceColor = '#3B6D11'
+    recoveryVarianceSub = 'surplus this period'
+  } else {
+    recoveryVarianceValue = '£0'
+    recoveryVarianceColor = '#2A2A2D'
+    recoveryVarianceSub = 'on target'
+  }
+
   return (
     <div className={styles.kpiStrip}>
       <KpiCard
@@ -703,18 +726,26 @@ function KpiStrip({
         blur={isPrivate}
       />
       <KpiCard
-        label="Current Day Rate"
+        label="Current Blended Rate"
         value={dayRateValue}
         valueColor="#DA202A"
-        sub={`Calculator: ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
+        sub={`Implied rate (ex. ETP & SS): ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
         accent="#DA202A"
         emphasised={overrideSet}
       />
       <KpiCard
-        label="Rate Inc. ETP & SS"
+        label="Advised Blended Rate"
         value={formatMoney(Math.round(totals.calcRateIncEtp), { decimals: 2 })}
         sub="Calculated, inc. ETP & SS"
         accent="#0892CB"
+      />
+      <KpiCard
+        label="Recovery variance"
+        value={recoveryVarianceValue}
+        valueColor={recoveryVarianceColor}
+        sub={recoveryVarianceSub}
+        accent={recoveryVarianceColor}
+        blur={isPrivate}
       />
       <KpiCard
         label="Headcount / PR Days"
