@@ -7,9 +7,10 @@ import { DragHandle } from './DragHandle'
 
 /**
  * Wraps a single schedule allocation row to make it sortable within its
- * supplier group. The drag handle is overlaid on the left edge so the
- * underlying row grid is left untouched, and is only shown when the schedule
- * is in edit mode and unlocked. Inline styles only.
+ * supplier group. Uses a render-prop pattern: `children` receives a
+ * `dragHandleSlot` ReactNode that the row places into its handle column cell.
+ * When drag is not enabled, `dragHandleSlot` is `null` and the cell is empty.
+ * Inline styles only.
  */
 export function SortableRow({
   id,
@@ -20,7 +21,7 @@ export function SortableRow({
   id: string
   isEditMode: boolean
   isLocked: boolean
-  children: ReactNode
+  children: (dragHandleSlot: ReactNode) => ReactNode
 }) {
   const canDrag = isEditMode && !isLocked
 
@@ -33,11 +34,14 @@ export function SortableRow({
     isDragging,
   } = useSortable({ id, disabled: !canDrag })
 
+  const dragHandleSlot: ReactNode = canDrag
+    ? <DragHandle listeners={listeners} attributes={attributes} />
+    : null
+
   return (
     <div
       ref={setNodeRef}
       style={{
-        position: 'relative',
         transform: CSS.Transform.toString(transform),
         transition,
         zIndex: isDragging ? 2 : undefined,
@@ -46,22 +50,7 @@ export function SortableRow({
         boxShadow: isDragging ? '0 4px 14px rgba(0,0,0,0.12)' : undefined,
       }}
     >
-      {canDrag && (
-        <span
-          style={{
-            position: 'absolute',
-            left: -2,
-            top: 0,
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-            zIndex: 1,
-          }}
-        >
-          <DragHandle isVisible listeners={listeners} attributes={attributes} />
-        </span>
-      )}
-      {children}
+      {children(dragHandleSlot)}
     </div>
   )
 }

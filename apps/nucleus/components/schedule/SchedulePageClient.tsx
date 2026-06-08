@@ -60,7 +60,7 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
+const SCHEDULE_COLS = '32px 15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
 
@@ -1091,10 +1091,10 @@ function ScheduleTable({
           >
             {footerLabel}
           </div>
-          <div style={{ gridColumn: 10 }}>
+          <div style={{ gridColumn: 11 }}>
             <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />
           </div>
-          <div style={{ gridColumn: 11 }}>
+          <div style={{ gridColumn: 12 }}>
             <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
         </div>
@@ -1229,6 +1229,7 @@ function HeaderRow({
         borderBottom: '2px solid #E0E0E0',
       }}
     >
+      <div />
       <Th
         label="Resource"
         col="resource"
@@ -1391,19 +1392,6 @@ function SupplierSection({
     void onReorder(newOrder)
   }
 
-  const renderRow = (r: Allocation) => (
-    <AllocationRow
-      key={r.allocation_id}
-      row={r}
-      vatPct={vatPct}
-      activeTeamFilter={activeTeamFilter}
-      searchQuery={searchQuery}
-      editingSchedule={editingSchedule}
-      onUpdate={onUpdateAllocation}
-      onDelete={onDeleteAllocation}
-    />
-  )
-
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
       <div
@@ -1417,7 +1405,7 @@ function SupplierSection({
           cursor: 'pointer',
         }}
       >
-        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 8' }}>
+        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 9' }}>
           <span
             style={{
               transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -1447,7 +1435,7 @@ function SupplierSection({
         </div>
         <div
           style={{
-            gridColumn: 9,
+            gridColumn: 10,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
@@ -1470,7 +1458,7 @@ function SupplierSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 10,
+              gridColumn: 11,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1486,7 +1474,7 @@ function SupplierSection({
           </div>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1518,13 +1506,37 @@ function SupplierSection({
                   isEditMode={editingSchedule}
                   isLocked={locked}
                 >
-                  {renderRow(r)}
+                  {(dragHandleSlot) => (
+                    <AllocationRow
+                      key={r.allocation_id}
+                      row={r}
+                      vatPct={vatPct}
+                      activeTeamFilter={activeTeamFilter}
+                      searchQuery={searchQuery}
+                      editingSchedule={editingSchedule}
+                      onUpdate={onUpdateAllocation}
+                      onDelete={onDeleteAllocation}
+                      dragHandleSlot={dragHandleSlot}
+                    />
+                  )}
                 </SortableRow>
               ))}
             </SortableContext>
           </DndContext>
         ) : (
-          rows.map((r) => renderRow(r))
+          rows.map((r) => (
+            <AllocationRow
+              key={r.allocation_id}
+              row={r}
+              vatPct={vatPct}
+              activeTeamFilter={activeTeamFilter}
+              searchQuery={searchQuery}
+              editingSchedule={editingSchedule}
+              onUpdate={onUpdateAllocation}
+              onDelete={onDeleteAllocation}
+              dragHandleSlot={null}
+            />
+          ))
         )
       )}
       {expanded && editingSchedule && (
@@ -1606,7 +1618,7 @@ function AdHocSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 8' }}
+          style={{ gridColumn: '1 / span 9' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -1659,7 +1671,7 @@ function AdHocSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 10,
+              gridColumn: 11,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1675,7 +1687,7 @@ function AdHocSection({
           </div>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1712,7 +1724,7 @@ function AdHocSection({
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -1787,7 +1799,7 @@ function EtpSsSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 8' }}
+          style={{ gridColumn: '1 / span 9' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -1840,7 +1852,7 @@ function EtpSsSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 10,
+              gridColumn: 11,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1856,7 +1868,7 @@ function EtpSsSection({
           </div>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -1902,7 +1914,7 @@ function EtpSsSection({
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -1951,7 +1963,8 @@ function EtpSsEditRow({
         background: 'rgba(90,90,94,0.03)',
       }}
     >
-      <div style={{ gridColumn: '1 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: 1 }} />
+      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <input
           type="text"
           value={labelValue}
@@ -1968,7 +1981,7 @@ function EtpSsEditRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: '5 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '6 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <select
           value={item.cost_item_category}
           onChange={(e) => onUpdate(item.cost_item_id, { cost_item_category: e.target.value })}
@@ -1988,7 +2001,7 @@ function EtpSsEditRow({
           ))}
         </select>
       </div>
-      <div style={{ gridColumn: '8 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '9 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -2011,7 +2024,7 @@ function EtpSsEditRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -2060,6 +2073,7 @@ function AdHocRow({
   if (!editing) {
     return (
       <div className={styles.allocationRow} style={{ gridTemplateColumns: SCHEDULE_COLS }}>
+        <Cell><span /></Cell>
         <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
         <Cell><span /></Cell>
         <Cell><span /></Cell>
@@ -2093,7 +2107,8 @@ function AdHocRow({
         background: 'rgba(243,146,13,0.03)',
       }}
     >
-      <div style={{ gridColumn: '1 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: 1 }} />
+      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <input
           type="text"
           value={labelValue}
@@ -2110,7 +2125,7 @@ function AdHocRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: '6 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '7 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -2141,7 +2156,7 @@ function AdHocRow({
           +VAT
         </label>
       </div>
-      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -2232,6 +2247,7 @@ function AllocationRow({
   editingSchedule,
   onUpdate,
   onDelete,
+  dragHandleSlot,
 }: {
   row: Allocation
   vatPct: number
@@ -2240,6 +2256,7 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  dragHandleSlot?: React.ReactNode
 }) {
   const { isPrivate } = usePrivacyMode()
   const blurStyle: React.CSSProperties | undefined = isPrivate
@@ -2291,7 +2308,8 @@ function AllocationRow({
         className={styles.allocationRow}
         style={{ gridTemplateColumns: SCHEDULE_COLS, background: '#FFF5F5' }}
       >
-        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
+        <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
           <span style={{ fontSize: 13, color: '#DA202A', fontWeight: 500 }}>
             Delete {row.resource_name ?? row.role_title ?? 'this resource'}?
           </span>
@@ -2320,6 +2338,8 @@ function AllocationRow({
         className={styles.allocationRow}
         style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
       >
+        {/* Handle */}
+        <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
         {/* 1 Resource + delete */}
         <Cell>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
@@ -2472,6 +2492,9 @@ function AllocationRow({
         background: rowBg,
       }}
     >
+      {/* Handle */}
+      <Cell><span /></Cell>
+
       {/* 1 Resource */}
       <Cell>
         {tbc ? (

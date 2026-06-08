@@ -7,21 +7,17 @@ import type {
 
 /**
  * Drag grip for a schedule allocation row. Renders a 2×3 grid of dots.
- * Only visible while the schedule is in edit mode and unlocked — when
- * `isVisible` is false it renders nothing so the row layout is unchanged.
+ * Rendered inside the dedicated handle column cell of an AllocationRow;
+ * the parent is responsible for only rendering this when appropriate.
  * Inline styles only.
  */
 export function DragHandle({
-  isVisible,
   listeners,
   attributes,
 }: {
-  isVisible: boolean
   listeners?: DraggableSyntheticListeners
   attributes?: DraggableAttributes
 }) {
-  if (!isVisible) return null
-
   return (
     <button
       type="button"
@@ -43,7 +39,6 @@ export function DragHandle({
         flexShrink: 0,
       }}
       onMouseDown={(e) => {
-        // grabbing feedback while held
         ;(e.currentTarget as HTMLButtonElement).style.cursor = 'grabbing'
       }}
       onMouseUp={(e) => {
@@ -61,3 +56,4 @@ export function DragHandle({
     </button>
   )
 }
+
