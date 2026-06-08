@@ -13,14 +13,17 @@ import {
 } from '../ui'
 
 describe('formatMoney', () => {
-  it('formats pence to pounds with commas', () => {
-    expect(formatMoney(191_473_200)).toBe('£1,914,732')
+  it('formats pence to pounds with commas and 2dp by default', () => {
+    expect(formatMoney(191_473_200)).toBe('£1,914,732.00')
   })
-  it('supports two decimals', () => {
+  it('supports zero decimals for whole pounds', () => {
+    expect(formatMoney(55000, { decimals: 0 })).toBe('£550')
+  })
+  it('supports two decimals explicitly', () => {
     expect(formatMoney(55000, { decimals: 2 })).toBe('£550.00')
   })
   it('handles zero', () => {
-    expect(formatMoney(0)).toBe('£0')
+    expect(formatMoney(0)).toBe('£0.00')
   })
 })
 
@@ -82,10 +85,10 @@ describe('getLocationColour', () => {
 
 describe('getPlanBadgeStyle', () => {
   it('returns PR style', () => {
-    expect(getPlanBadgeStyle('PR')).toEqual({ background: '#DBEAFE', color: '#1D40B0' })
+    expect(getPlanBadgeStyle('PR')).toEqual({ background: '#BEE0F5', color: '#005F8A' })
   })
   it('returns F_Gov style', () => {
-    expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#FEF3C7', color: '#92400E' })
+    expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
   it('falls back for null', () => {
     expect(getPlanBadgeStyle(null).color).toBeTruthy()
@@ -219,18 +222,18 @@ describe('pickDefaultPeriodId', () => {
     const out = pickDefaultPeriodId([
       { period_id: 'p1', period_status: 'draft' },
       { period_id: 'p2', period_status: 'active' },
-      { period_id: 'p3', period_status: 'closed' },
+      { period_id: 'p3', period_status: 'historic' },
     ])
     expect(out).toBe('p2')
   })
-  it('falls back to most-recent closed when no active', () => {
-    // Input is start-date-desc; first closed is most recent.
+  it('falls back to most-recent historic when no active', () => {
+    // Input is start-date-desc; first historic is most recent.
     const out = pickDefaultPeriodId([
       { period_id: 'future-draft', period_status: 'draft' },
-      { period_id: 'recent-closed', period_status: 'closed' },
-      { period_id: 'older-closed', period_status: 'closed' },
+      { period_id: 'recent-historic', period_status: 'historic' },
+      { period_id: 'older-historic', period_status: 'historic' },
     ])
-    expect(out).toBe('recent-closed')
+    expect(out).toBe('recent-historic')
   })
   it('returns null on empty list', () => {
     expect(pickDefaultPeriodId([])).toBeNull()
@@ -245,8 +248,8 @@ describe('pickDefaultPeriodId', () => {
   it('ignores draft periods when picking', () => {
     const out = pickDefaultPeriodId([
       { period_id: 'draft', period_status: 'draft' },
-      { period_id: 'closed', period_status: 'closed' },
+      { period_id: 'historic', period_status: 'historic' },
     ])
-    expect(out).toBe('closed')
+    expect(out).toBe('historic')
   })
 })

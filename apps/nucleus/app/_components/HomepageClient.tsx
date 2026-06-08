@@ -42,7 +42,7 @@ const QUICK_ACCESS = [
 const STATUS_BADGE: Record<string, { bg: string; color: string; label: string }> = {
   draft:  { bg: 'var(--rmg-color-tint-yellow)',  color: '#2A2A2D', label: 'Draft'  },
   active: { bg: 'var(--rmg-color-tint-success)', color: '#2A2A2D', label: 'Active' },
-  closed: { bg: 'var(--rmg-color-grey-3)',        color: '#666666', label: 'Closed' },
+  historic: { bg: 'var(--rmg-color-grey-3)',      color: '#666666', label: 'Historic' },
 }
 
 export function HomepageClient({ data }: { data: HomepageData }) {
@@ -59,7 +59,7 @@ export function HomepageClient({ data }: { data: HomepageData }) {
 
   const { periods, activePeriod, attentionItems } = data
   const statusBadge = activePeriod
-    ? (STATUS_BADGE[activePeriod.period_status] ?? STATUS_BADGE.closed)
+    ? (STATUS_BADGE[activePeriod.period_status] ?? STATUS_BADGE.historic)
     : null
 
   const metrics = activePeriod

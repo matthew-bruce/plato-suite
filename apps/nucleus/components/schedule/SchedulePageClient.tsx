@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type {
   SchedulePageData,
   ScheduleAllocation,
+  PlatformCostItem,
 } from '@plato/schema'
+import { getSupabaseBrowserClient } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -14,8 +16,15 @@ import {
   PageToolbarExpandButton,
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
+  PeriodContextStrip,
+  LoadingOverlay,
+  useLoadingOverlay,
 } from '@plato/ui'
-import { workingDaysBetween, shortQuarterLabel } from '@/lib/schedule/format'
+import type { PeriodOption } from '@plato/ui'
+import { togglePeriodLocked } from '@/app/actions/schedule'
+import { workingDaysBetween } from '@/lib/schedule/format'
+import { calcCostItemVat } from '@/lib/schedule/costItems'
+import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
   formatMoney,
@@ -26,22 +35,13 @@ import {
   getPlanBadgeStyle,
   getTextColour,
   withAlpha,
-  sortAllocations,
+  sortAllocations as sortByColumn,
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
 import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
-
-// Hard-coded ad-hoc cost items kept for KPI maths (unchanged from previous build).
-const AD_HOC_ITEMS_PENCE = [
-  { name: 'Camel Resources', amount: 6_820_000 },
-  { name: 'SLZ', amount: 4_708_000 },
-  { name: 'Late Timesheets from 24/25', amount: 1_922_000 },
-] as const
-
-const ETP_AND_SS_PENCE = 11_743_400 // £117,434
 
 const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
@@ -57,11 +57,16 @@ interface SortState {
 }
 
 export function SchedulePageClient({ data }: Props) {
-  const { period, costConfig, allocations: rawAllocations, allPeriods } = data
-  const allocations = rawAllocations as Allocation[]
+  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
+  const vatPct = costConfig?.vat_uplift_percent ?? 0
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [isPending, startTransition] = useTransition()
+  const [isPending] = useTransition()
+  const { isLoading, loadingMessage, loadingSubMessage, setLoading, clearLoading } =
+    useLoadingOverlay()
+
+  // Current period ID from URL, falling back to the loaded period
+  const activePeriodId = searchParams.get('period') ?? period.period_id
 
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
@@ -70,8 +75,26 @@ export function SchedulePageClient({ data }: Props) {
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
-  const [alertDismissed, setAlertDismissed] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
+  const [editingAdHoc, setEditingAdHoc] = useState(false)
+  const [editingEtpSs, setEditingEtpSs] = useState(false)
+  const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
+  const [editingSchedule, setEditingSchedule] = useState(false)
+  // Editability is driven solely by the period's locked flag (not status).
+  const [isLocked, setIsLocked] = useState(period.locked)
+  const [lockPending, setLockPending] = useState(false)
+  useEffect(() => {
+    setLocalAllocations(rawAllocations as Allocation[])
+    setLocalCostItems(initialCostItems)
+    setEditingSchedule(false)
+    setEditingAdHoc(false)
+    setEditingEtpSs(false)
+    setIsLocked(period.locked)
+    // New schedule data has arrived for the selected period — dismiss the overlay.
+    clearLoading()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period.period_id])
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
     check()
@@ -85,28 +108,36 @@ export function SchedulePageClient({ data }: Props) {
   )
 
   const supplierOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const a of allocations) {
+    const map = new Map<string, { colour: string; sortOrder: number | null }>()
+    for (const a of localAllocations) {
       if (a.supplier_name && !map.has(a.supplier_name)) {
-        map.set(a.supplier_name, a.supplier_colour ?? '#8F9495')
+        map.set(a.supplier_name, {
+          colour: a.supplier_colour ?? '#8F9495',
+          sortOrder: a.supplier_sort_order,
+        })
       }
     }
     return Array.from(map.entries())
-      .map(([name, colour]) => ({ name, colour }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [allocations])
+      .map(([name, { colour, sortOrder }]) => ({ name, colour, sortOrder }))
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Infinity
+        const sb = b.sortOrder ?? Infinity
+        if (sa !== sb) return sa - sb
+        return a.name.localeCompare(b.name)
+      })
+  }, [localAllocations])
 
   const teamOptions = useMemo(() => {
     const set = new Set<string>()
-    for (const a of allocations) {
+    for (const a of localAllocations) {
       for (const t of a.teams ?? []) set.add(t.teamName)
     }
     return Array.from(set).sort()
-  }, [allocations])
+  }, [localAllocations])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return allocations.filter((a) => {
+    return localAllocations.filter((a) => {
       if (q) {
         const hay = `${a.resource_name} ${a.role_title ?? ''}`.toLowerCase()
         if (!hay.includes(q)) return false
@@ -117,7 +148,7 @@ export function SchedulePageClient({ data }: Props) {
       if (teamFilter !== 'all' && !(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
       return true
     })
-  }, [allocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
+  }, [localAllocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string | null, Allocation[]>()
@@ -130,26 +161,52 @@ export function SchedulePageClient({ data }: Props) {
       .map(([name, rows]) => ({
         name,
         colour: rows[0]?.supplier_colour ?? '#8F9495',
-        rows: sortAllocations(rows, sort.col, sort.dir),
+        supplierId: rows[0]?.supplier_id ?? null,
+        sortOrder: rows[0]?.supplier_sort_order ?? null,
+        rows: sortByColumn([...rows].sort(sortAllocations), sort.col, sort.dir),
       }))
-      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Infinity
+        const sb = b.sortOrder ?? Infinity
+        if (sa !== sb) return sa - sb
+        return (a.name ?? '').localeCompare(b.name ?? '')
+      })
   }, [filtered, sort])
 
   const totals = useMemo(() => {
-    const allocsBase = allocations.reduce(
+    const allocsBase = localAllocations.reduce(
       (sum, a) =>
         isIncludedInBaseCost(a.planview_code) ? sum + (a.base_total_pence ?? 0) : sum,
       0,
     )
-    const allocsVat = allocations.reduce(
+    const allocsVat = localAllocations.reduce(
       (sum, a) =>
         isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
     )
-    const adHoc = AD_HOC_ITEMS_PENCE.reduce((s, i) => s + i.amount, 0)
-    const totalPlatform = allocsVat + adHoc
-    const totalPlatformIncEtp = totalPlatform + ETP_AND_SS_PENCE
-    const chargeableDays = allocations
+    const vatMultiplier = 1 + vatPct / 100
+
+    // Split cost items by category
+    const adHocItems = localCostItems.filter((i) => i.cost_item_category === 'ADHOC')
+    const etpAndSsItems = localCostItems.filter(
+      (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+    )
+
+    // adHocVat: only ADHOC items (with VAT applied per item's vat_applies flag)
+    const adHocVat = adHocItems.reduce((sum, item) => {
+      const base = item.amount_pence
+      return sum + (item.vat_applies ? Math.round(base * vatMultiplier) : base)
+    }, 0)
+
+    // ETP + SS total: read directly from DB rows (VAT already embedded in ETP figure)
+    const etpAndSsPence = etpAndSsItems.reduce((sum, i) => sum + i.amount_pence, 0)
+
+    // Platform total WITHOUT ETP+SS (allocations + VAT + ad-hoc only)
+    const totalPlatform = allocsVat + adHocVat
+
+    // Platform total WITH ETP+SS
+    const totalPlatformIncEtp = totalPlatform + etpAndSsPence
+    const chargeableDays = localAllocations
       .filter((a) => isChargeableRow(a.planview_code))
       .reduce((s, a) => s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100), 0)
     const calcRatePence = chargeableDays > 0 ? totalPlatform / chargeableDays : 0
@@ -157,15 +214,195 @@ export function SchedulePageClient({ data }: Props) {
     return {
       allocsBase,
       allocsVat,
-      adHoc,
+      adHocVat,
+      etpAndSsPence,
       totalPlatform,
       totalPlatformIncEtp,
       chargeableDays,
       calcRatePence,
       calcRateIncEtp,
-      headcount: allocations.length,
+      headcount: localAllocations.length,
     }
-  }, [allocations])
+  }, [localAllocations, localCostItems, vatPct])
+
+  const isUnfiltered =
+    search.trim() === '' &&
+    selectedSuppliers.length === 0 &&
+    planviewFilter === 'all' &&
+    locationFilter === 'all' &&
+    teamFilter === 'all'
+
+  async function handleExportToExcel() {
+    setLoading('Building export', period.period_name)
+    try {
+      const response = await fetch(`/api/export/schedule?periodId=${activePeriodId}`)
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const disposition = response.headers.get('Content-Disposition')
+      const match = disposition?.match(/filename="(.+)"/)
+      a.download = match?.[1] ?? 'Rate_Calculator.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export error:', err)
+    } finally {
+      clearLoading()
+    }
+  }
+
+  async function handleToggleLocked() {
+    if (lockPending) return
+    const next = !isLocked
+    setLockPending(true)
+    try {
+      const res = await togglePeriodLocked(period.period_id, next)
+      setIsLocked(res.locked)
+    } catch (err) {
+      // On error leave isLocked unchanged so the UI reflects the true state.
+      console.error('Failed to toggle period lock:', err)
+    } finally {
+      setLockPending(false)
+    }
+  }
+
+  async function refetchCostItems() {
+    const supabase = getSupabaseBrowserClient()
+    const { data } = await supabase
+      .from('platform_cost_items')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
+      .eq('period_id', period.period_id)
+      .is('deleted_at', null)
+      .order('sort_order')
+    if (data) setLocalCostItems(data as PlatformCostItem[])
+  }
+
+  async function handleUpdateCostItem(
+    id: string,
+    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>,
+  ) {
+    setLocalCostItems((prev) => prev.map((item) => item.cost_item_id === id ? { ...item, ...updates } : item))
+    const supabase = getSupabaseBrowserClient()
+    await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+  }
+
+  async function handleDeleteCostItem(id: string) {
+    setLocalCostItems((prev) => prev.filter((item) => item.cost_item_id !== id))
+    const supabase = getSupabaseBrowserClient()
+    await supabase
+      .from('platform_cost_items')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('cost_item_id', id)
+  }
+
+  async function handleAddCostItem() {
+    const supabase = getSupabaseBrowserClient()
+    const maxSort = localCostItems.length > 0
+      ? Math.max(...localCostItems.map((i) => i.sort_order))
+      : 0
+    await supabase.from('platform_cost_items').insert({
+      period_id: period.period_id,
+      label: 'New item',
+      amount_pence: 0,
+      vat_applies: false,
+      sort_order: maxSort + 1,
+      notes: null,
+      cost_item_category: 'ADHOC',
+    })
+    await refetchCostItems()
+  }
+
+  async function handleAddEtpSsItem() {
+    const supabase = getSupabaseBrowserClient()
+    const maxSort = localCostItems.length > 0
+      ? Math.max(...localCostItems.map((i) => i.sort_order))
+      : 0
+    // ETP/SS items embed VAT in their amount, so vat_applies is always false.
+    await supabase.from('platform_cost_items').insert({
+      period_id: period.period_id,
+      label: 'New item',
+      amount_pence: 0,
+      vat_applies: false,
+      sort_order: maxSort + 1,
+      notes: null,
+      cost_item_category: 'ETP',
+    })
+    await refetchCostItems()
+  }
+
+  async function handleUpdateAllocation(id: string, updates: AllocationUpdates) {
+    setLocalAllocations((prev) => prev.map((a) => {
+      if (a.allocation_id !== id) return a
+      const next = { ...a, ...updates }
+      const days = next.capacity_days ?? 0
+      const base = Math.round(next.day_rate * days * (next.utilisation_percent / 100))
+      const vatApplies = next.vat_applies !== false
+      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
+      return { ...next, base_total_pence: base, vat_total_pence: vat }
+    }))
+    const supabase = getSupabaseBrowserClient()
+    await supabase.from('resource_period_allocations').update(updates).eq('allocation_id', id)
+  }
+
+  async function handleDeleteAllocation(id: string) {
+    setLocalAllocations((prev) => prev.filter((a) => a.allocation_id !== id))
+    const supabase = getSupabaseBrowserClient()
+    await supabase
+      .from('resource_period_allocations')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('allocation_id', id)
+  }
+
+  async function handleAddAllocation(
+    supplierId: string | null,
+    supplierName: string | null,
+    supplierColour: string,
+  ) {
+    const supabase = getSupabaseBrowserClient()
+    const { data: inserted } = await supabase
+      .from('resource_period_allocations')
+      .insert({
+        period_id: period.period_id,
+        supplier_id: supplierId,
+        role_title: null,
+        planview_code: 'BAU',
+        day_rate: 0,
+        utilisation_percent: 100,
+        capacity_days: 0,
+        is_chargeable: false,
+        vat_applies: true,
+      })
+      .select('allocation_id')
+      .single()
+    if (inserted?.allocation_id) {
+      const supplierSortOrder =
+        localAllocations.find((a) => a.supplier_id === supplierId)?.supplier_sort_order ?? null
+      const newAlloc: Allocation = {
+        allocation_id: inserted.allocation_id as string,
+        resource_name: null,
+        role_title: null,
+        supplier_id: supplierId,
+        supplier_name: supplierName,
+        supplier_colour: supplierColour,
+        supplier_sort_order: supplierSortOrder,
+        resource_location: null,
+        planview_code: 'BAU',
+        day_rate: 0,
+        utilisation_percent: 100,
+        capacity_days: 0,
+        is_chargeable: false,
+        vat_applies: true,
+        teams: [],
+        base_total_pence: 0,
+        vat_total_pence: 0,
+      }
+      setLocalAllocations((prev) => [...prev, newAlloc])
+    }
+  }
 
   const allExpanded =
     groupedBySupplier.length > 0 &&
@@ -186,12 +423,6 @@ export function SchedulePageClient({ data }: Props) {
     setExpandedMap(next)
   }
 
-  function handlePeriodChange(newPeriodId: string) {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set('period', newPeriodId)
-    startTransition(() => router.push(`/schedule?${params.toString()}`))
-  }
-
   function onHeaderClick(col: SortableCol) {
     setSort((prev) => {
       if (prev.col !== col) return { col, dir: 'asc' }
@@ -200,22 +431,8 @@ export function SchedulePageClient({ data }: Props) {
     })
   }
 
-  const isClosed = period.period_status === 'closed'
-  const statusDot = isClosed
-    ? '#8F9495'
-    : period.period_status === 'active'
-      ? '#008A00'
-      : '#F3920D'
-  const statusLabel =
-    period.period_status === 'closed'
-      ? 'Closed'
-      : period.period_status === 'active'
-        ? 'Active'
-        : 'Draft'
-
-  const shortQ = shortQuarterLabel(period.period_name)
-
   return (
+    <>
     <div
       style={{
         background: '#ffffff',
@@ -228,20 +445,33 @@ export function SchedulePageClient({ data }: Props) {
         boxSizing: 'border-box',
       }}
     >
-      <PageHeader
-        period={period}
-        shortQ={shortQ}
-        statusDot={statusDot}
-        statusLabel={statusLabel}
-        workingDays={workingDays}
-        allPeriods={allPeriods}
-        onPeriodChange={handlePeriodChange}
-        isClosed={isClosed}
-      />
+      <PageHeader onCreateNewPeriod={() => console.log('Create New Period: coming soon')} />
 
-      {isClosed && !alertDismissed && (
-        <ClosedPeriodAlert onDismiss={() => setAlertDismissed(true)} />
-      )}
+      <PeriodContextStrip
+        periodStart={new Date(period.period_start_date)}
+        periodEnd={new Date(period.period_end_date)}
+        workingDays={workingDays}
+        platformName="Web Platform (WEB)"
+        periods={allPeriods.map((p): PeriodOption => ({
+          periodId: p.period_id,
+          periodStart: new Date(p.period_start_date),
+          periodEnd: new Date(p.period_end_date),
+          workingDays: workingDaysBetween(p.period_start_date, p.period_end_date),
+        }))}
+        currentPeriodId={activePeriodId}
+        onPeriodSelect={(id) => {
+          if (id === activePeriodId) return
+          const periodName = allPeriods.find((p) => p.period_id === id)?.period_name
+          setLoading('Loading schedule', periodName)
+          const params = new URLSearchParams(searchParams.toString())
+          params.set('period', id)
+          router.push(`/schedule?${params.toString()}`)
+        }}
+        locked={isLocked}
+        onLockToggle={handleToggleLocked}
+        lockPending={lockPending}
+        onExport={handleExportToExcel}
+      />
 
       <KpiStrip totals={totals} costConfig={costConfig} />
 
@@ -297,6 +527,26 @@ export function SchedulePageClient({ data }: Props) {
                   expanded={allExpanded}
                   onToggle={toggleAll}
                 />
+                {!isLocked && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingSchedule((v) => !v)}
+                    style={{
+                      border: editingSchedule ? '1.5px solid var(--rmg-color-red)' : '1.5px solid var(--rmg-color-grey-2)',
+                      borderRadius: 'var(--rmg-radius-s)',
+                      background: editingSchedule ? '#FFF5F5' : 'var(--rmg-color-surface-white)',
+                      color: editingSchedule ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
+                      fontFamily: 'var(--rmg-font-body)',
+                      fontSize: 12,
+                      fontWeight: editingSchedule ? 600 : 400,
+                      padding: '5px 10px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {editingSchedule ? 'Done editing' : 'Edit schedule'}
+                  </button>
+                )}
               </PageToolbarPrimaryActions>
             </>
           }
@@ -334,258 +584,75 @@ export function SchedulePageClient({ data }: Props) {
         onToggle={toggleSupplier}
         sort={sort}
         onSort={onHeaderClick}
-        vatPct={costConfig?.vat_uplift_percent ?? 0}
-        isClosed={isClosed}
+        vatPct={vatPct}
+        locked={isLocked}
         activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
+        searchQuery={search}
+        costItems={localCostItems}
+        isUnfiltered={isUnfiltered}
+        editingAdHoc={editingAdHoc}
+        onToggleEditAdHoc={() => setEditingAdHoc((v) => !v)}
+        editingEtpSs={editingEtpSs}
+        onToggleEditEtpSs={() => setEditingEtpSs((v) => !v)}
+        onUpdateCostItem={handleUpdateCostItem}
+        onDeleteCostItem={handleDeleteCostItem}
+        onAddCostItem={handleAddCostItem}
+        onAddEtpSsItem={handleAddEtpSsItem}
+        editingSchedule={editingSchedule}
+        onUpdateAllocation={handleUpdateAllocation}
+        onDeleteAllocation={handleDeleteAllocation}
+        onAddAllocation={handleAddAllocation}
       />
     </div>
+    <LoadingOverlay
+      isLoading={isLoading}
+      message={loadingMessage}
+      subMessage={loadingSubMessage}
+    />
+    </>
   )
 }
 
 /* ── PageHeader ────────────────────────────────────────────────── */
 
-function PageHeader({
-  period,
-  shortQ,
-  statusDot,
-  statusLabel,
-  workingDays,
-  allPeriods,
-  onPeriodChange,
-  isClosed,
-}: {
-  period: SchedulePageData['period']
-  shortQ: string
-  statusDot: string
-  statusLabel: string
-  workingDays: number
-  allPeriods: SchedulePageData['allPeriods']
-  onPeriodChange: (id: string) => void
-  isClosed: boolean
-}) {
+function PageHeader({ onCreateNewPeriod }: { onCreateNewPeriod: () => void }) {
   return (
-    <>
-      <nav
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+      }}
+    >
+      <h1
         style={{
-          fontSize: 12,
-          color: '#8F9495',
-          marginBottom: 12,
+          fontSize: 22,
+          fontWeight: 700,
+          color: '#2A2A2D',
+          letterSpacing: '-0.03em',
+          margin: 0,
         }}
       >
-        Nucleus &nbsp;›&nbsp; Finance &nbsp;›&nbsp;{' '}
-        <span style={{ color: '#2A2A2D' }}>Platform Schedule</span>
-      </nav>
+        Platform Schedule
+      </h1>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          flexWrap: 'wrap',
-          marginBottom: 8,
-        }}
-      >
-        <h1
-          style={{
-            fontFamily: 'var(--rmg-font-display)',
-            fontSize: 26,
-            fontWeight: 700,
-            color: '#2A2A2D',
-            letterSpacing: '-0.03em',
-            margin: 0,
-          }}
-        >
-          Platform Schedule
-        </h1>
-
-        <div
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          <select
-            value={period.period_id}
-            onChange={(e) => onPeriodChange(e.target.value)}
-            aria-label="Quarter selector"
-            style={{
-              appearance: 'none',
-              WebkitAppearance: 'none',
-              MozAppearance: 'none',
-              background: 'white',
-              border: '1.5px solid #D5D5D5',
-              borderRadius: 10,
-              padding: '5px 28px 5px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#2A2A2D',
-              fontFamily: 'var(--rmg-font-body)',
-              cursor: 'pointer',
-              lineHeight: 1.4,
-            }}
-          >
-            {allPeriods.map((p) => (
-              <option key={p.period_id} value={p.period_id}>
-                {p.period_name}
-              </option>
-            ))}
-          </select>
-          <span
-            aria-hidden
-            style={{
-              position: 'absolute',
-              right: 10,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#2A2A2D',
-              pointerEvents: 'none',
-              display: 'inline-flex',
-            }}
-          >
-            <ChevronSmall />
-          </span>
-        </div>
-
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: '#8F9495',
-          }}
-        >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: statusDot,
-              display: 'inline-block',
-            }}
-          />
-          {statusLabel}
+      <GhostButton onClick={onCreateNewPeriod}>
+        <span style={{ marginRight: 6, display: 'inline-flex', verticalAlign: 'middle' }} aria-hidden>
+          <ClockIcon size={12} />
         </span>
-
-        <div style={{ flex: 1 }} />
-
-        <GhostButton onClick={() => alert('Duplicate Quarter: coming soon')}>
-          Duplicate Quarter
-        </GhostButton>
-        <GhostButton onClick={() => alert('Export to Excel: coming soon')}>
-          Export to Excel
-        </GhostButton>
-        <PrimaryButton
-          disabled={isClosed}
-          onClick={() => alert('Add Resource: coming soon')}
-        >
-          {isClosed && (
-            <span style={{ marginRight: 6 }} aria-hidden>
-              {LockIcon(11)}
-            </span>
-          )}
-          Add Resource
-        </PrimaryButton>
-      </div>
-
-      <div
-        style={{
-          fontSize: 12,
-          color: '#8F9495',
-          marginBottom: 20,
-        }}
-      >
-        {formatShortDate(period.period_start_date)} – {formatShortDate(period.period_end_date)} · {workingDays} working days · Web Platform (WEB)
-      </div>
-    </>
+        Create New Period
+      </GhostButton>
+    </div>
   )
 }
 
-/* ── ClosedPeriodAlert ─────────────────────────────────────────── */
-
-function ClosedPeriodAlert({ onDismiss }: { onDismiss: () => void }) {
+function ClockIcon({ size = 12 }: { size?: number }) {
   return (
-    <div
-      role="status"
-      style={{
-        background: '#FDDA24',
-        borderRadius: 10,
-        padding: '12px 18px',
-        display: 'flex',
-        gap: 12,
-        alignItems: 'flex-start',
-        marginBottom: 20,
-      }}
-    >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="#2A2A2D"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-        style={{ flexShrink: 0, marginTop: 1 }}
-      >
-        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </svg>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#2A2A2D' }}>
-          This period is closed
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: '#2A2A2D',
-            opacity: 0.78,
-            marginTop: 2,
-          }}
-        >
-          All values are read-only. To make changes, duplicate this quarter first.
-          <button
-            type="button"
-            onClick={() => alert('Duplicate Quarter: coming soon')}
-            style={{
-              marginLeft: 10,
-              background: 'rgba(0,0,0,0.1)',
-              border: 'none',
-              borderRadius: 6,
-              padding: '3px 9px',
-              fontSize: 12,
-              fontWeight: 700,
-              color: '#2A2A2D',
-              cursor: 'pointer',
-            }}
-          >
-            Duplicate Quarter
-          </button>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss"
-        style={{
-          background: 'transparent',
-          border: 'none',
-          opacity: 0.45,
-          cursor: 'pointer',
-          fontSize: 16,
-          lineHeight: 1,
-          color: '#2A2A2D',
-        }}
-      >
-        ✕
-      </button>
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden style={{ verticalAlign: 'middle' }}>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -598,6 +665,7 @@ function KpiStrip({
   totals: {
     totalPlatform: number
     totalPlatformIncEtp: number
+    etpAndSsPence: number
     calcRatePence: number
     calcRateIncEtp: number
     headcount: number
@@ -613,25 +681,17 @@ function KpiStrip({
     : formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })
 
   return (
-    <div
-      className={styles.kpiStrip}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: 12,
-        marginBottom: 18,
-      }}
-    >
+    <div className={styles.kpiStrip}>
       <KpiCard
         label="Total Platform Cost"
-        value={formatMoney(totals.totalPlatform)}
+        value={formatMoney(totals.totalPlatform, { decimals: 0 })}
         sub="Allocations + VAT + ad-hoc"
         accent="#DA202A"
       />
       <KpiCard
         label="Inc. ETP & Shared Services"
-        value={formatMoney(totals.totalPlatformIncEtp)}
-        sub="+£117,434 ETP & SS"
+        value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
+        sub={`+${formatMoney(totals.etpAndSsPence, { decimals: 0 })} ETP & SS`}
         accent="#404044"
       />
       <KpiCard
@@ -733,7 +793,22 @@ function KpiCard({
   )
 }
 
+/* ── Within-band row ordering ──────────────────────────────────── */
+
+const PLANVIEW_RANK: Record<string, number> = { BAU: 0, F_Gov: 1, PR: 2 }
+
+function sortAllocations(a: ScheduleAllocation, b: ScheduleAllocation): number {
+  const rankA = PLANVIEW_RANK[a.planview_code ?? ''] ?? 99
+  const rankB = PLANVIEW_RANK[b.planview_code ?? ''] ?? 99
+  if (rankA !== rankB) return rankA - rankB
+  const nameA = a.resource_name ?? 'ZZZZZ'
+  const nameB = b.resource_name ?? 'ZZZZZ'
+  return nameA.localeCompare(nameB)
+}
+
 /* ── ScheduleTable ─────────────────────────────────────────────── */
+
+type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable'>>
 
 function ScheduleTable({
   groups,
@@ -742,17 +817,47 @@ function ScheduleTable({
   sort,
   onSort,
   vatPct,
-  isClosed,
+  locked,
   activeTeamFilter,
+  searchQuery,
+  costItems,
+  isUnfiltered,
+  editingAdHoc,
+  onToggleEditAdHoc,
+  editingEtpSs,
+  onToggleEditEtpSs,
+  onUpdateCostItem,
+  onDeleteCostItem,
+  onAddCostItem,
+  onAddEtpSsItem,
+  editingSchedule,
+  onUpdateAllocation,
+  onDeleteAllocation,
+  onAddAllocation,
 }: {
-  groups: { name: string | null; colour: string; rows: Allocation[] }[]
+  groups: { name: string | null; colour: string; supplierId: string | null; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
   onToggle: (name: string | null) => void
   sort: SortState
   onSort: (col: SortableCol) => void
   vatPct: number
-  isClosed: boolean
+  locked: boolean
+  searchQuery: string
   activeTeamFilter: string | null
+  costItems: PlatformCostItem[]
+  isUnfiltered: boolean
+  editingAdHoc: boolean
+  onToggleEditAdHoc: () => void
+  editingEtpSs: boolean
+  onToggleEditEtpSs: () => void
+  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onDeleteCostItem: (id: string) => Promise<void>
+  onAddCostItem: () => Promise<void>
+  onAddEtpSsItem: () => Promise<void>
+  editingSchedule: boolean
+  onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDeleteAllocation: (id: string) => Promise<void>
+  onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
 }) {
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
@@ -772,10 +877,13 @@ function ScheduleTable({
     }, 0)
   }, 0)
 
+  const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
+  const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
-        <HeaderRow sort={sort} onSort={onSort} isClosed={isClosed} />
+        <HeaderRow sort={sort} onSort={onSort} locked={locked} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
@@ -798,6 +906,7 @@ function ScheduleTable({
               key={g.name ?? '__vacant__'}
               name={g.name}
               colour={g.colour}
+              supplierId={g.supplierId}
               rows={g.rows}
               expanded={expanded}
               onToggle={() => onToggle(g.name)}
@@ -806,9 +915,38 @@ function ScheduleTable({
               days={days}
               vatPct={vatPct}
               activeTeamFilter={activeTeamFilter}
+              searchQuery={searchQuery}
+              editingSchedule={editingSchedule}
+              onUpdateAllocation={onUpdateAllocation}
+              onDeleteAllocation={onDeleteAllocation}
+              onAddAllocation={onAddAllocation}
             />
           )
         })}
+        {isUnfiltered && <AdHocSection
+          items={costItems.filter((i) => i.cost_item_category === 'ADHOC')}
+          editingAdHoc={editingAdHoc}
+          onToggleEditAdHoc={onToggleEditAdHoc}
+          onUpdate={onUpdateCostItem}
+          onDelete={onDeleteCostItem}
+          onAdd={onAddCostItem}
+          vatPct={vatPct}
+          locked={locked}
+        />}
+        {isUnfiltered && (costItems.some(
+          (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+        ) || editingEtpSs) && <EtpSsSection
+          items={costItems.filter(
+            (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
+          )}
+          vatPct={vatPct}
+          locked={locked}
+          editingEtpSs={editingEtpSs}
+          onToggleEditEtpSs={onToggleEditEtpSs}
+          onUpdate={onUpdateCostItem}
+          onDelete={onDeleteCostItem}
+          onAdd={onAddEtpSsItem}
+        />}
         <div
           style={{
             display: 'grid',
@@ -825,10 +963,10 @@ function ScheduleTable({
             {footerLabel}
           </div>
           <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase)} />
+            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} />
           </div>
           <div style={{ gridColumn: 11 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat)} />
+            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} />
           </div>
         </div>
       </div>
@@ -853,11 +991,11 @@ const HEADERS: { col: SortableCol; label: string; align?: 'right' }[] = [
 function HeaderRow({
   sort,
   onSort,
-  isClosed,
+  locked,
 }: {
   sort: SortState
   onSort: (col: SortableCol) => void
-  isClosed: boolean
+  locked: boolean
 }) {
   return (
     <div
@@ -889,7 +1027,7 @@ function HeaderRow({
         sort={sort}
         onSort={onSort}
         align="right"
-        trailing={isClosed ? LockIcon(11, 0.35) : null}
+        trailing={locked ? LockIcon(11, 0.35) : null}
       />
       <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
@@ -962,6 +1100,7 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir | null }) {
 function SupplierSection({
   name,
   colour,
+  supplierId,
   rows,
   expanded,
   onToggle,
@@ -970,9 +1109,15 @@ function SupplierSection({
   days,
   vatPct,
   activeTeamFilter,
+  searchQuery,
+  editingSchedule,
+  onUpdateAllocation,
+  onDeleteAllocation,
+  onAddAllocation,
 }: {
   name: string | null
   colour: string
+  supplierId: string | null
   rows: Allocation[]
   expanded: boolean
   onToggle: () => void
@@ -981,6 +1126,11 @@ function SupplierSection({
   days: number
   vatPct: number
   activeTeamFilter: string | null
+  searchQuery: string
+  editingSchedule: boolean
+  onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDeleteAllocation: (id: string) => Promise<void>
+  onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -1090,10 +1240,629 @@ function SupplierSection({
             key={r.allocation_id}
             row={r}
             vatPct={vatPct}
-            isRMG={isRMG}
             activeTeamFilter={activeTeamFilter}
+            searchQuery={searchQuery}
+            editingSchedule={editingSchedule}
+            onUpdate={onUpdateAllocation}
+            onDelete={onDeleteAllocation}
           />
         ))}
+      {expanded && editingSchedule && (
+        <div
+          style={{
+            padding: '8px 12px',
+            borderTop: '1px dashed #E0E0E0',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onAddAllocation(supplierId, name, colour)}
+            style={{
+              background: 'transparent',
+              border: '1px dashed #C0C0C0',
+              borderRadius: 6,
+              color: '#8F9495',
+              fontFamily: 'var(--rmg-font-body)',
+              fontSize: 12,
+              cursor: 'pointer',
+              padding: '4px 12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+            Add resource
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── AdHocSection ──────────────────────────────────────────────── */
+
+const ADHOC_COLOUR = '#9CA3AF'
+const ADHOC_PILL_BG = '#6B7280'
+
+function AdHocSection({
+  items,
+  editingAdHoc,
+  onToggleEditAdHoc,
+  onUpdate,
+  onDelete,
+  onAdd,
+  vatPct,
+  locked,
+}: {
+  items: PlatformCostItem[]
+  editingAdHoc: boolean
+  onToggleEditAdHoc: () => void
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  onAdd: () => Promise<void>
+  vatPct: number
+  locked: boolean
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const base = items.reduce((s, item) => s + item.amount_pence, 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
+  return (
+    <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
+      <div
+        className={styles.bandRow}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SCHEDULE_COLS,
+          padding: COL_PADDING,
+          background: '#F3F4F6',
+          cursor: 'pointer',
+        }}
+      >
+        <div
+          className={styles.bandLeft}
+          style={{ gridColumn: '1 / span 8' }}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span
+            style={{
+              transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms ease',
+              color: ADHOC_COLOUR,
+              display: 'inline-flex',
+            }}
+            aria-hidden
+          >
+            <ChevronSmall />
+          </span>
+          <span
+            style={{
+              background: ADHOC_PILL_BG,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '4px 12px',
+              borderRadius: 6,
+            }}
+          >
+            Ad-hoc Quarterly Expenses
+          </span>
+          <span style={{ fontSize: 12, color: '#8F9495' }}>
+            {items.length} {items.length === 1 ? 'item' : 'items'}
+          </span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleEditAdHoc() }}
+              style={{
+                marginLeft: 8,
+                background: editingAdHoc ? ADHOC_COLOUR : 'transparent',
+                color: editingAdHoc ? 'white' : ADHOC_COLOUR,
+                border: `1px solid ${ADHOC_COLOUR}`,
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {editingAdHoc ? 'Done' : 'Edit items'}
+            </button>
+          )}
+        </div>
+        <div className={styles.bandMobileRow}>
+          <div
+            style={{
+              gridColumn: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(vat)}
+          </div>
+        </div>
+      </div>
+
+      {expanded && items.map((item) => (
+        <AdHocRow
+          key={item.cost_item_id}
+          item={item}
+          editing={editingAdHoc}
+          vatPct={vatPct}
+          onUpdate={onUpdate}
+          onDelete={onDelete}
+        />
+      ))}
+
+      {expanded && editingAdHoc && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            borderTop: '1px solid #EEEEEE',
+          }}
+        >
+          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+            <button
+              type="button"
+              onClick={onAdd}
+              style={{
+                background: 'transparent',
+                border: `1px dashed ${ADHOC_COLOUR}`,
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: ADHOC_COLOUR,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              + Add item
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── EtpSsSection ──────────────────────────────────────────────── */
+
+const ETP_SS_COLOUR = '#5A5A5E'
+
+const ETP_SS_CATEGORY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'ETP', label: 'Enterprise Tooling Platform' },
+  { value: 'SHARED_SERVICES', label: 'Shared Services' },
+]
+
+function EtpSsSection({
+  items,
+  vatPct,
+  locked,
+  editingEtpSs,
+  onToggleEditEtpSs,
+  onUpdate,
+  onDelete,
+  onAdd,
+}: {
+  items: PlatformCostItem[]
+  vatPct: number
+  locked: boolean
+  editingEtpSs: boolean
+  onToggleEditEtpSs: () => void
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+  onAdd: () => Promise<void>
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const base = items.reduce((s, item) => s + item.amount_pence, 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
+  return (
+    <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
+      <div
+        className={styles.bandRow}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: SCHEDULE_COLS,
+          padding: COL_PADDING,
+          background: '#F3F4F6',
+          cursor: 'pointer',
+        }}
+      >
+        <div
+          className={styles.bandLeft}
+          style={{ gridColumn: '1 / span 8' }}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span
+            style={{
+              transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+              transition: 'transform 120ms ease',
+              color: ETP_SS_COLOUR,
+              display: 'inline-flex',
+            }}
+            aria-hidden
+          >
+            <ChevronSmall />
+          </span>
+          <span
+            style={{
+              background: ETP_SS_COLOUR,
+              color: 'white',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '4px 12px',
+              borderRadius: 6,
+            }}
+          >
+            ETP & Shared Services
+          </span>
+          <span style={{ fontSize: 12, color: '#8F9495' }}>
+            {items.length} {items.length === 1 ? 'item' : 'items'}
+          </span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleEditEtpSs() }}
+              style={{
+                marginLeft: 8,
+                background: editingEtpSs ? ETP_SS_COLOUR : 'transparent',
+                color: editingEtpSs ? 'white' : ETP_SS_COLOUR,
+                border: `1px solid ${ETP_SS_COLOUR}`,
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {editingEtpSs ? 'Done' : 'Edit items'}
+            </button>
+          )}
+        </div>
+        <div className={styles.bandMobileRow}>
+          <div
+            style={{
+              gridColumn: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 11,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatMoney(vat)}
+          </div>
+        </div>
+      </div>
+
+      {expanded && items.map((item) => (
+        editingEtpSs ? (
+          <EtpSsEditRow
+            key={item.cost_item_id}
+            item={item}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ) : (
+          <AdHocRow
+            key={item.cost_item_id}
+            item={item}
+            editing={false}
+            vatPct={vatPct}
+            onUpdate={async () => {}}
+            onDelete={async () => {}}
+          />
+        )
+      ))}
+
+      {expanded && editingEtpSs && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: SCHEDULE_COLS,
+            padding: COL_PADDING,
+            borderTop: '1px solid #EEEEEE',
+          }}
+        >
+          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+            <button
+              type="button"
+              onClick={onAdd}
+              style={{
+                background: 'transparent',
+                border: `1px dashed ${ETP_SS_COLOUR}`,
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                color: ETP_SS_COLOUR,
+                cursor: 'pointer',
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              + Add item
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EtpSsEditRow({
+  item,
+  onUpdate,
+  onDelete,
+}: {
+  item: PlatformCostItem
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [labelValue, setLabelValue] = useState(item.label)
+  const [amountValue, setAmountValue] = useState((item.amount_pence / 100).toFixed(2))
+  useEffect(() => setLabelValue(item.label), [item.label])
+  useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: SCHEDULE_COLS,
+        padding: COL_PADDING,
+        borderTop: '1px solid #EEEEEE',
+        background: 'rgba(90,90,94,0.03)',
+      }}
+    >
+      <div style={{ gridColumn: '1 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="text"
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: '5 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <select
+          value={item.cost_item_category}
+          onChange={(e) => onUpdate(item.cost_item_id, { cost_item_category: e.target.value })}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+            background: '#fff',
+          }}
+        >
+          {ETP_SS_CATEGORY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      <div style={{ gridColumn: '8 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+        <input
+          type="number"
+          value={amountValue}
+          step="0.01"
+          min="0"
+          onChange={(e) => setAmountValue(e.target.value)}
+          onBlur={() => {
+            const pence = Math.round(parseFloat(amountValue) * 100)
+            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+          }}
+          style={{
+            width: '100px',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => onDelete(item.cost_item_id)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#DA202A',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'var(--rmg-font-body)',
+            padding: '2px 6px',
+          }}
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AdHocRow({
+  item,
+  editing,
+  vatPct,
+  onUpdate,
+  onDelete,
+}: {
+  item: PlatformCostItem
+  editing: boolean
+  vatPct: number
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [labelValue, setLabelValue] = useState(item.label)
+  const [amountValue, setAmountValue] = useState((item.amount_pence / 100).toFixed(2))
+  useEffect(() => setLabelValue(item.label), [item.label])
+  useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
+
+  const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
+
+  if (!editing) {
+    return (
+      <div className={styles.allocationRow} style={{ gridTemplateColumns: SCHEDULE_COLS }}>
+        <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell><span /></Cell>
+        <Cell align="right"><span /></Cell>
+        <Cell align="right"><span /></Cell>
+        <Cell align="right" dataLabel="Base">
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+            {formatMoney(item.amount_pence)}
+          </span>
+        </Cell>
+        <Cell align="right" dataLabel="+VAT">
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495' }}>
+            {formatMoney(vatTotal)}
+          </span>
+        </Cell>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: SCHEDULE_COLS,
+        padding: COL_PADDING,
+        borderTop: '1px solid #EEEEEE',
+        background: 'rgba(243,146,13,0.03)',
+      }}
+    >
+      <div style={{ gridColumn: '1 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+        <input
+          type="text"
+          value={labelValue}
+          onChange={(e) => setLabelValue(e.target.value)}
+          onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
+          style={{
+            width: '100%',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+      </div>
+      <div style={{ gridColumn: '6 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+        <input
+          type="number"
+          value={amountValue}
+          step="0.01"
+          min="0"
+          onChange={(e) => setAmountValue(e.target.value)}
+          onBlur={() => {
+            const pence = Math.round(parseFloat(amountValue) * 100)
+            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+          }}
+          style={{
+            width: '80px',
+            border: '1px solid #D5D5D5',
+            borderRadius: 6,
+            padding: '4px 8px',
+            fontSize: 12,
+            fontFamily: 'var(--rmg-font-body)',
+            color: '#2A2A2D',
+          }}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#555', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={item.vat_applies}
+            onChange={(e) => onUpdate(item.cost_item_id, { vat_applies: e.target.checked })}
+          />
+          +VAT
+        </label>
+      </div>
+      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={() => onDelete(item.cost_item_id)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#DA202A',
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: 'var(--rmg-font-body)',
+            padding: '2px 6px',
+          }}
+        >
+          Remove
+        </button>
+      </div>
     </div>
   )
 }
@@ -1135,17 +1904,51 @@ function BandTotal({ label, value }: { label: string; value: string }) {
 
 /* ── AllocationRow ─────────────────────────────────────────────── */
 
+const nullStyle: React.CSSProperties = {
+  color: 'var(--rmg-color-text-subtle, #9CA3AF)',
+  fontStyle: 'italic',
+  fontSize: '13px',
+  fontWeight: 400,
+}
+
+const editInputStyle: React.CSSProperties = {
+  width: '100%',
+  border: '1px solid #D5D5D5',
+  borderRadius: 4,
+  padding: '3px 6px',
+  fontSize: 12,
+  fontFamily: 'var(--rmg-font-body)',
+  color: '#2A2A2D',
+  background: '#fff',
+}
+
 function AllocationRow({
   row,
   vatPct,
-  isRMG,
   activeTeamFilter,
+  searchQuery,
+  editingSchedule,
+  onUpdate,
+  onDelete,
 }: {
   row: Allocation
   vatPct: number
-  isRMG: boolean
   activeTeamFilter: string | null
+  searchQuery: string
+  editingSchedule: boolean
+  onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
+  onDelete: (id: string) => Promise<void>
 }) {
+  const [pendingDelete, setPendingDelete] = useState(false)
+  const [roleValue, setRoleValue] = useState(row.role_title ?? '')
+  const [dayRateValue, setDayRateValue] = useState(String(row.day_rate / 100))
+  const [daysValue, setDaysValue] = useState(String(row.capacity_days ?? 0))
+  const [utilValue, setUtilValue] = useState(String(row.utilisation_percent))
+  useEffect(() => { setRoleValue(row.role_title ?? '') }, [row.role_title])
+  useEffect(() => { setDayRateValue(String(row.day_rate / 100)) }, [row.day_rate])
+  useEffect(() => { setDaysValue(String(row.capacity_days ?? 0)) }, [row.capacity_days])
+  useEffect(() => { setUtilValue(String(row.utilisation_percent)) }, [row.utilisation_percent])
+
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
   const isBAU = plan === 'BAU'
@@ -1157,7 +1960,8 @@ function AllocationRow({
 
   const rawDays = row.capacity_days ?? 0
   const rawBase = row.base_total_pence ?? Math.round(row.day_rate * rawDays * (row.utilisation_percent / 100))
-  const rawVat = row.vat_total_pence ?? (isRMG ? rawBase : Math.round(rawBase * (1 + vatPct / 100)))
+  const vatApplies = row.vat_applies !== false
+  const rawVat = row.vat_total_pence ?? (vatApplies ? Math.round(rawBase * (1 + vatPct / 100)) : rawBase)
 
   const split = getCapacitySplit(row.teams, activeTeamFilter)
   const isProportional = split < 1.0
@@ -1174,6 +1978,185 @@ function AllocationRow({
 
   const teams = row.teams ?? []
 
+  if (editingSchedule && pendingDelete) {
+    return (
+      <div
+        className={styles.allocationRow}
+        style={{ gridTemplateColumns: SCHEDULE_COLS, background: '#FFF5F5' }}
+      >
+        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
+          <span style={{ fontSize: 13, color: '#DA202A', fontWeight: 500 }}>
+            Delete {row.resource_name ?? row.role_title ?? 'this resource'}?
+          </span>
+          <button
+            type="button"
+            onClick={() => onDelete(row.allocation_id)}
+            style={{ background: '#DA202A', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)' }}
+          >
+            Yes, delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingDelete(false)}
+            style={{ background: 'transparent', color: '#555', border: '1px solid #D5D5D5', borderRadius: 4, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (editingSchedule) {
+    return (
+      <div
+        className={styles.allocationRow}
+        style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
+      >
+        {/* 1 Resource + delete */}
+        <Cell>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: tbc ? 'var(--rmg-color-grey-1)' : '#2A2A2D', fontStyle: tbc ? 'italic' : 'normal', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tbc ? 'TBC' : row.resource_name}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(true)}
+              title="Delete row"
+              style={{ background: 'transparent', border: 'none', color: '#DA202A', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
+            >
+              ✕
+            </button>
+          </div>
+        </Cell>
+        {/* 2 Role */}
+        <Cell>
+          <input
+            type="text"
+            value={roleValue}
+            onChange={(e) => setRoleValue(e.target.value)}
+            onBlur={() => { if (roleValue !== (row.role_title ?? '')) onUpdate(row.allocation_id, { role_title: roleValue || null }) }}
+            placeholder="Role title"
+            style={editInputStyle}
+          />
+        </Cell>
+        {/* 3 Team — read-only */}
+        <Cell>
+          {teams.length === 0 ? (
+            <span style={nullStyle}>No Team</span>
+          ) : (
+            <span style={{ fontSize: '13px', color: '#555' }}>{teams.map((t) => t.teamName).join(', ')}</span>
+          )}
+        </Cell>
+        {/* 4 Utilisation */}
+        <Cell>
+          <input
+            type="number"
+            value={utilValue}
+            min="0"
+            max="100"
+            onChange={(e) => setUtilValue(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(100, Math.max(0, parseFloat(utilValue) || 0))
+              if (v !== row.utilisation_percent) onUpdate(row.allocation_id, { utilisation_percent: v })
+            }}
+            style={{ ...editInputStyle, width: '52px' }}
+          />
+        </Cell>
+        {/* 5 Plan */}
+        <Cell>
+          <select
+            value={plan ?? 'BAU'}
+            onChange={(e) => onUpdate(row.allocation_id, { planview_code: e.target.value as Allocation['planview_code'] })}
+            style={{ ...editInputStyle, width: 'auto' }}
+          >
+            <option value="PR">PR</option>
+            <option value="F_Gov">F_GOV</option>
+            <option value="BAU">BAU</option>
+            <option value="ETP">ETP</option>
+          </select>
+        </Cell>
+        {/* 6 Chargeable — computed */}
+        <Cell>
+          <span
+            style={{
+              display: 'inline-block',
+              background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
+              color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+              borderRadius: 4,
+              padding: '2px 6px',
+              fontSize: 9,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+          </span>
+        </Cell>
+        {/* 7 Location — read-only */}
+        <Cell>
+          {row.resource_location ? (
+            <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: locColour, display: 'inline-block', flexShrink: 0 }} />
+              {toTitle(row.resource_location)}
+            </span>
+          ) : (
+            <span style={nullStyle}>—</span>
+          )}
+        </Cell>
+        {/* 8 Days */}
+        <Cell align="right">
+          <input
+            type="number"
+            value={daysValue}
+            min="0"
+            onChange={(e) => setDaysValue(e.target.value)}
+            onBlur={() => {
+              const v = Math.max(0, parseFloat(daysValue) || 0)
+              if (v !== (row.capacity_days ?? 0)) onUpdate(row.allocation_id, { capacity_days: v })
+            }}
+            style={{ ...editInputStyle, width: '52px', textAlign: 'right' }}
+          />
+        </Cell>
+        {/* 9 Day Rate */}
+        <Cell align="right">
+          <input
+            type="number"
+            value={dayRateValue}
+            min="0"
+            step="0.01"
+            onChange={(e) => setDayRateValue(e.target.value)}
+            onBlur={() => {
+              const pence = Math.round((parseFloat(dayRateValue) || 0) * 100)
+              if (pence !== row.day_rate) onUpdate(row.allocation_id, { day_rate: pence })
+            }}
+            style={{ ...editInputStyle, width: '72px', textAlign: 'right' }}
+          />
+        </Cell>
+        {/* 10 Base — computed */}
+        <Cell align="right" dataLabel="Base">
+          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#8F9495' }}>
+            {formatMoney(displayBase)}
+          </span>
+        </Cell>
+        {/* 11 +VAT — checkbox + computed */}
+        <Cell align="right" dataLabel="+VAT">
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11, color: '#555' }}>
+            <input
+              type="checkbox"
+              checked={vatApplies}
+              onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
+            />
+            <span style={{ fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
+              {formatMoney(displayVat)}
+            </span>
+          </label>
+        </Cell>
+      </div>
+    )
+  }
+
   return (
     <div
       className={styles.allocationRow}
@@ -1185,27 +2168,29 @@ function AllocationRow({
       {/* 1 Resource */}
       <Cell>
         {tbc ? (
-          <span style={{ fontStyle: 'italic', color: 'var(--rmg-color-grey-1)' }}>
-            TBC
-          </span>
+          <span style={nullStyle}>TBC</span>
         ) : (
           <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-            {row.resource_name}
+            {highlightMatch(row.resource_name!, searchQuery)}
           </span>
         )}
       </Cell>
 
       {/* 2 Role */}
       <Cell>
-        <span style={{ fontSize: 13, color: '#333' }}>{row.role_title ?? '—'}</span>
+        {row.role_title ? (
+          <span style={{ fontSize: 13, color: '#333' }}>
+            {highlightMatch(row.role_title, searchQuery)}
+          </span>
+        ) : (
+          <span style={nullStyle}>—</span>
+        )}
       </Cell>
 
       {/* 3 Team */}
       <Cell>
         {teams.length === 0 ? (
-          <span style={{ fontSize: '11px', color: 'var(--rmg-color-grey-1)', fontStyle: 'italic' }}>
-            No Team
-          </span>
+          <span style={nullStyle}>No Team</span>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {teams.map((t) => (
@@ -1276,7 +2261,7 @@ function AllocationRow({
             fontSize: 9,
             fontWeight: 700,
             textTransform: 'uppercase',
-            letterSpacing: '0.04em',
+            letterSpacing: '0.06em',
           }}
         >
           {planLabel}
@@ -1285,29 +2270,27 @@ function AllocationRow({
 
       {/* 6 Chargeable */}
       <Cell>
-        {isChargeableRow(plan) ? (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: '#008A00',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <TickIcon />
-            Chargeable
-          </span>
-        ) : (
-          <span style={{ fontSize: 11, color: '#D5D5D5' }}>— Not charged</span>
-        )}
+        <span
+          style={{
+            display: 'inline-block',
+            background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
+            color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+            borderRadius: 4,
+            padding: '2px 6px',
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
+        >
+          {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+        </span>
       </Cell>
 
       {/* 7 Location */}
       <Cell>
         {tbc || !row.resource_location ? (
-          <span style={{ color: '#D5D5D5' }}>—</span>
+          <span style={nullStyle}>—</span>
         ) : (
           <span
             style={{
@@ -1334,13 +2317,13 @@ function AllocationRow({
 
       {/* 8 Days */}
       <Cell align="right">
-        <span
-          style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}
-        >
-          {isProportional
-            ? displayDays.toFixed(1)
-            : (row.capacity_days ?? '—')}
-        </span>
+        {!isProportional && row.capacity_days === null ? (
+          <span style={nullStyle}>—</span>
+        ) : (
+          <span style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+            {isProportional ? displayDays.toFixed(1) : row.capacity_days}
+          </span>
+        )}
       </Cell>
 
       {/* 9 Day Rate */}
@@ -1356,7 +2339,9 @@ function AllocationRow({
           style={{
             fontSize: 13,
             fontVariantNumeric: 'tabular-nums',
-            color: isBAU ? '#8F9495' : '#2A2A2D',
+            color: displayBase === 0
+              ? 'var(--rmg-color-text-subtle, #9CA3AF)'
+              : 'var(--rmg-color-text-body)',
           }}
         >
           {formatMoney(displayBase)}
@@ -1369,7 +2354,9 @@ function AllocationRow({
           style={{
             fontSize: 13,
             fontVariantNumeric: 'tabular-nums',
-            color: isBAU || isRMG ? '#8F9495' : '#2A2A2D',
+            color: displayVat === 0
+              ? 'var(--rmg-color-text-subtle, #9CA3AF)'
+              : 'var(--rmg-color-text-body)',
           }}
         >
           {formatMoney(displayVat)}
@@ -1410,40 +2397,6 @@ function Cell({
 
 /* ── Buttons / icons ───────────────────────────────────────────── */
 
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: '#DA202A',
-        color: 'white',
-        border: '1.5px solid #DA202A',
-        borderRadius: 10,
-        padding: '5px 12px',
-        fontSize: 12,
-        fontWeight: 600,
-        fontFamily: 'var(--rmg-font-body)',
-        opacity: disabled ? 0.42 : 1,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        display: 'inline-flex',
-        alignItems: 'center',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 function GhostButton({
   children,
   onClick,
@@ -1480,14 +2433,6 @@ function ChevronSmall() {
   )
 }
 
-function TickIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-      <path d="M2 6.5 L4.8 9 L10 3.5" stroke="#008A00" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function LockIcon(size: number, opacity = 1) {
   return (
     <svg
@@ -1501,16 +2446,6 @@ function LockIcon(size: number, opacity = 1) {
       <path d="M4 5.5 V3.8 a2 2 0 0 1 4 0 V5.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
     </svg>
   )
-}
-
-function formatShortDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00Z')
-  return d.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
 }
 
 function toTitle(s: string): string {

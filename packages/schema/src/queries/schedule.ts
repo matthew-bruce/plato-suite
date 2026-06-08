@@ -10,10 +10,10 @@ import type {
   CostConfiguration,
   PlanviewCode,
   ResourceLocation,
+  PlatformCostItem,
 } from '../types/schedule'
 
 const WEB_PLATFORM_CODE = 'WEB'
-const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
 
 type ResourceEmbed = {
   resource_name: string
@@ -23,6 +23,7 @@ type ResourceEmbed = {
 type SupplierEmbed = {
   supplier_name: string
   supplier_colour: string | null
+  sort_order: number | null
 }
 
 type TeamEmbed = {
@@ -32,12 +33,14 @@ type TeamEmbed = {
 type RawAllocationRow = {
   allocation_id: string
   resource_id: string | null
+  supplier_id: string | null
   role_title: string | null
   planview_code: string | null
   day_rate: number
   utilisation_percent: number | string
   capacity_days: number | string | null
   is_chargeable: boolean
+  vat_applies: boolean | null
   resources: ResourceEmbed | ResourceEmbed[] | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
@@ -62,7 +65,7 @@ export async function getSchedulePageData(
 
   const { data: allPeriodsData, error: periodsErr } = await supabase
     .from('periods')
-    .select('period_id, period_name, period_status, period_start_date')
+    .select('period_id, period_name, period_status, period_start_date, period_end_date')
     .is('deleted_at', null)
     .order('period_start_date', { ascending: false })
 
@@ -71,6 +74,8 @@ export async function getSchedulePageData(
     period_id: p.period_id as string,
     period_name: p.period_name as string,
     period_status: p.period_status as Period['period_status'],
+    period_start_date: p.period_start_date as string,
+    period_end_date: p.period_end_date as string,
   }))
 
   let activePeriodId = periodId
@@ -84,7 +89,7 @@ export async function getSchedulePageData(
 
   const { data: periodData, error: periodErr } = await supabase
     .from('periods')
-    .select('period_id, period_name, period_start_date, period_end_date, period_status')
+    .select('period_id, period_name, period_start_date, period_end_date, period_status, locked')
     .eq('period_id', activePeriodId)
     .is('deleted_at', null)
     .maybeSingle()
@@ -98,6 +103,7 @@ export async function getSchedulePageData(
     period_start_date: periodData.period_start_date as string,
     period_end_date: periodData.period_end_date as string,
     period_status: periodData.period_status as Period['period_status'],
+    locked: periodData.locked as boolean,
   }
 
   const { data: platformRow } = await supabase
@@ -137,29 +143,41 @@ export async function getSchedulePageData(
     }
   }
 
-  const { data: allocsData, error: allocsErr } = await supabase
-    .from('resource_period_allocations')
-    .select(
-      `
-      allocation_id,
-      resource_id,
-      role_title,
-      planview_code,
-      day_rate,
-      utilisation_percent,
-      capacity_days,
-      is_chargeable,
-      resources:resource_id!left (
-        resource_name,
-        resource_location
-      ),
-      suppliers:supplier_id ( supplier_name, supplier_colour )
-    `,
-    )
-    .eq('period_id', activePeriodId)
-    .is('deleted_at', null)
+  const [allocsResult, costItemsResult] = await Promise.all([
+    supabase
+      .from('resource_period_allocations')
+      .select(
+        `
+        allocation_id,
+        resource_id,
+        supplier_id,
+        role_title,
+        planview_code,
+        day_rate,
+        utilisation_percent,
+        capacity_days,
+        is_chargeable,
+        vat_applies,
+        resources:resource_id!left (
+          resource_name,
+          resource_location
+        ),
+        suppliers:supplier_id ( supplier_name, supplier_colour, sort_order )
+      `,
+      )
+      .eq('period_id', activePeriodId)
+      .is('deleted_at', null),
+    supabase
+      .from('platform_cost_items')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
+      .eq('period_id', activePeriodId)
+      .is('deleted_at', null)
+      .order('sort_order'),
+  ])
 
+  const { data: allocsData, error: allocsErr } = allocsResult
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
+  const { data: costItemsData } = costItemsResult
 
   // Build a resource_id → team_names map from ALL active team assignments.
   // resource_team_assignments has no direct FK to resource_period_allocations,
@@ -209,20 +227,23 @@ export async function getSchedulePageData(
         capacityDays === null
           ? 0
           : Math.round(row.day_rate * capacityDays * (utilisation / 100))
-      const isInternal = supplier?.supplier_name === INTERNAL_SUPPLIER_NAME
-      const vat = isInternal ? base : Math.round(base * (1 + vatPct / 100))
+      const vatApplies = row.vat_applies ?? true
+      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
       return {
         allocation_id: row.allocation_id,
         resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
+        supplier_id: row.supplier_id,
         supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
+        supplier_sort_order: supplier?.sort_order ?? null,
         resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
+        vat_applies: vatApplies,
         teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
         base_total_pence: base,
         vat_total_pence: vat,
@@ -234,5 +255,5 @@ export async function getSchedulePageData(
       return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 
-  return { period, costConfig, allocations, allPeriods }
+  return { period, costConfig, allocations, allPeriods, costItems: (costItemsData ?? []) as PlatformCostItem[] }
 }

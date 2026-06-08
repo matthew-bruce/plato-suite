@@ -10,6 +10,7 @@ interface PeopleClientProps {
   leadSessionsByResource: Record<string, SessionRef[]>
   suppliers: SupplierInfo[]
   initialSelectedId?: string | null
+  teamsByResource: Record<string, string[]>
 }
 
 type SortKey = 'name' | 'role' | 'exp' | 'sessions' | null
@@ -524,10 +525,12 @@ export function PeopleClient({
   leadSessionsByResource,
   suppliers,
   initialSelectedId,
+  teamsByResource,
 }: PeopleClientProps) {
   const [search, setSearch] = useState('')
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null)
@@ -547,6 +550,12 @@ export function PeopleClient({
     for (const r of resources) if (r.resource_location) seen.add(r.resource_location)
     return [...seen].sort()
   }, [resources])
+
+  const allTeamNames = useMemo(() => {
+    const seen = new Set<string>()
+    for (const names of Object.values(teamsByResource)) for (const n of names) seen.add(n)
+    return [...seen].sort()
+  }, [teamsByResource])
 
   const functionCounts = useMemo(() => {
     // Apply supplier, location, and search filters — but NOT the function filter —
@@ -573,6 +582,17 @@ export function PeopleClient({
       base = base.filter((r) => r.resource_location === selectedLocation)
     }
 
+    if (selectedTeam !== null) {
+      if (selectedTeam === '__NO_TEAM__') {
+        base = base.filter((r) => {
+          const teams = teamsByResource[r.resource_id]
+          return !teams || teams.length === 0
+        })
+      } else {
+        base = base.filter((r) => (teamsByResource[r.resource_id] ?? []).includes(selectedTeam))
+      }
+    }
+
     const counts: Record<string, number> = {
       ALL: base.length,
       FACTORY: 0,
@@ -589,7 +609,7 @@ export function PeopleClient({
       }
     }
     return counts
-  }, [resources, search, selectedSuppliers, selectedLocation])
+  }, [resources, search, selectedSuppliers, selectedLocation, selectedTeam, teamsByResource])
 
   const filtered = useMemo(() => {
     let result = resources
@@ -619,6 +639,17 @@ export function PeopleClient({
         result = result.filter((r) => r.resource_function === null)
       } else {
         result = result.filter((r) => r.resource_function === selectedFunction)
+      }
+    }
+
+    if (selectedTeam !== null) {
+      if (selectedTeam === '__NO_TEAM__') {
+        result = result.filter((r) => {
+          const teams = teamsByResource[r.resource_id]
+          return !teams || teams.length === 0
+        })
+      } else {
+        result = result.filter((r) => (teamsByResource[r.resource_id] ?? []).includes(selectedTeam))
       }
     }
 
@@ -659,10 +690,12 @@ export function PeopleClient({
     selectedSuppliers,
     selectedLocation,
     selectedFunction,
+    selectedTeam,
     sortKey,
     sortDir,
     supplierOrder,
     leadSessionsByResource,
+    teamsByResource,
   ])
 
   function handleSort(key: SortKey) {
@@ -910,6 +943,47 @@ export function PeopleClient({
                   </button>
                 )
               })}
+            </div>
+          </div>
+
+          {/* Row 3: Team filter */}
+          <div
+            style={{
+              padding: 'var(--rmg-spacing-03) var(--rmg-spacing-05)',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 'var(--rmg-spacing-02)',
+              alignItems: 'center',
+              backgroundColor: 'var(--rmg-color-grey-4)',
+              borderTop: '1px solid var(--rmg-color-grey-3)',
+            }}
+          >
+            <span style={labelStyle}>Team</span>
+            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedTeam(null)}
+                style={filterPill(selectedTeam === null)}
+              >
+                All
+              </button>
+              {allTeamNames.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => setSelectedTeam(selectedTeam === name ? null : name)}
+                  style={filterPill(selectedTeam === name)}
+                >
+                  {name}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSelectedTeam(selectedTeam === '__NO_TEAM__' ? null : '__NO_TEAM__')}
+                style={filterPill(selectedTeam === '__NO_TEAM__')}
+              >
+                No team
+              </button>
             </div>
           </div>
         </div>

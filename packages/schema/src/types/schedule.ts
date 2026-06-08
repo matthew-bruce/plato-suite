@@ -2,7 +2,7 @@
 // Money fields are stored as integer pence per ADR-029.
 
 export type PlanviewCode = 'PR' | 'F_Gov' | 'BAU' | 'ETP'
-export type PeriodStatus = 'draft' | 'active' | 'closed'
+export type PeriodStatus = 'draft' | 'active' | 'historic'
 export type ResourceLocation = 'onshore' | 'nearshore' | 'offshore'
 
 export interface Period {
@@ -11,6 +11,7 @@ export interface Period {
   period_start_date: string
   period_end_date: string
   period_status: PeriodStatus
+  locked: boolean
 }
 
 export interface CostConfiguration {
@@ -32,14 +33,17 @@ export interface ScheduleAllocation {
   allocation_id: string
   resource_name: string | null
   role_title: string | null
+  supplier_id: string | null
   supplier_name: string | null
   supplier_colour: string | null
+  supplier_sort_order: number | null
   resource_location: ResourceLocation | null
   planview_code: PlanviewCode | null
   day_rate: number
   utilisation_percent: number
   capacity_days: number | null
   is_chargeable: boolean
+  vat_applies: boolean
   teams: TeamAssignment[]
   base_total_pence?: number
   vat_total_pence?: number
@@ -49,5 +53,16 @@ export interface SchedulePageData {
   period: Period
   costConfig: CostConfiguration | null
   allocations: ScheduleAllocation[]
-  allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status'>[]
+  allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status' | 'period_start_date' | 'period_end_date'>[]
+  costItems: PlatformCostItem[]
+}
+
+export type PlatformCostItem = {
+  cost_item_id: string
+  label: string
+  amount_pence: number
+  vat_applies: boolean
+  sort_order: number
+  notes: string | null
+  cost_item_category: string
 }

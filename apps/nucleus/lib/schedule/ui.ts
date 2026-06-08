@@ -2,7 +2,7 @@
 // Money is stored as integer pence per ADR-029.
 
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
-  const decimals = opts.decimals ?? 0
+  const decimals = opts.decimals ?? 2
   const value = pence / 100
   return `£${value.toLocaleString('en-GB', {
     minimumFractionDigits: decimals,
@@ -43,15 +43,15 @@ export interface BadgeStyle {
 export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
   switch (code) {
     case 'PR':
-      return { background: '#DBEAFE', color: '#1D40B0' }
+      return { background: '#BEE0F5', color: '#005F8A' }
     case 'F_Gov':
-      return { background: '#FEF3C7', color: '#92400E' }
+      return { background: '#EEEEEE', color: '#8F9495' }
     case 'BAU':
-      return { background: '#F1F5F9', color: '#475569' }
+      return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
-      return { background: '#F3E8FF', color: '#6821AB' }
+      return { background: '#BEE0F5', color: '#005F8A' }
     default:
-      return { background: '#F1F5F9', color: '#475569' }
+      return { background: '#EEEEEE', color: '#8F9495' }
   }
 }
 
@@ -92,11 +92,11 @@ export function withAlpha(bgHex: string, alphaHex: string): string {
 }
 
 // Default-period selection: prefer the active period, otherwise the most
-// recent non-draft (i.e. closed). Periods MUST be provided in
+// recent non-draft (i.e. historic). Periods MUST be provided in
 // start-date-descending order — the first matching entry wins.
 interface PickablePeriod {
   period_id: string
-  period_status: 'draft' | 'active' | 'closed'
+  period_status: 'draft' | 'active' | 'historic'
 }
 
 export function pickDefaultPeriodId<T extends PickablePeriod>(
@@ -105,8 +105,8 @@ export function pickDefaultPeriodId<T extends PickablePeriod>(
   if (!periods || periods.length === 0) return null
   const active = periods.find((p) => p.period_status === 'active')
   if (active) return active.period_id
-  const closed = periods.find((p) => p.period_status === 'closed')
-  if (closed) return closed.period_id
+  const historic = periods.find((p) => p.period_status === 'historic')
+  if (historic) return historic.period_id
   return null
 }
 

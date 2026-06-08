@@ -168,8 +168,14 @@ should not be used.** It does not override GitHub branch protection rules.
 
 ### The correct workflow
 
-1. Claude Code creates a `claude/` branch, commits, and pushes
-2. Matt merges the branch into `main` via GitHub UI or the following CLI:
+1. Claude Code creates a `claude/` branch on the first prompt of a session
+2. **For all subsequent prompts in the same session, reuse that branch** —
+   do not create a new one. Add this line to the top of every follow-up
+   prompt:
+
+Checkout existing branch `claude/[branch-name]` before making any changes. Do not create a new branch.
+
+3. Matt merges the branch into `main` via GitHub UI, or CLI:
 
 ```bash
 git checkout main
@@ -180,7 +186,17 @@ git branch -d claude/[branch-name]
 git push origin --delete claude/[branch-name]
 ```
 
-3. Vercel auto-deploys from `main` after the merge
+4. Vercel auto-deploys from `main` after the merge
+
+### Session branch pattern
+
+| Prompt | Branch instruction |
+|---|---|
+| First prompt of session | Let Claude Code create a new `claude/` branch |
+| All subsequent prompts | `Checkout existing branch \`claude/[branch-name]\`. Do not create a new branch.` |
+
+Note the branch name after the first prompt runs — you will need it for
+every follow-up prompt in the session.
 
 ### End of every Claude Code session
 
