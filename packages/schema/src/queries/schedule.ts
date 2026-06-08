@@ -41,6 +41,7 @@ type RawAllocationRow = {
   capacity_days: number | string | null
   is_chargeable: boolean
   vat_applies: boolean | null
+  display_order: number | null
   resources: ResourceEmbed | ResourceEmbed[] | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
@@ -158,6 +159,7 @@ export async function getSchedulePageData(
         capacity_days,
         is_chargeable,
         vat_applies,
+        display_order,
         resources:resource_id!left (
           resource_name,
           resource_location
@@ -247,11 +249,17 @@ export async function getSchedulePageData(
         teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
         base_total_pence: base,
         vat_total_pence: vat,
+        display_order: row.display_order,
       }
     })
     .sort((a, b) => {
       const s = (a.supplier_name ?? '').localeCompare(b.supplier_name ?? '')
       if (s !== 0) return s
+      // Within a supplier group, honour the persisted manual order
+      // (display_order ASC, NULLS LAST), falling back to resource name.
+      const ao = a.display_order ?? Number.POSITIVE_INFINITY
+      const bo = b.display_order ?? Number.POSITIVE_INFINITY
+      if (ao !== bo) return ao - bo
       return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 

@@ -47,6 +47,7 @@ export interface ScheduleAllocation {
   teams: TeamAssignment[]
   base_total_pence?: number
   vat_total_pence?: number
+  display_order: number | null
 }
 
 export interface SchedulePageData {

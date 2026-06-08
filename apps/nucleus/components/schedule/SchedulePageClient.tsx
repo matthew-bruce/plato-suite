@@ -3,7 +3,21 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EyeOff } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { usePrivacyMode } from '@/context/PrivacyModeContext'
+import { SortableRow } from './SortableRow'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -21,9 +35,10 @@ import {
   PeriodContextStrip,
   LoadingOverlay,
   useLoadingOverlay,
+  Notification,
 } from '@plato/ui'
 import type { PeriodOption } from '@plato/ui'
-import { togglePeriodLocked } from '@/app/actions/schedule'
+import { togglePeriodLocked, batchUpdateDisplayOrder } from '@/app/actions/schedule'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -76,7 +91,10 @@ export function SchedulePageClient({ data }: Props) {
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
-  const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
+  // Default sort is null so rows render in their persisted display_order on load.
+  // Clicking a column header applies a session-only sort (never written to DB).
+  const [sort, setSort] = useState<SortState>({ col: null, dir: 'asc' })
+  const [reorderError, setReorderError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
@@ -165,7 +183,9 @@ export function SchedulePageClient({ data }: Props) {
         colour: rows[0]?.supplier_colour ?? '#8F9495',
         supplierId: rows[0]?.supplier_id ?? null,
         sortOrder: rows[0]?.supplier_sort_order ?? null,
-        rows: sortByColumn([...rows].sort(sortAllocations), sort.col, sort.dir),
+        // Base order = persisted manual display_order (NULLS LAST, then name).
+        // A session column sort, when active, is layered on top.
+        rows: sortByColumn([...rows].sort(byDisplayOrder), sort.col, sort.dir),
       }))
       .sort((a, b) => {
         const sa = a.sortOrder ?? Infinity
@@ -401,8 +421,41 @@ export function SchedulePageClient({ data }: Props) {
         teams: [],
         base_total_pence: 0,
         vat_total_pence: 0,
+        // No explicit order yet — NULLS LAST puts new rows at the end of the group.
+        display_order: null,
       }
       setLocalAllocations((prev) => [...prev, newAlloc])
+    }
+  }
+
+  /**
+   * Persist a manual reorder of one supplier group. `orderedIds` is the new
+   * top-to-bottom order of allocation ids within that group. Updates local
+   * state optimistically (re-numbering display_order from 1), persists to the
+   * DB, and reverts + surfaces an error notification if the write fails.
+   */
+  async function handleReorder(orderedIds: string[]) {
+    if (orderedIds.length === 0) return
+    const previous = localAllocations
+    const orderMap = new Map(orderedIds.map((id, index) => [id, index + 1]))
+
+    setLocalAllocations((prev) =>
+      prev.map((a) =>
+        orderMap.has(a.allocation_id)
+          ? { ...a, display_order: orderMap.get(a.allocation_id)! }
+          : a,
+      ),
+    )
+
+    const updates = orderedIds.map((id, index) => ({
+      allocationId: id,
+      displayOrder: index + 1,
+    }))
+    const res = await batchUpdateDisplayOrder(updates)
+    if (!res.success) {
+      // Revert optimistic state and tell the user.
+      setLocalAllocations(previous)
+      setReorderError(res.error ?? 'Could not save the new row order. Please try again.')
     }
   }
 
@@ -448,6 +501,18 @@ export function SchedulePageClient({ data }: Props) {
       }}
     >
       <PageHeader onCreateNewPeriod={() => console.log('Create New Period: coming soon')} />
+
+      {reorderError && (
+        <div style={{ marginBottom: 12 }}>
+          <Notification
+            variant="banner"
+            status="error"
+            message={reorderError}
+            paddingX={16}
+            onDismiss={() => setReorderError(null)}
+          />
+        </div>
+      )}
 
       <PeriodContextStrip
         periodStart={new Date(period.period_start_date)}
@@ -604,6 +669,7 @@ export function SchedulePageClient({ data }: Props) {
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
         onAddAllocation={handleAddAllocation}
+        onReorder={handleReorder}
         blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
       />
@@ -841,15 +907,14 @@ function KpiCard({
 
 /* ── Within-band row ordering ──────────────────────────────────── */
 
-const PLANVIEW_RANK: Record<string, number> = { BAU: 0, F_Gov: 1, PR: 2 }
-
-function sortAllocations(a: ScheduleAllocation, b: ScheduleAllocation): number {
-  const rankA = PLANVIEW_RANK[a.planview_code ?? ''] ?? 99
-  const rankB = PLANVIEW_RANK[b.planview_code ?? ''] ?? 99
-  if (rankA !== rankB) return rankA - rankB
-  const nameA = a.resource_name ?? 'ZZZZZ'
-  const nameB = b.resource_name ?? 'ZZZZZ'
-  return nameA.localeCompare(nameB)
+// Persisted manual ordering within a supplier group: display_order ASC, NULLS
+// LAST, falling back to resource name for stability. This is the base order
+// rows render in on load; a session column sort (when active) layers on top.
+function byDisplayOrder(a: ScheduleAllocation, b: ScheduleAllocation): number {
+  const ao = a.display_order ?? Number.POSITIVE_INFINITY
+  const bo = b.display_order ?? Number.POSITIVE_INFINITY
+  if (ao !== bo) return ao - bo
+  return (a.resource_name ?? 'ZZZZZ').localeCompare(b.resource_name ?? 'ZZZZZ')
 }
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
@@ -880,6 +945,7 @@ function ScheduleTable({
   onUpdateAllocation,
   onDeleteAllocation,
   onAddAllocation,
+  onReorder,
   blendedDayRate,
   periodWorkingDays,
 }: {
@@ -906,6 +972,7 @@ function ScheduleTable({
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
+  onReorder: (orderedIds: string[]) => Promise<void>
   blendedDayRate: number
   periodWorkingDays: number
 }) {
@@ -977,9 +1044,11 @@ function ScheduleTable({
               activeTeamFilter={activeTeamFilter}
               searchQuery={searchQuery}
               editingSchedule={editingSchedule}
+              locked={locked}
               onUpdateAllocation={onUpdateAllocation}
               onDeleteAllocation={onDeleteAllocation}
               onAddAllocation={onAddAllocation}
+              onReorder={onReorder}
             />
           )
         })}
@@ -1271,9 +1340,11 @@ function SupplierSection({
   activeTeamFilter,
   searchQuery,
   editingSchedule,
+  locked,
   onUpdateAllocation,
   onDeleteAllocation,
   onAddAllocation,
+  onReorder,
 }: {
   name: string | null
   colour: string
@@ -1288,9 +1359,11 @@ function SupplierSection({
   activeTeamFilter: string | null
   searchQuery: string
   editingSchedule: boolean
+  locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
+  onReorder: (orderedIds: string[]) => Promise<void>
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -1300,6 +1373,36 @@ function SupplierSection({
   const blurStyle: React.CSSProperties | undefined = isPrivate
     ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
     : undefined
+
+  // Drag-and-drop reordering is only active in edit mode on an unlocked period.
+  const dragEnabled = editingSchedule && !locked
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  )
+  const rowIds = rows.map((r) => r.allocation_id)
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = rowIds.indexOf(String(active.id))
+    const newIndex = rowIds.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+    const newOrder = arrayMove(rowIds, oldIndex, newIndex)
+    void onReorder(newOrder)
+  }
+
+  const renderRow = (r: Allocation) => (
+    <AllocationRow
+      key={r.allocation_id}
+      row={r}
+      vatPct={vatPct}
+      activeTeamFilter={activeTeamFilter}
+      searchQuery={searchQuery}
+      editingSchedule={editingSchedule}
+      onUpdate={onUpdateAllocation}
+      onDelete={onDeleteAllocation}
+    />
+  )
 
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
@@ -1400,19 +1503,30 @@ function SupplierSection({
         </div>
       </div>
 
-      {expanded &&
-        rows.map((r) => (
-          <AllocationRow
-            key={r.allocation_id}
-            row={r}
-            vatPct={vatPct}
-            activeTeamFilter={activeTeamFilter}
-            searchQuery={searchQuery}
-            editingSchedule={editingSchedule}
-            onUpdate={onUpdateAllocation}
-            onDelete={onDeleteAllocation}
-          />
-        ))}
+      {expanded && (
+        dragEnabled ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              {rows.map((r) => (
+                <SortableRow
+                  key={r.allocation_id}
+                  id={r.allocation_id}
+                  isEditMode={editingSchedule}
+                  isLocked={locked}
+                >
+                  {renderRow(r)}
+                </SortableRow>
+              ))}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          rows.map((r) => renderRow(r))
+        )
+      )}
       {expanded && editingSchedule && (
         <div
           style={{
