@@ -1265,6 +1265,10 @@ function SupplierSection({
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
   const pillTextColour = getTextColour(colour)
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
@@ -1318,10 +1322,10 @@ function SupplierSection({
         >
           {days > 0 ? (
             <>
-              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px', ...blurStyle }}>
                 avg./day
               </span>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--rmg-color-text-heading)' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--rmg-color-text-heading)', ...blurStyle }}>
                 £{weightedAvgDayRate.toFixed(2)}
               </span>
             </>
@@ -1341,6 +1345,7 @@ function SupplierSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(base)}
@@ -1356,6 +1361,7 @@ function SupplierSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1436,6 +1442,10 @@ function AdHocSection({
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   return (
     <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
@@ -1513,6 +1523,7 @@ function AdHocSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(base)}
@@ -1528,6 +1539,7 @@ function AdHocSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1611,6 +1623,10 @@ function EtpSsSection({
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   return (
     <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
@@ -1688,6 +1704,7 @@ function EtpSsSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(base)}
@@ -1703,6 +1720,7 @@ function EtpSsSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1889,6 +1907,10 @@ function AdHocRow({
   useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
 
   const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   if (!editing) {
     return (
@@ -1903,12 +1925,12 @@ function AdHocRow({
         <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right" dataLabel="Base">
-          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
             {formatMoney(item.amount_pence)}
           </span>
         </Cell>
         <Cell align="right" dataLabel="+VAT">
-          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495' }}>
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495', ...blurStyle }}>
             {formatMoney(vatTotal)}
           </span>
         </Cell>
