@@ -602,6 +602,8 @@ export function SchedulePageClient({ data }: Props) {
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
         onAddAllocation={handleAddAllocation}
+        blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
+        periodWorkingDays={workingDays}
       />
     </div>
     <LoadingOverlay
@@ -834,6 +836,8 @@ function ScheduleTable({
   onUpdateAllocation,
   onDeleteAllocation,
   onAddAllocation,
+  blendedDayRate,
+  periodWorkingDays,
 }: {
   groups: { name: string | null; colour: string; supplierId: string | null; rows: Allocation[] }[]
   expandedMap: Record<string, boolean>
@@ -858,6 +862,8 @@ function ScheduleTable({
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
+  blendedDayRate: number
+  periodWorkingDays: number
 }) {
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
@@ -879,6 +885,14 @@ function ScheduleTable({
 
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+
+  const totalCapacityDays = activeTeamFilter
+    ? groups.reduce((s, g) => {
+        return s + g.rows.reduce((rs, r) => {
+          return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams, activeTeamFilter)
+        }, 0)
+      }, 0)
+    : 0
 
   return (
     <div className={styles.tableScroller}>
@@ -969,6 +983,96 @@ function ScheduleTable({
             <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} />
           </div>
         </div>
+        {activeTeamFilter && (
+          <TeamRunRateBar
+            teamName={activeTeamFilter}
+            totalCapacityDays={totalCapacityDays}
+            blendedDayRate={blendedDayRate}
+            periodWorkingDays={periodWorkingDays}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── TeamRunRateBar ────────────────────────────────────────────── */
+
+function TeamRunRateBar({
+  teamName,
+  totalCapacityDays,
+  blendedDayRate,
+  periodWorkingDays,
+}: {
+  teamName: string
+  totalCapacityDays: number
+  blendedDayRate: number
+  periodWorkingDays: number
+}) {
+  const quarterCost = Math.round(totalCapacityDays * blendedDayRate)
+  const sprintCost =
+    periodWorkingDays > 0 ? Math.round((quarterCost / periodWorkingDays) * 10) : 0
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: '#639922',
+  }
+  const valueStyle: React.CSSProperties = {
+    fontSize: 14,
+    fontWeight: 500,
+    color: '#3B6D11',
+  }
+  const dividerStyle: React.CSSProperties = {
+    alignSelf: 'stretch',
+    width: 0,
+    borderLeft: '0.5px solid #C0DD97',
+  }
+  const statStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 6,
+  }
+
+  const wrapperStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    padding: '9px 14px',
+    background: '#EAF3DE',
+    borderTop: '0.5px solid #C0DD97',
+  }
+
+  return (
+    <div style={wrapperStyle}>
+      <div style={labelStyle}>{teamName} — internal run rate</div>
+
+      <div style={statStyle}>
+        <span style={valueStyle}>{totalCapacityDays.toFixed(1)}</span>
+        <span style={labelStyle}>capacity days</span>
+      </div>
+
+      <div style={dividerStyle} />
+
+      <div style={statStyle}>
+        <span style={valueStyle}>
+          £{quarterCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+        </span>
+        <span style={labelStyle}>full quarter</span>
+      </div>
+
+      <div style={dividerStyle} />
+
+      <div style={statStyle}>
+        <span style={valueStyle}>
+          £{sprintCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+        </span>
+        <span style={labelStyle}>per sprint (10d)</span>
+      </div>
+
+      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#639922' }}>
+        @ £{blendedDayRate.toLocaleString('en-GB', { maximumFractionDigits: 0 })}/day
       </div>
     </div>
   )
