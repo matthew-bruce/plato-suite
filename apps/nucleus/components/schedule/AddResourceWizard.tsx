@@ -116,10 +116,11 @@ function StepPills({ step, isAssignMode }: { step: WizardStep; isAssignMode: boo
   }
 
   if (isAssignMode) {
-    // Two pills: Search (step 1) and Confirm (step 3)
+    // Three pills: Search → Teams → Confirm
     const pills = [
-      { label: '1 · Search', active: step === 1, done: step !== 1 },
-      { label: '2 · Confirm', active: step !== 1, done: false },
+      { label: '1 · Search', active: step === 1, done: step > 1 },
+      { label: '2 · Teams', active: step === 2, done: step > 2 },
+      { label: '3 · Confirm', active: step === 3, done: false },
     ]
     return (
       <div style={wrap}>
@@ -277,11 +278,11 @@ export function AddResourceWizard({
   }
 
   async function pickResource(r: ResourceSearchResult) {
-    // In assign mode: skip duplicate check, go straight to confirm
+    // In assign mode: skip duplicate check, go to teams step
     if (isAssignMode) {
       setSelectedResource(r)
       setMode('existing')
-      setStep(3)
+      setStep(2)
       return
     }
 
@@ -350,7 +351,7 @@ export function AddResourceWizard({
       setMode('new')
       setSelectedResource(null)
       setForm((prev) => ({ ...prev, roleTitle: name }))
-      setStep(3)
+      setStep(2)
       return
     }
     setMode('new')
@@ -454,11 +455,18 @@ export function AddResourceWizard({
 
       if (mode === 'existing' && selectedResource) {
         const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id)
-        setIsSubmitting(false)
         if (!result.success) {
+          setIsSubmitting(false)
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
+        const realAssignments = teamRows
+          .filter((r) => r.teamId !== '')
+          .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+        if (realAssignments.length > 0) {
+          await updateTeamAssignments(selectedResource.resource_id, periodId, realAssignments)
+        }
+        setIsSubmitting(false)
         onAssignSuccess?.(allocationId, selectedResource.resource_id, selectedResource.resource_name)
         onClose()
         return
@@ -472,11 +480,18 @@ export function AddResourceWizard({
           return
         }
         const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId)
-        setIsSubmitting(false)
         if (!assignResult.success) {
+          setIsSubmitting(false)
           setSubmitError(assignResult.error ?? 'Failed to assign resource')
           return
         }
+        const realAssignments = teamRows
+          .filter((r) => r.teamId !== '')
+          .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+        if (realAssignments.length > 0) {
+          await updateTeamAssignments(insertResult.resourceId, periodId, realAssignments)
+        }
+        setIsSubmitting(false)
         onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle)
         onClose()
         return
@@ -687,7 +702,9 @@ export function AddResourceWizard({
 
   const teamTotal = teamRows.reduce((s, r) => s + r.pct, 0)
   const roleTitleRequired = mode !== 'edit-teams' && !form.roleTitle.trim()
-  const nextDisabled = step === 2 && (roleTitleRequired || teamTotal !== 100)
+  const nextDisabled = step === 2 && (
+    isAssignMode ? teamTotal !== 100 : (roleTitleRequired || teamTotal !== 100)
+  )
   const submitLabel = mode === 'edit-teams' ? 'Save changes' : 'Add to schedule'
 
   return (
@@ -741,7 +758,53 @@ export function AddResourceWizard({
               />
             )
           )}
-          {step === 2 && (
+          {step === 2 && isAssignMode && (
+            <div>
+              {/* Who is being assigned */}
+              <div style={{ background: '#F1F2F5', border: '1px solid #E0E0E0', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#2A2A2D' }}>
+                  {mode === 'existing' ? (selectedResource?.resource_name ?? '—') : mode === 'new' ? form.roleTitle : 'TBC'}
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: 11, color: INACTIVE_GREY }}>
+                  Will be assigned to: {assignMode!.roleTitle || '—'}
+                </p>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Team(s)</label>
+                <TeamBuilder
+                  rows={teamRows}
+                  teams={teams}
+                  total={teamTotal}
+                  onAdd={addTeamRow}
+                  onRemove={removeTeamRow}
+                  onChange={updateTeamRow}
+                  selectStyle={selectStyle}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
+                  setStep(3)
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: 12,
+                  color: INACTIVE_GREY,
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: 0,
+                  fontFamily: 'var(--rmg-font-body)',
+                }}
+              >
+                Skip team assignment
+              </button>
+            </div>
+          )}
+          {step === 2 && !isAssignMode && (
             <Step2Body
               mode={mode}
               selectedResource={selectedResource}
@@ -783,7 +846,7 @@ export function AddResourceWizard({
             {step > 1 && (
               <button
                 type="button"
-                onClick={() => setStep(isAssignMode ? 1 : (step - 1) as WizardStep)}
+                onClick={() => setStep((step - 1) as WizardStep)}
                 style={btnSecondary}
               >
                 ← Back
@@ -800,7 +863,7 @@ export function AddResourceWizard({
             <button type="button" onClick={onClose} style={btnSecondary}>
               Cancel
             </button>
-            {step > 1 && step < 3 && !isAssignMode && (
+            {step === 2 && (
               <button
                 type="button"
                 onClick={() => setStep((s) => (s + 1) as WizardStep)}
@@ -1503,16 +1566,25 @@ function Step3Body({
   summaryBg: string
   assignRoleTitle?: string
 }) {
-  // ── Assign mode: simplified two-row summary ──────────────────────────────────
+  // ── Assign mode: summary ─────────────────────────────────────────────────────
   if (assignRoleTitle !== undefined) {
     const resourceLabel =
       mode === 'tbc' ? 'TBC'
       : mode === 'existing' ? (selectedResource?.resource_name ?? '—')
       : `${form.roleTitle} (new person)`
 
+    const teamLabel = teamRows
+      .filter((r) => r.teamId !== '')
+      .map((r) => {
+        const team = teams.find((t) => t.team_id === r.teamId)
+        return `${team?.team_name ?? r.teamId} ${r.pct}%`
+      })
+      .join(', ') || 'No Team'
+
     const summaryRows: Array<{ label: string; value: string }> = [
       { label: 'Resource', value: resourceLabel },
       { label: 'Will be assigned to', value: assignRoleTitle },
+      { label: 'Team(s)', value: teamLabel },
     ]
 
     return (
