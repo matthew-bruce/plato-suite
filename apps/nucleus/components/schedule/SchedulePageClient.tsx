@@ -28,7 +28,6 @@ import {
   PageToolbar,
   PageToolbarSearch,
   PageToolbarFilterPill,
-  PageToolbarDropdown,
   PageToolbarExpandButton,
   PageToolbarResourceCount,
   PageToolbarPrimaryActions,
@@ -46,6 +45,7 @@ import {
 } from '@/app/actions/schedule'
 import { searchResources } from '@/app/actions/schedule-wizard'
 import type { ResourceSearchResult } from '@/app/actions/schedule-wizard'
+import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
 import type { WizardSuccessPayload } from './AddResourceWizard'
 import { workingDaysBetween } from '@/lib/schedule/format'
@@ -599,7 +599,7 @@ export function SchedulePageClient({ data }: Props) {
                 />
               </div>
               <div style={{ width: '1px', height: '18px', background: 'var(--rmg-color-grey-2)', flexShrink: 0, margin: '0 4px' }} />
-              <PageToolbarDropdown
+              <CustomSelect
                 label="Planview"
                 value={planviewFilter}
                 onChange={setPlanviewFilter}
@@ -611,7 +611,7 @@ export function SchedulePageClient({ data }: Props) {
                   { value: 'ETP', label: 'ETP' },
                 ]}
               />
-              <PageToolbarDropdown
+              <CustomSelect
                 label="Location"
                 value={locationFilter}
                 onChange={setLocationFilter}
@@ -622,7 +622,7 @@ export function SchedulePageClient({ data }: Props) {
                   { value: 'offshore', label: 'Offshore' },
                 ]}
               />
-              <PageToolbarDropdown
+              <CustomSelect
                 label="Team"
                 value={teamFilter}
                 onChange={setTeamFilter}
