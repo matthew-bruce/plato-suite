@@ -60,7 +60,7 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-const SCHEDULE_COLS = '32px 15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
+const SCHEDULE_COLS = '24px 15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
 
