@@ -39,6 +39,8 @@ import {
 } from '@plato/ui'
 import type { PeriodOption } from '@plato/ui'
 import { togglePeriodLocked, batchUpdateDisplayOrder } from '@/app/actions/schedule'
+import { AddResourceWizard } from './AddResourceWizard'
+import type { WizardSuccessPayload } from './AddResourceWizard'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -104,6 +106,12 @@ export function SchedulePageClient({ data }: Props) {
   // Editability is driven solely by the period's locked flag (not status).
   const [isLocked, setIsLocked] = useState(period.locked)
   const [lockPending, setLockPending] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardSupplier, setWizardSupplier] = useState<{
+    supplierId: string | null
+    supplierName: string | null
+    supplierColour: string
+  } | null>(null)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
@@ -379,53 +387,48 @@ export function SchedulePageClient({ data }: Props) {
       .eq('allocation_id', id)
   }
 
-  async function handleAddAllocation(
+  function handleOpenWizard(
     supplierId: string | null,
     supplierName: string | null,
     supplierColour: string,
-  ) {
-    const supabase = getSupabaseBrowserClient()
-    const { data: inserted } = await supabase
-      .from('resource_period_allocations')
-      .insert({
-        period_id: period.period_id,
-        supplier_id: supplierId,
-        role_title: null,
-        planview_code: 'BAU',
-        day_rate: 0,
-        utilisation_percent: 100,
-        capacity_days: 0,
-        is_chargeable: false,
-        vat_applies: true,
-      })
-      .select('allocation_id')
-      .single()
-    if (inserted?.allocation_id) {
-      const supplierSortOrder =
-        localAllocations.find((a) => a.supplier_id === supplierId)?.supplier_sort_order ?? null
-      const newAlloc: Allocation = {
-        allocation_id: inserted.allocation_id as string,
-        resource_name: null,
-        role_title: null,
-        supplier_id: supplierId,
-        supplier_name: supplierName,
-        supplier_colour: supplierColour,
-        supplier_sort_order: supplierSortOrder,
-        resource_location: null,
-        planview_code: 'BAU',
-        day_rate: 0,
-        utilisation_percent: 100,
-        capacity_days: 0,
-        is_chargeable: false,
-        vat_applies: true,
-        teams: [],
-        base_total_pence: 0,
-        vat_total_pence: 0,
-        // No explicit order yet — NULLS LAST puts new rows at the end of the group.
-        display_order: null,
-      }
-      setLocalAllocations((prev) => [...prev, newAlloc])
+  ): Promise<void> {
+    setWizardSupplier({ supplierId, supplierName, supplierColour })
+    setWizardOpen(true)
+    return Promise.resolve()
+  }
+
+  function handleWizardSuccess(data: WizardSuccessPayload) {
+    // Allocation.teams is typed as TeamAssignment[] & string[] via the local intersection
+    // type. Assign via cast so both the filter logic (TeamAssignment[]) and the type
+    // definition (& string[]) are satisfied without widening to any.
+    const teams = data.teams.map((t) => ({
+      teamId: t.teamId,
+      teamName: t.teamName,
+      capacitySplit: 1.0,
+    })) as unknown as Allocation['teams']
+    const newAlloc: Allocation = {
+      allocation_id: data.allocationId,
+      resource_name: data.resourceName,
+      role_title: data.roleTitle,
+      supplier_id: data.supplierId,
+      supplier_name: data.supplierName,
+      supplier_colour: data.supplierColour,
+      supplier_sort_order: data.supplierSortOrder,
+      resource_location: data.resourceLocation,
+      planview_code: data.planviewCode,
+      day_rate: 0,
+      utilisation_percent: 100,
+      capacity_days: 0,
+      is_chargeable: false,
+      vat_applies: true,
+      teams,
+      base_total_pence: 0,
+      vat_total_pence: 0,
+      display_order: data.displayOrder,
     }
+    setLocalAllocations((prev) => [...prev, newAlloc])
+    setWizardOpen(false)
+    setWizardSupplier(null)
   }
 
   /**
@@ -668,7 +671,7 @@ export function SchedulePageClient({ data }: Props) {
         editingSchedule={editingSchedule}
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
-        onAddAllocation={handleAddAllocation}
+        onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
         blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
@@ -678,6 +681,17 @@ export function SchedulePageClient({ data }: Props) {
       isLoading={isLoading}
       message={loadingMessage}
       subMessage={loadingSubMessage}
+    />
+    <AddResourceWizard
+      open={wizardOpen}
+      periodId={period.period_id}
+      defaultSupplierId={wizardSupplier?.supplierId ?? null}
+      defaultSupplierName={wizardSupplier?.supplierName ?? null}
+      defaultSupplierColour={wizardSupplier?.supplierColour ?? '#8F9495'}
+      activeSupplierFilter={selectedSuppliers}
+      activeTeamFilter={teamFilter}
+      onClose={() => { setWizardOpen(false); setWizardSupplier(null) }}
+      onSuccess={handleWizardSuccess}
     />
     </>
   )
@@ -1557,7 +1571,7 @@ function SupplierSection({
             }}
           >
             <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
-            Add resource
+            Add role / resource
           </button>
         </div>
       )}
