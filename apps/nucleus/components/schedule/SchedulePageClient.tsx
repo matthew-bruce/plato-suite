@@ -173,7 +173,11 @@ export function SchedulePageClient({ data }: Props) {
       if (selectedSuppliers.length > 0 && !selectedSuppliers.includes(a.supplier_name ?? '')) return false
       if (planviewFilter !== 'all' && a.planview_code !== planviewFilter) return false
       if (locationFilter !== 'all' && a.resource_location !== locationFilter) return false
-      if (teamFilter !== 'all' && !(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
+      if (teamFilter === 'no-team') {
+        if ((a.teams ?? []).length > 0) return false
+      } else if (teamFilter !== 'all') {
+        if (!(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
+      }
       return true
     })
   }, [localAllocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
@@ -591,6 +595,7 @@ export function SchedulePageClient({ data }: Props) {
                 onChange={setTeamFilter}
                 options={[
                   { value: 'all', label: 'All' },
+                  { value: 'no-team', label: 'No Team' },
                   ...teamOptions.map((t) => ({ value: t, label: t })),
                 ]}
               />
@@ -661,7 +666,7 @@ export function SchedulePageClient({ data }: Props) {
         onSort={onHeaderClick}
         vatPct={vatPct}
         locked={isLocked}
-        activeTeamFilter={teamFilter === 'all' ? null : teamFilter}
+        activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
         searchQuery={search}
         costItems={localCostItems}
         isUnfiltered={isUnfiltered}
