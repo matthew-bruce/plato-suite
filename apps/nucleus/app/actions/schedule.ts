@@ -20,3 +20,34 @@ export async function togglePeriodLocked(
   if (error) throw new Error(`Failed to update period lock: ${error.message}`)
   return { locked }
 }
+
+/**
+ * Persist a new manual ordering for a set of allocations. Each entry maps an
+ * allocation to its new `display_order` within its supplier group. Used by the
+ * Platform Schedule drag-and-drop reordering. Returns `{ success: true }` on
+ * success, or `{ success: false, error }` if validation or any write fails.
+ */
+export async function batchUpdateDisplayOrder(
+  updates: Array<{ allocationId: string; displayOrder: number }>,
+): Promise<{ success: boolean; error?: string }> {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { success: false, error: 'No updates provided' }
+  }
+
+  const supabase = getSupabaseServerClient()
+
+  try {
+    for (const { allocationId, displayOrder } of updates) {
+      const { error } = await supabase
+        .from('resource_period_allocations')
+        .update({ display_order: displayOrder, updated_at: new Date().toISOString() })
+        .eq('allocation_id', allocationId)
+
+      if (error) throw new Error(error.message)
+    }
+    return { success: true }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update display order'
+    return { success: false, error: message }
+  }
+}

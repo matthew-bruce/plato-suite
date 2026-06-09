@@ -2,6 +2,22 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { EyeOff } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { usePrivacyMode } from '@/context/PrivacyModeContext'
+import { SortableRow } from './SortableRow'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -19,9 +35,10 @@ import {
   PeriodContextStrip,
   LoadingOverlay,
   useLoadingOverlay,
+  Notification,
 } from '@plato/ui'
 import type { PeriodOption } from '@plato/ui'
-import { togglePeriodLocked } from '@/app/actions/schedule'
+import { togglePeriodLocked, batchUpdateDisplayOrder } from '@/app/actions/schedule'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -43,7 +60,7 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-const SCHEDULE_COLS = '15% 15% 10% 8% 6% 8% 8% 5% 8% 9% 8%'
+const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
 
 const COL_PADDING = '0 16px 0 12px'
 
@@ -74,7 +91,10 @@ export function SchedulePageClient({ data }: Props) {
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
-  const [sort, setSort] = useState<SortState>({ col: 'resource', dir: 'asc' })
+  // Default sort is null so rows render in their persisted display_order on load.
+  // Clicking a column header applies a session-only sort (never written to DB).
+  const [sort, setSort] = useState<SortState>({ col: null, dir: 'asc' })
+  const [reorderError, setReorderError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
@@ -163,7 +183,9 @@ export function SchedulePageClient({ data }: Props) {
         colour: rows[0]?.supplier_colour ?? '#8F9495',
         supplierId: rows[0]?.supplier_id ?? null,
         sortOrder: rows[0]?.supplier_sort_order ?? null,
-        rows: sortByColumn([...rows].sort(sortAllocations), sort.col, sort.dir),
+        // Base order = persisted manual display_order (NULLS LAST, then name).
+        // A session column sort, when active, is layered on top.
+        rows: sortByColumn([...rows].sort(byDisplayOrder), sort.col, sort.dir),
       }))
       .sort((a, b) => {
         const sa = a.sortOrder ?? Infinity
@@ -399,8 +421,41 @@ export function SchedulePageClient({ data }: Props) {
         teams: [],
         base_total_pence: 0,
         vat_total_pence: 0,
+        // No explicit order yet — NULLS LAST puts new rows at the end of the group.
+        display_order: null,
       }
       setLocalAllocations((prev) => [...prev, newAlloc])
+    }
+  }
+
+  /**
+   * Persist a manual reorder of one supplier group. `orderedIds` is the new
+   * top-to-bottom order of allocation ids within that group. Updates local
+   * state optimistically (re-numbering display_order from 1), persists to the
+   * DB, and reverts + surfaces an error notification if the write fails.
+   */
+  async function handleReorder(orderedIds: string[]) {
+    if (orderedIds.length === 0) return
+    const previous = localAllocations
+    const orderMap = new Map(orderedIds.map((id, index) => [id, index + 1]))
+
+    setLocalAllocations((prev) =>
+      prev.map((a) =>
+        orderMap.has(a.allocation_id)
+          ? { ...a, display_order: orderMap.get(a.allocation_id)! }
+          : a,
+      ),
+    )
+
+    const updates = orderedIds.map((id, index) => ({
+      allocationId: id,
+      displayOrder: index + 1,
+    }))
+    const res = await batchUpdateDisplayOrder(updates)
+    if (!res.success) {
+      // Revert optimistic state and tell the user.
+      setLocalAllocations(previous)
+      setReorderError(res.error ?? 'Could not save the new row order. Please try again.')
     }
   }
 
@@ -446,6 +501,18 @@ export function SchedulePageClient({ data }: Props) {
       }}
     >
       <PageHeader onCreateNewPeriod={() => console.log('Create New Period: coming soon')} />
+
+      {reorderError && (
+        <div style={{ marginBottom: 12 }}>
+          <Notification
+            variant="banner"
+            status="error"
+            message={reorderError}
+            paddingX={16}
+            onDismiss={() => setReorderError(null)}
+          />
+        </div>
+      )}
 
       <PeriodContextStrip
         periodStart={new Date(period.period_start_date)}
@@ -602,6 +669,7 @@ export function SchedulePageClient({ data }: Props) {
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
         onAddAllocation={handleAddAllocation}
+        onReorder={handleReorder}
         blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
       />
@@ -675,6 +743,8 @@ function KpiStrip({
   }
   costConfig: SchedulePageData['costConfig']
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   const overrideSet =
     costConfig?.blended_day_rate_override !== undefined &&
     costConfig?.blended_day_rate_override !== null
@@ -682,33 +752,59 @@ function KpiStrip({
     ? formatMoney(costConfig!.blended_day_rate_override!, { decimals: 2 })
     : formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })
 
+  const currentRate = (costConfig?.blended_day_rate_override ?? 0) / 100
+  const advisedRate = Math.round(totals.calcRateIncEtp) / 100
+  const totalPRDays = totals.chargeableDays
+  const recoveryVariance = (currentRate - advisedRate) * totalPRDays
+  const recoveryVarianceFormatted = Math.abs(recoveryVariance).toLocaleString('en-GB', { maximumFractionDigits: 0 })
+
+  let recoveryVarianceValue: string
+  let recoveryVarianceColor: string
+  let recoveryVarianceSub: string
+  if (recoveryVariance < 0) {
+    recoveryVarianceValue = `−£${recoveryVarianceFormatted}`
+    recoveryVarianceColor = '#C8102E'
+    recoveryVarianceSub = 'shortfall this period'
+  } else if (recoveryVariance > 0) {
+    recoveryVarianceValue = `+£${recoveryVarianceFormatted}`
+    recoveryVarianceColor = '#3B6D11'
+    recoveryVarianceSub = 'surplus this period'
+  } else {
+    recoveryVarianceValue = '£0'
+    recoveryVarianceColor = '#2A2A2D'
+    recoveryVarianceSub = 'on target'
+  }
+
   return (
     <div className={styles.kpiStrip}>
       <KpiCard
         label="Total Platform Cost"
-        value={formatMoney(totals.totalPlatform, { decimals: 0 })}
-        sub="Allocations + VAT + ad-hoc"
-        accent="#DA202A"
-      />
-      <KpiCard
-        label="Inc. ETP & Shared Services"
         value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
-        sub={`+${formatMoney(totals.etpAndSsPence, { decimals: 0 })} ETP & SS`}
-        accent="#404044"
+        sub="Inc. ad-hoc, ETP & Shared Services, plus VAT"
+        accent="#DA202A"
+        blur={isPrivate}
       />
       <KpiCard
-        label="Current Day Rate"
+        label="Current Blended Rate"
         value={dayRateValue}
         valueColor="#DA202A"
-        sub={`Calculator: ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
+        sub={`Implied rate (ex. ETP & SS): ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
         accent="#DA202A"
         emphasised={overrideSet}
       />
       <KpiCard
-        label="Rate Inc. ETP & SS"
+        label="Advised Blended Rate"
         value={formatMoney(Math.round(totals.calcRateIncEtp), { decimals: 2 })}
         sub="Calculated, inc. ETP & SS"
         accent="#0892CB"
+      />
+      <KpiCard
+        label="Recovery variance"
+        value={recoveryVarianceValue}
+        valueColor={recoveryVarianceColor}
+        sub={recoveryVarianceSub}
+        accent={recoveryVarianceColor}
+        blur={isPrivate}
       />
       <KpiCard
         label="Headcount / PR Days"
@@ -735,6 +831,7 @@ function KpiCard({
   accent,
   valueColor,
   emphasised,
+  blur,
 }: {
   label: string
   value: React.ReactNode
@@ -742,7 +839,12 @@ function KpiCard({
   accent: string
   valueColor?: string
   emphasised?: boolean
+  blur?: boolean
 }) {
+  const blurStyle: React.CSSProperties | undefined = blur
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   return (
     <div
       style={{
@@ -776,11 +878,12 @@ function KpiCard({
           color: valueColor ?? '#2A2A2D',
           letterSpacing: '-0.03em',
           lineHeight: 1,
+          ...blurStyle,
         }}
       >
         {value}
       </div>
-      <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4 }}>{sub}</div>
+      <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4, ...blurStyle }}>{sub}</div>
       <div
         style={{
           position: 'absolute',
@@ -797,15 +900,14 @@ function KpiCard({
 
 /* ── Within-band row ordering ──────────────────────────────────── */
 
-const PLANVIEW_RANK: Record<string, number> = { BAU: 0, F_Gov: 1, PR: 2 }
-
-function sortAllocations(a: ScheduleAllocation, b: ScheduleAllocation): number {
-  const rankA = PLANVIEW_RANK[a.planview_code ?? ''] ?? 99
-  const rankB = PLANVIEW_RANK[b.planview_code ?? ''] ?? 99
-  if (rankA !== rankB) return rankA - rankB
-  const nameA = a.resource_name ?? 'ZZZZZ'
-  const nameB = b.resource_name ?? 'ZZZZZ'
-  return nameA.localeCompare(nameB)
+// Persisted manual ordering within a supplier group: display_order ASC, NULLS
+// LAST, falling back to resource name for stability. This is the base order
+// rows render in on load; a session column sort (when active) layers on top.
+function byDisplayOrder(a: ScheduleAllocation, b: ScheduleAllocation): number {
+  const ao = a.display_order ?? Number.POSITIVE_INFINITY
+  const bo = b.display_order ?? Number.POSITIVE_INFINITY
+  if (ao !== bo) return ao - bo
+  return (a.resource_name ?? 'ZZZZZ').localeCompare(b.resource_name ?? 'ZZZZZ')
 }
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
@@ -836,6 +938,7 @@ function ScheduleTable({
   onUpdateAllocation,
   onDeleteAllocation,
   onAddAllocation,
+  onReorder,
   blendedDayRate,
   periodWorkingDays,
 }: {
@@ -862,9 +965,12 @@ function ScheduleTable({
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
+  onReorder: (orderedIds: string[]) => Promise<void>
   blendedDayRate: number
   periodWorkingDays: number
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   const footerLabel = activeTeamFilter
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
     : 'Filtered totals'
@@ -931,9 +1037,11 @@ function ScheduleTable({
               activeTeamFilter={activeTeamFilter}
               searchQuery={searchQuery}
               editingSchedule={editingSchedule}
+              locked={locked}
               onUpdateAllocation={onUpdateAllocation}
               onDeleteAllocation={onDeleteAllocation}
               onAddAllocation={onAddAllocation}
+              onReorder={onReorder}
             />
           )
         })}
@@ -976,11 +1084,11 @@ function ScheduleTable({
           >
             {footerLabel}
           </div>
-          <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} />
-          </div>
           <div style={{ gridColumn: 11 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} />
+            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />
+          </div>
+          <div style={{ gridColumn: 12 }}>
+            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
         </div>
         {activeTeamFilter && (
@@ -1101,6 +1209,8 @@ function HeaderRow({
   onSort: (col: SortableCol) => void
   locked: boolean
 }) {
+  const { isPrivate } = usePrivacyMode()
+
   return (
     <div
       className={styles.header}
@@ -1112,6 +1222,7 @@ function HeaderRow({
         borderBottom: '2px solid #E0E0E0',
       }}
     >
+      <div />
       <Th
         label="Resource"
         col="resource"
@@ -1132,9 +1243,10 @@ function HeaderRow({
         onSort={onSort}
         align="right"
         trailing={locked ? LockIcon(11, 0.35) : null}
+        privacyIcon={isPrivate}
       />
-      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" />
-      <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" />
+      <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
+      <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
     </div>
   )
 }
@@ -1146,6 +1258,7 @@ function Th({
   onSort,
   align,
   trailing,
+  privacyIcon,
 }: {
   label: string
   col: SortableCol | null
@@ -1153,6 +1266,7 @@ function Th({
   onSort: (col: SortableCol) => void
   align?: 'right'
   trailing?: React.ReactNode
+  privacyIcon?: boolean
 }) {
   const active = col !== null && sort.col === col
   const clickable = col !== null
@@ -1168,7 +1282,11 @@ function Th({
         fontWeight: 700,
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
-        color: hovered && clickable ? '#DA202A' : '#404044',
+        color: privacyIcon
+          ? 'var(--color-text-secondary)'
+          : hovered && clickable
+            ? '#DA202A'
+            : '#404044',
         cursor: clickable ? 'pointer' : 'default',
         userSelect: 'none',
         display: 'flex',
@@ -1178,6 +1296,7 @@ function Th({
         transition: 'color 120ms',
       }}
     >
+      {privacyIcon && <EyeOff size={11} />}
       {label}
       {trailing}
       {clickable && (
@@ -1215,9 +1334,11 @@ function SupplierSection({
   activeTeamFilter,
   searchQuery,
   editingSchedule,
+  locked,
   onUpdateAllocation,
   onDeleteAllocation,
   onAddAllocation,
+  onReorder,
 }: {
   name: string | null
   colour: string
@@ -1232,14 +1353,37 @@ function SupplierSection({
   activeTeamFilter: string | null
   searchQuery: string
   editingSchedule: boolean
+  locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
+  onReorder: (orderedIds: string[]) => Promise<void>
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
   const pillTextColour = getTextColour(colour)
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
+  // Drag-and-drop reordering is only active in edit mode on an unlocked period.
+  const dragEnabled = editingSchedule && !locked
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  )
+  const rowIds = rows.map((r) => r.allocation_id)
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = rowIds.indexOf(String(active.id))
+    const newIndex = rowIds.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+    const newOrder = arrayMove(rowIds, oldIndex, newIndex)
+    void onReorder(newOrder)
+  }
 
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
@@ -1254,7 +1398,7 @@ function SupplierSection({
           cursor: 'pointer',
         }}
       >
-        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 8' }}>
+        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 9' }}>
           <span
             style={{
               transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -1284,7 +1428,7 @@ function SupplierSection({
         </div>
         <div
           style={{
-            gridColumn: 9,
+            gridColumn: 10,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
@@ -1293,10 +1437,10 @@ function SupplierSection({
         >
           {days > 0 ? (
             <>
-              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px', ...blurStyle }}>
                 avg./day
               </span>
-              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--rmg-color-text-heading)' }}>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--rmg-color-text-heading)', ...blurStyle }}>
                 £{weightedAvgDayRate.toFixed(2)}
               </span>
             </>
@@ -1305,21 +1449,6 @@ function SupplierSection({
           )}
         </div>
         <div className={styles.bandMobileRow}>
-          <div
-            style={{
-              gridColumn: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              padding: '10px 8px 10px 0',
-              fontWeight: 700,
-              fontSize: '13px',
-              color: 'var(--rmg-color-text-heading)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {formatMoney(base)}
-          </div>
           <div
             style={{
               gridColumn: 11,
@@ -1331,6 +1460,23 @@ function SupplierSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1338,19 +1484,54 @@ function SupplierSection({
         </div>
       </div>
 
-      {expanded &&
-        rows.map((r) => (
-          <AllocationRow
-            key={r.allocation_id}
-            row={r}
-            vatPct={vatPct}
-            activeTeamFilter={activeTeamFilter}
-            searchQuery={searchQuery}
-            editingSchedule={editingSchedule}
-            onUpdate={onUpdateAllocation}
-            onDelete={onDeleteAllocation}
-          />
-        ))}
+      {expanded && (
+        dragEnabled ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              {rows.map((r) => (
+                <SortableRow
+                  key={r.allocation_id}
+                  id={r.allocation_id}
+                  isEditMode={editingSchedule}
+                  isLocked={locked}
+                >
+                  {(dragHandleSlot) => (
+                    <AllocationRow
+                      key={r.allocation_id}
+                      row={r}
+                      vatPct={vatPct}
+                      activeTeamFilter={activeTeamFilter}
+                      searchQuery={searchQuery}
+                      editingSchedule={editingSchedule}
+                      onUpdate={onUpdateAllocation}
+                      onDelete={onDeleteAllocation}
+                      dragHandleSlot={dragHandleSlot}
+                    />
+                  )}
+                </SortableRow>
+              ))}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          rows.map((r) => (
+            <AllocationRow
+              key={r.allocation_id}
+              row={r}
+              vatPct={vatPct}
+              activeTeamFilter={activeTeamFilter}
+              searchQuery={searchQuery}
+              editingSchedule={editingSchedule}
+              onUpdate={onUpdateAllocation}
+              onDelete={onDeleteAllocation}
+              dragHandleSlot={null}
+            />
+          ))
+        )
+      )}
       {expanded && editingSchedule && (
         <div
           style={{
@@ -1411,6 +1592,10 @@ function AdHocSection({
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   return (
     <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
@@ -1426,7 +1611,7 @@ function AdHocSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 8' }}
+          style={{ gridColumn: '1 / span 9' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -1479,21 +1664,6 @@ function AdHocSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              padding: '10px 8px 10px 0',
-              fontWeight: 700,
-              fontSize: '13px',
-              color: 'var(--rmg-color-text-heading)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {formatMoney(base)}
-          </div>
-          <div
-            style={{
               gridColumn: 11,
               display: 'flex',
               alignItems: 'center',
@@ -1503,6 +1673,23 @@ function AdHocSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1530,7 +1717,7 @@ function AdHocSection({
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -1586,6 +1773,10 @@ function EtpSsSection({
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   return (
     <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
@@ -1601,7 +1792,7 @@ function EtpSsSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 8' }}
+          style={{ gridColumn: '1 / span 9' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -1654,21 +1845,6 @@ function EtpSsSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 10,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              padding: '10px 8px 10px 0',
-              fontWeight: 700,
-              fontSize: '13px',
-              color: 'var(--rmg-color-text-heading)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {formatMoney(base)}
-          </div>
-          <div
-            style={{
               gridColumn: 11,
               display: 'flex',
               alignItems: 'center',
@@ -1678,6 +1854,23 @@ function EtpSsSection({
               fontSize: '13px',
               color: 'var(--rmg-color-text-heading)',
               fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
+            }}
+          >
+            {formatMoney(base)}
+          </div>
+          <div
+            style={{
+              gridColumn: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+              fontWeight: 700,
+              fontSize: '13px',
+              color: 'var(--rmg-color-text-heading)',
+              fontVariantNumeric: 'tabular-nums',
+              ...blurStyle,
             }}
           >
             {formatMoney(vat)}
@@ -1714,7 +1907,7 @@ function EtpSsSection({
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 11', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -1763,7 +1956,8 @@ function EtpSsEditRow({
         background: 'rgba(90,90,94,0.03)',
       }}
     >
-      <div style={{ gridColumn: '1 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: 1 }} />
+      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <input
           type="text"
           value={labelValue}
@@ -1780,7 +1974,7 @@ function EtpSsEditRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: '5 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '6 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <select
           value={item.cost_item_category}
           onChange={(e) => onUpdate(item.cost_item_id, { cost_item_category: e.target.value })}
@@ -1800,7 +1994,7 @@ function EtpSsEditRow({
           ))}
         </select>
       </div>
-      <div style={{ gridColumn: '8 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '9 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -1823,7 +2017,7 @@ function EtpSsEditRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -1864,10 +2058,15 @@ function AdHocRow({
   useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
 
   const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
 
   if (!editing) {
     return (
       <div className={styles.allocationRow} style={{ gridTemplateColumns: SCHEDULE_COLS }}>
+        <Cell><span /></Cell>
         <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
         <Cell><span /></Cell>
         <Cell><span /></Cell>
@@ -1878,12 +2077,12 @@ function AdHocRow({
         <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right" dataLabel="Base">
-          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
             {formatMoney(item.amount_pence)}
           </span>
         </Cell>
         <Cell align="right" dataLabel="+VAT">
-          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495' }}>
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495', ...blurStyle }}>
             {formatMoney(vatTotal)}
           </span>
         </Cell>
@@ -1901,7 +2100,8 @@ function AdHocRow({
         background: 'rgba(243,146,13,0.03)',
       }}
     >
-      <div style={{ gridColumn: '1 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: 1 }} />
+      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <input
           type="text"
           value={labelValue}
@@ -1918,7 +2118,7 @@ function AdHocRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: '6 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '7 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -1949,7 +2149,7 @@ function AdHocRow({
           +VAT
         </label>
       </div>
-      <div style={{ gridColumn: 11, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -1971,7 +2171,11 @@ function AdHocRow({
   )
 }
 
-function BandTotal({ label, value }: { label: string; value: string }) {
+function BandTotal({ label, value, blur }: { label: string; value: string; blur?: boolean }) {
+  const blurStyle: React.CSSProperties | undefined = blur
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   return (
     <div
       style={{
@@ -1988,6 +2192,7 @@ function BandTotal({ label, value }: { label: string; value: string }) {
           letterSpacing: '0.06em',
           color: '#8F9495',
           marginBottom: 2,
+          ...blurStyle,
         }}
       >
         {label}
@@ -1998,6 +2203,7 @@ function BandTotal({ label, value }: { label: string; value: string }) {
           fontWeight: 600,
           color: '#2A2A2D',
           fontVariantNumeric: 'tabular-nums',
+          ...blurStyle,
         }}
       >
         {value}
@@ -2034,6 +2240,7 @@ function AllocationRow({
   editingSchedule,
   onUpdate,
   onDelete,
+  dragHandleSlot,
 }: {
   row: Allocation
   vatPct: number
@@ -2042,7 +2249,13 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  dragHandleSlot?: React.ReactNode
 }) {
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle: React.CSSProperties | undefined = isPrivate
+    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
+    : undefined
+
   const [pendingDelete, setPendingDelete] = useState(false)
   const [roleValue, setRoleValue] = useState(row.role_title ?? '')
   const [dayRateValue, setDayRateValue] = useState(String(row.day_rate / 100))
@@ -2088,7 +2301,8 @@ function AllocationRow({
         className={styles.allocationRow}
         style={{ gridTemplateColumns: SCHEDULE_COLS, background: '#FFF5F5' }}
       >
-        <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
+        <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
           <span style={{ fontSize: 13, color: '#DA202A', fontWeight: 500 }}>
             Delete {row.resource_name ?? row.role_title ?? 'this resource'}?
           </span>
@@ -2117,6 +2331,8 @@ function AllocationRow({
         className={styles.allocationRow}
         style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
       >
+        {/* Handle */}
+        <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
         {/* 1 Resource + delete */}
         <Cell>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
@@ -2269,6 +2485,9 @@ function AllocationRow({
         background: rowBg,
       }}
     >
+      {/* Handle */}
+      <Cell><span /></Cell>
+
       {/* 1 Resource */}
       <Cell>
         {tbc ? (
@@ -2432,7 +2651,7 @@ function AllocationRow({
 
       {/* 9 Day Rate */}
       <Cell align="right" dataLabel="Day Rate">
-        <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
           {formatMoney(row.day_rate, { decimals: 2 })}
         </span>
       </Cell>
@@ -2446,6 +2665,7 @@ function AllocationRow({
             color: displayBase === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            ...blurStyle,
           }}
         >
           {formatMoney(displayBase)}
@@ -2461,6 +2681,7 @@ function AllocationRow({
             color: displayVat === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            ...blurStyle,
           }}
         >
           {formatMoney(displayVat)}

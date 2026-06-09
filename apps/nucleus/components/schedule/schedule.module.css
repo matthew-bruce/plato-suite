@@ -22,16 +22,18 @@
   padding: 0 16px 0 12px;
 }
 
+/* handle col (1) + 9 original content cols */
 .bandLeft {
-  grid-column: 1 / span 9;
+  grid-column: 1 / span 10;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 0;
 }
 
+/* base (col 11) + vat (col 12) */
 .bandTotals {
-  grid-column: 10 / span 2;
+  grid-column: 11 / span 2;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -115,19 +117,20 @@
     background: white !important;
   }
 
-  /* Cell index map (1-based): 1 Resource, 2 Role, 3 Team, 4 Util, 5 Plan,
-     6 Chargeable, 7 Location, 8 Days, 9 DayRate, 10 Base, 11 VAT */
-  .allocationRow > :nth-child(1)  { grid-column: 1; grid-row: 1; }                           /* Resource */
-  .allocationRow > :nth-child(6)  { grid-column: 2; grid-row: 1; justify-content: flex-end; } /* Chargeable */
-  .allocationRow > :nth-child(2)  { grid-column: 1 / span 2; grid-row: 2; }                  /* Role — full width */
-  .allocationRow > :nth-child(3)  { grid-column: 1; grid-row: 3; }                           /* Team */
-  .allocationRow > :nth-child(7)  { grid-column: 2; grid-row: 3; justify-content: flex-end; } /* Location */
-  .allocationRow > :nth-child(5)  { grid-column: 1; grid-row: 4; }                           /* Plan */
-  .allocationRow > :nth-child(8)  { grid-column: 2; grid-row: 4; justify-content: flex-end; white-space: normal; overflow: visible; } /* Days */
-  .allocationRow > :nth-child(10) { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Base */
-  .allocationRow > :nth-child(11) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
-  .allocationRow > :nth-child(4),
-  .allocationRow > :nth-child(9)  { display: none; }                                         /* Utilisation, Day Rate — hidden */
+  /* Cell index map (1-based): 1 Handle, 2 Resource, 3 Role, 4 Team, 5 Util,
+     6 Plan, 7 Chargeable, 8 Location, 9 Days, 10 DayRate, 11 Base, 12 VAT */
+  .allocationRow > :nth-child(1)  { display: none; }                                             /* Handle — hidden on mobile */
+  .allocationRow > :nth-child(2)  { grid-column: 1; grid-row: 1; }                               /* Resource */
+  .allocationRow > :nth-child(7)  { grid-column: 2; grid-row: 1; justify-content: flex-end; }    /* Chargeable */
+  .allocationRow > :nth-child(3)  { grid-column: 1 / span 2; grid-row: 2; }                      /* Role — full width */
+  .allocationRow > :nth-child(4)  { grid-column: 1; grid-row: 3; }                               /* Team */
+  .allocationRow > :nth-child(8)  { grid-column: 2; grid-row: 3; justify-content: flex-end; }    /* Location */
+  .allocationRow > :nth-child(6)  { grid-column: 1; grid-row: 4; }                               /* Plan */
+  .allocationRow > :nth-child(9)  { grid-column: 2; grid-row: 4; justify-content: flex-end; white-space: normal; overflow: visible; } /* Days */
+  .allocationRow > :nth-child(11) { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Base */
+  .allocationRow > :nth-child(12) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
+  .allocationRow > :nth-child(5),
+  .allocationRow > :nth-child(10) { display: none; }                                             /* Utilisation, Day Rate — hidden */
 
   /* Data labels for Base and +VAT cells */
   .cell[data-label]::before {
