@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import { getSupabaseServerClient } from '@plato/schema'
+import { workingDaysBetween } from '@/lib/schedule/format'
 
 /* ── Query result shapes ──────────────────────────────────────────── */
 
@@ -563,7 +564,7 @@ export async function GET(request: Request): Promise<Response> {
   const billableDaysRowNum = ws.rowCount + 1
   const billableRow = ws.addRow([
     'Total Billable Days', '', '', '', '', '', '', '',
-    { formula: `=SUMIF(K${FIRST_DATA_ROW}:K${lastDataRow},"Yes",I${FIRST_DATA_ROW}:I${lastDataRow})` },
+    { formula: `=SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastDataRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastDataRow})*(I${FIRST_DATA_ROW}:I${lastDataRow}))` },
   ])
   billableRow.getCell(1).font = { bold: true }
 
@@ -637,7 +638,10 @@ export async function GET(request: Request): Promise<Response> {
   const etpSsTotal = etpSsItems.reduce((s, i) => s + i.amount_pence / 100, 0)
   const grandTotalVat = resourcesAdhocVat + etpSsTotal
   const xChargeableDays = allocations.reduce(
-    (s, a) => (a.planview_code === 'PR' ? s + (a.capacity_days ?? 0) : s),
+    (s, a) =>
+      a.planview_code === 'PR'
+        ? s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100)
+        : s,
     0,
   )
   const advisedRate = xChargeableDays > 0 ? grandTotalVat / xChargeableDays : 0
@@ -647,12 +651,14 @@ export async function GET(request: Request): Promise<Response> {
   const pStart = new Date(period.period_start_date)
   const pEnd = new Date(period.period_end_date)
   const fmtDdMon = (d: Date) => `${pad(d.getUTCDate())} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
-  let workingDays = 0
-  for (const cur = new Date(pStart); cur <= pEnd; cur.setUTCDate(cur.getUTCDate() + 1)) {
-    const dow = cur.getUTCDay()
-    if (dow !== 0 && dow !== 6) workingDays++
-  }
+  const workingDays = workingDaysBetween(period.period_start_date, period.period_end_date)
   const dateRange = `${fmtDdMon(pStart)} – ${fmtDdMon(pEnd)} · ${workingDays} working days`
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[export/schedule] working days:', workingDays)
+    console.log('[export/schedule] PR days (util-weighted):', xChargeableDays.toFixed(2))
+    console.log('[export/schedule] advised rate:', advisedRate > 0 ? `£${advisedRate.toFixed(2)}/day` : 'n/a (0 PR days)')
+  }
 
   /* ── Rich-text coloured square indicator ── */
   const squareRich = (colourHex: string, text: string, textArgb: string, size = 11) => ({
@@ -1056,7 +1062,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawBillableRow = rawSubtotalRow + 3
   ws3.getCell(rawBillableRow, 1).value = 'Total Billable Days'
-  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMIF(K1:K${rawLastDataRow},"Yes",I1:I${rawLastDataRow})` }
+  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K1:K${rawLastDataRow}="Yes")*(H1:H${rawLastDataRow})*(I1:I${rawLastDataRow}))` }
 
   const rawUtilRow = rawSubtotalRow + 4
   ws3.getCell(rawUtilRow, 1).value = 'Utilisation'
