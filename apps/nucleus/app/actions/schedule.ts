@@ -22,6 +22,47 @@ export async function togglePeriodLocked(
 }
 
 /**
+ * Assign a resource to a TBC allocation row. Sets resource_id and updated_at.
+ * Returns { success: false } if the allocation does not exist.
+ */
+export async function assignResourceToAllocation(
+  allocationId: string,
+  resourceId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseServerClient()
+
+  const { data, error } = await supabase
+    .from('resource_period_allocations')
+    .update({ resource_id: resourceId, updated_at: new Date().toISOString() })
+    .eq('allocation_id', allocationId)
+    .select('allocation_id')
+
+  if (error) return { success: false, error: error.message }
+  if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
+  return { success: true }
+}
+
+/**
+ * Remove a resource assignment, reverting the row to TBC. Sets resource_id to
+ * NULL and updated_at. Returns { success: false } if the allocation does not exist.
+ */
+export async function unassignResourceFromAllocation(
+  allocationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseServerClient()
+
+  const { data, error } = await supabase
+    .from('resource_period_allocations')
+    .update({ resource_id: null, updated_at: new Date().toISOString() })
+    .eq('allocation_id', allocationId)
+    .select('allocation_id')
+
+  if (error) return { success: false, error: error.message }
+  if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
+  return { success: true }
+}
+
+/**
  * Persist a new manual ordering for a set of allocations. Each entry maps an
  * allocation to its new `display_order` within its supplier group. Used by the
  * Platform Schedule drag-and-drop reordering. Returns `{ success: true }` on
