@@ -15,6 +15,7 @@ import type {
   TeamOption,
   CheckPeriodRow,
 } from '@/app/actions/schedule-wizard'
+import { highlightMatch } from '@/lib/schedule/highlightMatch'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -122,23 +123,6 @@ function StepPills({ step }: { step: WizardStep }) {
         )
       })}
     </div>
-  )
-}
-
-/* ── Highlight matched substring ────────────────────────── */
-
-function HighlightMatch({ text, query }: { text: string; query: string }) {
-  if (!query.trim()) return <span>{text}</span>
-  const lower = text.toLowerCase()
-  const q = query.toLowerCase().trim()
-  const idx = lower.indexOf(q)
-  if (idx === -1) return <span>{text}</span>
-  return (
-    <span>
-      {text.slice(0, idx)}
-      <strong>{text.slice(idx, idx + q.length)}</strong>
-      {text.slice(idx + q.length)}
-    </span>
   )
 }
 
@@ -525,6 +509,7 @@ export function AddResourceWizard({
     borderRadius: 12,
     width: 520,
     maxWidth: 'calc(100vw - 32px)',
+    height: 560,
     maxHeight: 'calc(100vh - 64px)',
     display: 'flex',
     flexDirection: 'column',
@@ -997,11 +982,15 @@ function Step1Body({
   onSkipToTbc: () => void
   inputStyle: React.CSSProperties
 }) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
   const noMatch = searchQuery.length >= 2 && !isSearching && results.length === 0
 
   return (
-    <div>
-      <div style={{ position: 'relative', marginBottom: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* keyframes for spinner — injected once per mount */}
+      <style>{`@keyframes wizard-spin { to { transform: rotate(360deg); } }`}</style>
+
+      <div style={{ position: 'relative', marginBottom: 12, flexShrink: 0 }}>
         <span
           style={{
             position: 'absolute',
@@ -1026,98 +1015,127 @@ function Step1Body({
         />
       </div>
 
-      {isSearching && (
-        <p style={{ fontSize: 12, color: INACTIVE_GREY, margin: '0 0 8px' }}>Searching…</p>
-      )}
-
-      {!noMatch && results.length > 0 && (
-        <div
-          style={{
-            border: '1px solid #EEEEEE',
-            borderRadius: 8,
-            overflow: 'hidden',
-            marginBottom: 12,
-          }}
-        >
-          {results.map((r, idx) => (
-            <button
-              key={r.resource_id}
-              type="button"
-              onClick={() => onPickResource(r)}
+      {/* Fixed-height results area — spinner / list / no-match / empty */}
+      <div
+        style={{
+          height: 280,
+          overflowY: 'auto',
+          flexShrink: 0,
+          marginBottom: 12,
+        }}
+      >
+        {isSearching && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              height: '100%',
+            }}
+          >
+            <div
               style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                padding: '10px 14px',
-                background: '#fff',
-                border: 'none',
-                borderBottom: idx < results.length - 1 ? '1px solid #F5F5F5' : 'none',
+                width: 22,
+                height: 22,
+                borderRadius: '50%',
+                border: '2px solid #E5E7EA',
+                borderTopColor: ACTIVE_RED,
+                animation: 'wizard-spin 0.6s linear infinite',
+              }}
+            />
+          </div>
+        )}
+
+        {!isSearching && results.length > 0 && (
+          <div
+            style={{
+              border: '1px solid #EEEEEE',
+              borderRadius: 8,
+              overflow: 'hidden',
+            }}
+          >
+            {results.map((r, idx) => (
+              <button
+                key={r.resource_id}
+                type="button"
+                onClick={() => onPickResource(r)}
+                onMouseEnter={() => setHoveredId(r.resource_id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  padding: '10px 14px',
+                  background: hoveredId === r.resource_id ? '#F5F5F5' : '#fff',
+                  border: 'none',
+                  borderBottom: idx < results.length - 1 ? '1px solid #F5F5F5' : 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontFamily: 'var(--rmg-font-body)',
+                  transition: 'background 100ms',
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    background: r.supplier_colour ?? INACTIVE_GREY,
+                    flexShrink: 0,
+                    marginTop: 4,
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+                    {highlightMatch(r.resource_name, searchQuery)}
+                  </div>
+                  <div style={{ fontSize: 11, color: INACTIVE_GREY, marginTop: 2 }}>
+                    {r.resource_job_title ?? '—'} · {r.supplier_name ?? '—'}
+                  </div>
+                  <div style={{ fontSize: 11, color: INACTIVE_GREY }}>
+                    {locationLabel(r.resource_location)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!isSearching && noMatch && (
+          <div
+            style={{
+              background: '#FFF8F8',
+              border: '1px solid #FFD0D0',
+              borderRadius: 8,
+              padding: '12px 16px',
+            }}
+          >
+            <p style={{ fontSize: 13, color: '#2A2A2D', margin: '0 0 8px' }}>
+              No match for &ldquo;{searchQuery}&rdquo;
+            </p>
+            <button
+              type="button"
+              onClick={() => onAddAsNew(searchQuery)}
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: ACTIVE_RED,
+                background: 'transparent',
+                border: `1px solid ${ACTIVE_RED}`,
+                borderRadius: 6,
+                padding: '5px 10px',
                 cursor: 'pointer',
-                textAlign: 'left',
                 fontFamily: 'var(--rmg-font-body)',
               }}
             >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: r.supplier_colour ?? INACTIVE_GREY,
-                  flexShrink: 0,
-                  marginTop: 4,
-                }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
-                  <HighlightMatch text={r.resource_name} query={searchQuery} />
-                </div>
-                <div style={{ fontSize: 11, color: INACTIVE_GREY, marginTop: 2 }}>
-                  {r.resource_job_title ?? '—'} · {r.supplier_name ?? '—'}
-                </div>
-                <div style={{ fontSize: 11, color: INACTIVE_GREY }}>
-                  {locationLabel(r.resource_location)}
-                </div>
-              </div>
+              Add &ldquo;{searchQuery}&rdquo; as new person
             </button>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
-      {noMatch && (
-        <div
-          style={{
-            background: '#FFF8F8',
-            border: '1px solid #FFD0D0',
-            borderRadius: 8,
-            padding: '12px 16px',
-            marginBottom: 12,
-          }}
-        >
-          <p style={{ fontSize: 13, color: '#2A2A2D', margin: '0 0 8px' }}>
-            No match for &ldquo;{searchQuery}&rdquo;
-          </p>
-          <button
-            type="button"
-            onClick={() => onAddAsNew(searchQuery)}
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: ACTIVE_RED,
-              background: 'transparent',
-              border: `1px solid ${ACTIVE_RED}`,
-              borderRadius: 6,
-              padding: '5px 10px',
-              cursor: 'pointer',
-              fontFamily: 'var(--rmg-font-body)',
-            }}
-          >
-            Add &ldquo;{searchQuery}&rdquo; as new person
-          </button>
-        </div>
-      )}
-
-      <div style={{ marginTop: 8 }}>
+      <div style={{ flexShrink: 0 }}>
         <button
           type="button"
           onClick={onSkipToTbc}
