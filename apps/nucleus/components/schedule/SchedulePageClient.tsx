@@ -779,16 +779,9 @@ function KpiStrip({
     <div className={styles.kpiStrip}>
       <KpiCard
         label="Total Platform Cost"
-        value={formatMoney(totals.totalPlatform, { decimals: 0 })}
-        sub="Allocations + VAT + ad-hoc"
-        accent="#DA202A"
-        blur={isPrivate}
-      />
-      <KpiCard
-        label="Inc. ETP & Shared Services"
         value={formatMoney(totals.totalPlatformIncEtp, { decimals: 0 })}
-        sub={`+${formatMoney(totals.etpAndSsPence, { decimals: 0 })} ETP & SS`}
-        accent="#404044"
+        sub="Inc. ad-hoc, ETP & Shared Services, plus VAT"
+        accent="#DA202A"
         blur={isPrivate}
       />
       <KpiCard
