@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EyeOff } from 'lucide-react'
 import {
@@ -40,14 +40,11 @@ import type { PeriodOption } from '@plato/ui'
 import {
   togglePeriodLocked,
   batchUpdateDisplayOrder,
-  assignResourceToAllocation,
   unassignResourceFromAllocation,
 } from '@/app/actions/schedule'
-import { searchResources } from '@/app/actions/schedule-wizard'
-import type { ResourceSearchResult } from '@/app/actions/schedule-wizard'
 import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
-import type { WizardSuccessPayload } from './AddResourceWizard'
+import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -119,6 +116,7 @@ export function SchedulePageClient({ data }: Props) {
     supplierName: string | null
     supplierColour: string
   } | null>(null)
+  const [assignWizardTarget, setAssignWizardTarget] = useState<AssignModeConfig | null>(null)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
@@ -398,16 +396,14 @@ export function SchedulePageClient({ data }: Props) {
       .eq('allocation_id', id)
   }
 
-  async function handleAssignResource(allocationId: string, resourceId: string, resourceName: string): Promise<void> {
+  function handleAssignSuccess(allocationId: string, _resourceId: string | null, resourceName: string | null): void {
     setLocalAllocations((prev) =>
       prev.map((a) => a.allocation_id === allocationId ? { ...a, resource_name: resourceName } : a),
     )
-    const result = await assignResourceToAllocation(allocationId, resourceId)
-    if (!result.success) {
-      setLocalAllocations((prev) =>
-        prev.map((a) => a.allocation_id === allocationId ? { ...a, resource_name: null } : a),
-      )
-    }
+  }
+
+  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null): void {
+    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName })
   }
 
   async function handleUnassignResource(allocationId: string): Promise<void> {
@@ -714,7 +710,7 @@ export function SchedulePageClient({ data }: Props) {
         editingSchedule={editingSchedule}
         onUpdateAllocation={handleUpdateAllocation}
         onDeleteAllocation={handleDeleteAllocation}
-        onAssignResource={handleAssignResource}
+        onOpenAssignWizard={handleOpenAssignWizard}
         onUnassignResource={handleUnassignResource}
         onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
@@ -728,14 +724,16 @@ export function SchedulePageClient({ data }: Props) {
       subMessage={loadingSubMessage}
     />
     <AddResourceWizard
-      open={wizardOpen}
+      open={wizardOpen || assignWizardTarget !== null}
       periodId={period.period_id}
       defaultSupplierId={wizardSupplier?.supplierId ?? null}
       defaultSupplierName={wizardSupplier?.supplierName ?? null}
       defaultSupplierColour={wizardSupplier?.supplierColour ?? '#8F9495'}
       activeSupplierFilter={selectedSuppliers}
       activeTeamFilter={teamFilter}
-      onClose={() => { setWizardOpen(false); setWizardSupplier(null) }}
+      assignMode={assignWizardTarget ?? undefined}
+      onAssignSuccess={handleAssignSuccess}
+      onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
     </>
@@ -996,7 +994,7 @@ function ScheduleTable({
   editingSchedule,
   onUpdateAllocation,
   onDeleteAllocation,
-  onAssignResource,
+  onOpenAssignWizard,
   onUnassignResource,
   onAddAllocation,
   onReorder,
@@ -1025,7 +1023,7 @@ function ScheduleTable({
   editingSchedule: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onAssignResource: (allocationId: string, resourceId: string, resourceName: string) => Promise<void>
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
@@ -1103,7 +1101,7 @@ function ScheduleTable({
               locked={locked}
               onUpdateAllocation={onUpdateAllocation}
               onDeleteAllocation={onDeleteAllocation}
-              onAssignResource={onAssignResource}
+              onOpenAssignWizard={onOpenAssignWizard}
               onUnassignResource={onUnassignResource}
               onAddAllocation={onAddAllocation}
               onReorder={onReorder}
@@ -1402,7 +1400,7 @@ function SupplierSection({
   locked,
   onUpdateAllocation,
   onDeleteAllocation,
-  onAssignResource,
+  onOpenAssignWizard,
   onUnassignResource,
   onAddAllocation,
   onReorder,
@@ -1423,7 +1421,7 @@ function SupplierSection({
   locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onAssignResource: (allocationId: string, resourceId: string, resourceName: string) => Promise<void>
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
@@ -1578,7 +1576,7 @@ function SupplierSection({
                       editingSchedule={editingSchedule}
                       onUpdate={onUpdateAllocation}
                       onDelete={onDeleteAllocation}
-                      onAssignResource={onAssignResource}
+                      onOpenAssignWizard={onOpenAssignWizard}
                       onUnassignResource={onUnassignResource}
                       dragHandleSlot={dragHandleSlot}
                     />
@@ -1598,7 +1596,7 @@ function SupplierSection({
               editingSchedule={editingSchedule}
               onUpdate={onUpdateAllocation}
               onDelete={onDeleteAllocation}
-              onAssignResource={onAssignResource}
+              onOpenAssignWizard={onOpenAssignWizard}
               onUnassignResource={onUnassignResource}
               dragHandleSlot={null}
             />
@@ -2305,6 +2303,17 @@ const editInputStyle: React.CSSProperties = {
   background: '#fff',
 }
 
+function UserPlusIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
+    </svg>
+  )
+}
+
 function UserMinusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2323,7 +2332,7 @@ function AllocationRow({
   editingSchedule,
   onUpdate,
   onDelete,
-  onAssignResource,
+  onOpenAssignWizard,
   onUnassignResource,
   dragHandleSlot,
 }: {
@@ -2334,7 +2343,7 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onAssignResource: (allocationId: string, resourceId: string, resourceName: string) => Promise<void>
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   dragHandleSlot?: React.ReactNode
 }) {
@@ -2344,28 +2353,7 @@ function AllocationRow({
     : undefined
 
   const [pendingDelete, setPendingDelete] = useState(false)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [assignQuery, setAssignQuery] = useState('')
-  const [assignResults, setAssignResults] = useState<ResourceSearchResult[]>([])
-  const [assignSearching, setAssignSearching] = useState(false)
   const [unassignConfirm, setUnassignConfirm] = useState(false)
-  const [assignHoveredId, setAssignHoveredId] = useState<string | null>(null)
-  const assignDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  function handleAssignQueryChange(q: string) {
-    setAssignQuery(q)
-    if (assignDebounceRef.current) clearTimeout(assignDebounceRef.current)
-    if (!q.trim()) { setAssignResults([]); return }
-    assignDebounceRef.current = setTimeout(async () => {
-      setAssignSearching(true)
-      try {
-        const res = await searchResources(q, row.supplier_name ?? undefined)
-        setAssignResults(res)
-      } finally {
-        setAssignSearching(false)
-      }
-    }, 300)
-  }
 
   const [roleValue, setRoleValue] = useState(row.role_title ?? '')
   const [dayRateValue, setDayRateValue] = useState(String(row.day_rate / 100))
@@ -2445,42 +2433,7 @@ function AllocationRow({
         <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
         {/* 1 Resource + assign/unassign + delete */}
         <Cell>
-          {assignOpen ? (
-            <div style={{ position: 'relative', width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <input
-                  autoFocus
-                  type="text"
-                  value={assignQuery}
-                  onChange={(e) => handleAssignQueryChange(e.target.value)}
-                  placeholder="Search resource…"
-                  style={{ ...editInputStyle, flex: 1 }}
-                />
-                {assignSearching && (
-                  <span style={{ width: 12, height: 12, border: '2px solid #DA202A', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'wizard-spin 0.7s linear infinite', flexShrink: 0 }} />
-                )}
-                <button type="button" onClick={() => { setAssignOpen(false); setAssignQuery(''); setAssignResults([]) }} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 13, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>✕</button>
-              </div>
-              {assignResults.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 160, overflowY: 'auto' }}>
-                  {assignResults.map((r) => (
-                    <div
-                      key={r.resource_id}
-                      onMouseEnter={() => setAssignHoveredId(r.resource_id)}
-                      onMouseLeave={() => setAssignHoveredId(null)}
-                      onClick={() => {
-                        void onAssignResource(row.allocation_id, r.resource_id, r.resource_name)
-                        setAssignOpen(false); setAssignQuery(''); setAssignResults([])
-                      }}
-                      style={{ padding: '5px 8px', fontSize: 12, cursor: 'pointer', background: assignHoveredId === r.resource_id ? '#F5F5F5' : 'transparent' }}
-                    >
-                      {highlightMatch(r.resource_name, assignQuery)}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : unassignConfirm ? (
+          {unassignConfirm ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
               <span style={{ fontSize: 11, color: '#DA202A', fontWeight: 500, flex: 1, minWidth: 0 }}>Remove {row.resource_name} and keep as TBC?</span>
               <button type="button" onClick={() => { void onUnassignResource(row.allocation_id); setUnassignConfirm(false) }} style={{ background: '#DA202A', color: '#fff', border: 'none', borderRadius: 3, padding: '2px 7px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flexShrink: 0 }}>Yes</button>
@@ -2491,11 +2444,11 @@ function AllocationRow({
               {tbc ? (
                 <button
                   type="button"
-                  onClick={() => setAssignOpen(true)}
+                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name)}
                   title="Assign resource"
-                  style={{ fontSize: 12, fontWeight: 500, color: 'var(--rmg-color-grey-1)', fontStyle: 'italic', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flex: 1, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: 'var(--rmg-color-grey-1)', background: 'transparent', border: '1px dashed var(--rmg-color-grey-2)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
-                  TBC
+                  <UserPlusIcon /> Assign person
                 </button>
               ) : (
                 <>

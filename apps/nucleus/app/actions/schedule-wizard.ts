@@ -61,7 +61,6 @@ function pickOne<T>(v: T | T[] | null | undefined): T | null {
 
 export async function searchResources(
   query: string,
-  supplierNameFilter?: string | null,
 ): Promise<ResourceSearchResult[]> {
   if (query.length < 2) return []
 
@@ -81,7 +80,7 @@ export async function searchResources(
 
   const rows = (data ?? []) as unknown as RawResourceRow[]
 
-  const results: ResourceSearchResult[] = rows.map((r) => {
+  return rows.map((r) => {
     const s = pickOne(r.suppliers)
     return {
       resource_id: r.resource_id,
@@ -93,12 +92,6 @@ export async function searchResources(
       supplier_colour: s?.supplier_colour ?? null,
     }
   })
-
-  if (supplierNameFilter) {
-    return results.filter((r) => r.supplier_name === supplierNameFilter)
-  }
-
-  return results
 }
 
 export async function fetchWizardData(): Promise<WizardData> {
@@ -368,4 +361,32 @@ export async function createResourceAndAllocation(
     const message = err instanceof Error ? err.message : 'Unexpected error'
     return { success: false, error: message }
   }
+}
+
+/**
+ * Create a bare resource record. Used by assign-mode wizard when the user
+ * types a name that has no existing match and chooses "Add as new person".
+ */
+export async function insertResource(
+  resourceName: string,
+  supplierId: string | null,
+  resourceLocation: ResourceLocation,
+): Promise<{ success: boolean; resourceId?: string; error?: string }> {
+  const supabase = getSupabaseServerClient()
+
+  const payload: Record<string, unknown> = {
+    resource_name: resourceName,
+    resource_location: resourceLocation,
+  }
+  if (supplierId) payload['supplier_id'] = supplierId
+
+  const { data, error } = await supabase
+    .from('resources')
+    .insert(payload)
+    .select('resource_id')
+    .single()
+
+  if (error) return { success: false, error: error.message }
+  type IdRow = { resource_id: string }
+  return { success: true, resourceId: (data as unknown as IdRow).resource_id }
 }

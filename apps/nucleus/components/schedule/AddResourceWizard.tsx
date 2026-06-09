@@ -8,6 +8,7 @@ import {
   createResourceAndAllocation,
   checkResourceInPeriod,
   updateTeamAssignments,
+  insertResource,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
@@ -15,6 +16,10 @@ import type {
   TeamOption,
   CheckPeriodRow,
 } from '@/app/actions/schedule-wizard'
+import {
+  assignResourceToAllocation,
+  unassignResourceFromAllocation,
+} from '@/app/actions/schedule'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 
 /* ── Constants ──────────────────────────────────────────── */
@@ -67,6 +72,13 @@ export interface WizardSuccessPayload {
   displayOrder: number | null
 }
 
+export interface AssignModeConfig {
+  allocationId: string
+  roleTitle: string
+  supplierId: string | null
+  supplierName: string | null
+}
+
 export interface AddResourceWizardProps {
   open: boolean
   periodId: string
@@ -75,52 +87,64 @@ export interface AddResourceWizardProps {
   defaultSupplierColour: string
   activeSupplierFilter: string[]
   activeTeamFilter: string
+  /** When set the wizard operates in assign-only mode (no new allocation is created). */
+  assignMode?: AssignModeConfig
+  onAssignSuccess?: (allocationId: string, resourceId: string | null, resourceName: string | null) => void
   onClose: () => void
   onSuccess: (data: WizardSuccessPayload) => void
 }
 
 /* ── Step indicator ─────────────────────────────────────── */
 
-function StepPills({ step }: { step: WizardStep }) {
+function StepPills({ step, isAssignMode }: { step: WizardStep; isAssignMode: boolean }) {
+  const pillBase: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 20,
+    padding: '4px 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: 'var(--rmg-font-body)',
+    transition: 'background 200ms',
+  }
+  const wrap: React.CSSProperties = {
+    display: 'flex',
+    gap: 8,
+    padding: '12px 20px',
+    borderBottom: '1px solid #EEEEEE',
+  }
+
+  if (isAssignMode) {
+    // Two pills: Search (step 1) and Confirm (step 3)
+    const pills = [
+      { label: '1 · Search', active: step === 1, done: step !== 1 },
+      { label: '2 · Confirm', active: step !== 1, done: false },
+    ]
+    return (
+      <div style={wrap}>
+        {pills.map(({ label, active, done }) => {
+          const bg = done ? DONE_GREEN : active ? ACTIVE_RED : '#E5E7EA'
+          const color = done || active ? '#fff' : INACTIVE_GREY
+          return <div key={label} style={{ ...pillBase, background: bg, color }}>{label}</div>
+        })}
+      </div>
+    )
+  }
+
   const pills: Array<{ n: WizardStep; label: string }> = [
     { n: 1, label: 'Search' },
     { n: 2, label: 'Details' },
     { n: 3, label: 'Confirm' },
   ]
   return (
-    <div
-      style={{
-        display: 'flex',
-        gap: 8,
-        padding: '12px 20px',
-        borderBottom: '1px solid #EEEEEE',
-      }}
-    >
+    <div style={wrap}>
       {pills.map(({ n, label }) => {
         const done = step > n
         const active = step === n
         const bg = done ? DONE_GREEN : active ? ACTIVE_RED : '#E5E7EA'
         const color = done || active ? '#fff' : INACTIVE_GREY
-        return (
-          <div
-            key={n}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              background: bg,
-              color,
-              borderRadius: 20,
-              padding: '4px 12px',
-              fontSize: 12,
-              fontWeight: 600,
-              fontFamily: 'var(--rmg-font-body)',
-              transition: 'background 200ms',
-            }}
-          >
-            {n} · {label}
-          </div>
-        )
+        return <div key={n} style={{ ...pillBase, background: bg, color }}>{n} · {label}</div>
       })}
     </div>
   )
@@ -146,9 +170,12 @@ export function AddResourceWizard({
   defaultSupplierColour,
   activeSupplierFilter,
   activeTeamFilter,
+  assignMode,
+  onAssignSuccess,
   onClose,
   onSuccess,
 }: AddResourceWizardProps) {
+  const isAssignMode = !!assignMode
   const [step, setStep] = useState<WizardStep>(1)
   const [mode, setMode] = useState<WizardMode>('tbc')
 
@@ -224,28 +251,24 @@ export function AddResourceWizard({
     }
   }, [open, defaultForm])
 
-  // Debounced search
-  const runSearch = useCallback(
-    (q: string) => {
-      if (q.length < 2) {
+  // Debounced search — no supplier filter: results include all suppliers
+  const runSearch = useCallback((q: string) => {
+    if (q.length < 2) {
+      setSearchResults([])
+      setIsSearching(false)
+      return
+    }
+    setIsSearching(true)
+    searchResources(q)
+      .then((results) => {
+        setSearchResults(results)
+        setIsSearching(false)
+      })
+      .catch(() => {
         setSearchResults([])
         setIsSearching(false)
-        return
-      }
-      setIsSearching(true)
-      const supplierFilter = activeSupplierFilter.length === 1 ? activeSupplierFilter[0] : null
-      searchResources(q, supplierFilter)
-        .then((results) => {
-          setSearchResults(results)
-          setIsSearching(false)
-        })
-        .catch(() => {
-          setSearchResults([])
-          setIsSearching(false)
-        })
-    },
-    [activeSupplierFilter],
-  )
+      })
+  }, [])
 
   function handleSearchChange(q: string) {
     setSearchQuery(q)
@@ -254,6 +277,14 @@ export function AddResourceWizard({
   }
 
   async function pickResource(r: ResourceSearchResult) {
+    // In assign mode: skip duplicate check, go straight to confirm
+    if (isAssignMode) {
+      setSelectedResource(r)
+      setMode('existing')
+      setStep(3)
+      return
+    }
+
     setIsCheckingDuplicate(true)
     let checkResult = { exists: false, rows: [] as CheckPeriodRow[], existingTeamAssignments: [] as Array<{ teamId: string; teamName: string; capacitySplit: number }> }
     try {
@@ -315,6 +346,13 @@ export function AddResourceWizard({
   }
 
   function addAsNew(name: string) {
+    if (isAssignMode) {
+      setMode('new')
+      setSelectedResource(null)
+      setForm((prev) => ({ ...prev, roleTitle: name }))
+      setStep(3)
+      return
+    }
     setMode('new')
     setSelectedResource(null)
     setForm({
@@ -328,6 +366,12 @@ export function AddResourceWizard({
   }
 
   function skipToTbc() {
+    if (isAssignMode) {
+      setMode('tbc')
+      setSelectedResource(null)
+      setStep(3)
+      return
+    }
     setMode('tbc')
     setSelectedResource(null)
     setForm({
@@ -391,6 +435,56 @@ export function AddResourceWizard({
   async function handleSubmit() {
     setIsSubmitting(true)
     setSubmitError(null)
+
+    // ── Assign mode: update an existing allocation row's resource ─────────────
+    if (isAssignMode) {
+      const { allocationId, supplierId } = assignMode!
+
+      if (mode === 'tbc') {
+        const result = await unassignResourceFromAllocation(allocationId)
+        setIsSubmitting(false)
+        if (!result.success) {
+          setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+          return
+        }
+        onAssignSuccess?.(allocationId, null, null)
+        onClose()
+        return
+      }
+
+      if (mode === 'existing' && selectedResource) {
+        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id)
+        setIsSubmitting(false)
+        if (!result.success) {
+          setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+          return
+        }
+        onAssignSuccess?.(allocationId, selectedResource.resource_id, selectedResource.resource_name)
+        onClose()
+        return
+      }
+
+      if (mode === 'new') {
+        const insertResult = await insertResource(form.roleTitle, supplierId, 'onshore')
+        if (!insertResult.success || !insertResult.resourceId) {
+          setIsSubmitting(false)
+          setSubmitError(insertResult.error ?? 'Failed to create resource')
+          return
+        }
+        const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId)
+        setIsSubmitting(false)
+        if (!assignResult.success) {
+          setSubmitError(assignResult.error ?? 'Failed to assign resource')
+          return
+        }
+        onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle)
+        onClose()
+        return
+      }
+
+      setIsSubmitting(false)
+      return
+    }
 
     if (mode === 'edit-teams') {
       const realAssignments = teamRows
@@ -601,7 +695,7 @@ export function AddResourceWizard({
       <div style={card} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div style={headerStyle}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Add role / resource</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{isAssignMode ? 'Assign resource' : 'Add role / resource'}</span>
           <button
             type="button"
             onClick={onClose}
@@ -622,7 +716,7 @@ export function AddResourceWizard({
         </div>
 
         {/* Step pills */}
-        <StepPills step={step} />
+        <StepPills step={step} isAssignMode={isAssignMode} />
 
         {/* Body */}
         <div style={bodyStyle}>
@@ -678,6 +772,7 @@ export function AddResourceWizard({
               teamRows={teamRows}
               teams={teams}
               summaryBg={SUMMARY_BG}
+              assignRoleTitle={isAssignMode ? (assignMode!.roleTitle || '—') : undefined}
             />
           )}
         </div>
@@ -688,7 +783,7 @@ export function AddResourceWizard({
             {step > 1 && (
               <button
                 type="button"
-                onClick={() => setStep((s) => (s - 1) as WizardStep)}
+                onClick={() => setStep(isAssignMode ? 1 : (step - 1) as WizardStep)}
                 style={btnSecondary}
               >
                 ← Back
@@ -705,7 +800,7 @@ export function AddResourceWizard({
             <button type="button" onClick={onClose} style={btnSecondary}>
               Cancel
             </button>
-            {step > 1 && step < 3 && (
+            {step > 1 && step < 3 && !isAssignMode && (
               <button
                 type="button"
                 onClick={() => setStep((s) => (s + 1) as WizardStep)}
@@ -722,7 +817,7 @@ export function AddResourceWizard({
                 disabled={isSubmitting}
                 style={isSubmitting ? btnDisabled : btnPrimary}
               >
-                {isSubmitting ? 'Saving…' : submitLabel}
+                {isSubmitting ? 'Saving…' : isAssignMode ? 'Assign' : submitLabel}
               </button>
             )}
           </div>
@@ -1398,6 +1493,7 @@ function Step3Body({
   teamRows,
   teams,
   summaryBg,
+  assignRoleTitle,
 }: {
   mode: WizardMode
   selectedResource: ResourceSearchResult | null
@@ -1405,7 +1501,41 @@ function Step3Body({
   teamRows: TeamRow[]
   teams: TeamOption[]
   summaryBg: string
+  assignRoleTitle?: string
 }) {
+  // ── Assign mode: simplified two-row summary ──────────────────────────────────
+  if (assignRoleTitle !== undefined) {
+    const resourceLabel =
+      mode === 'tbc' ? 'TBC'
+      : mode === 'existing' ? (selectedResource?.resource_name ?? '—')
+      : `${form.roleTitle} (new person)`
+
+    const summaryRows: Array<{ label: string; value: string }> = [
+      { label: 'Resource', value: resourceLabel },
+      { label: 'Will be assigned to', value: assignRoleTitle },
+    ]
+
+    return (
+      <div style={{ background: summaryBg, borderRadius: 8, overflow: 'hidden' }}>
+        {summaryRows.map(({ label, value }, idx) => (
+          <div
+            key={label}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              padding: '9px 16px',
+              borderBottom: idx < summaryRows.length - 1 ? '1px solid #E8E9EC' : 'none',
+            }}
+          >
+            <span style={{ fontSize: 12, color: INACTIVE_GREY, fontWeight: 600 }}>{label}</span>
+            <span style={{ fontSize: 13, color: '#2A2A2D', fontWeight: 500 }}>{value}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // ── Normal mode ──────────────────────────────────────────────────────────────
   const resourceLabel =
     mode === 'edit-teams'
       ? (selectedResource?.resource_name ?? '—')
