@@ -6,8 +6,15 @@ import {
   searchResources,
   fetchWizardData,
   createResourceAndAllocation,
+  checkResourceInPeriod,
+  updateTeamAssignments,
 } from '@/app/actions/schedule-wizard'
-import type { ResourceSearchResult, SupplierOption, TeamOption } from '@/app/actions/schedule-wizard'
+import type {
+  ResourceSearchResult,
+  SupplierOption,
+  TeamOption,
+  CheckPeriodRow,
+} from '@/app/actions/schedule-wizard'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -16,24 +23,36 @@ const DONE_GREEN = '#62A531'
 const INACTIVE_GREY = '#8F9495'
 const HEADER_BG = '#2A2A2D'
 const SUMMARY_BG = '#F1F2F5'
+const AMBER = '#D97706'
 
 /* ── Types ──────────────────────────────────────────────── */
 
 type WizardStep = 1 | 2 | 3
-type WizardMode = 'existing' | 'new' | 'tbc'
+type WizardMode = 'existing' | 'new' | 'tbc' | 'edit-teams'
+
+interface TeamRow {
+  id: string
+  teamId: string
+  pct: number
+}
 
 interface FormState {
   supplierId: string
   supplierName: string
-  teamId: string | null
-  teamName: string | null
   roleTitle: string
   planviewCode: 'PR' | 'F_Gov' | 'BAU'
   resourceLocation: ResourceLocation
 }
 
+interface ForkInfo {
+  target: ResourceSearchResult
+  rows: CheckPeriodRow[]
+  existingTeams: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+}
+
 export interface WizardSuccessPayload {
-  allocationId: string
+  allocationId: string | null
+  isTeamEdit: boolean
   resourceId: string | null
   resourceName: string | null
   roleTitle: string
@@ -128,6 +147,11 @@ function locationLabel(loc: ResourceLocation | null): string {
   return loc.charAt(0).toUpperCase() + loc.slice(1)
 }
 
+let _teamRowCounter = 0
+function nextRowId() {
+  return `row-${++_teamRowCounter}`
+}
+
 /* ── Main component ─────────────────────────────────────── */
 
 export function AddResourceWizard({
@@ -150,23 +174,27 @@ export function AddResourceWizard({
   const [selectedResource, setSelectedResource] = useState<ResourceSearchResult | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Fork panel (duplicate detection)
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
+  const [showFork, setShowFork] = useState(false)
+  const [forkInfo, setForkInfo] = useState<ForkInfo | null>(null)
+  const [addSecondRowBanner, setAddSecondRowBanner] = useState(false)
+
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
   const [teams, setTeams] = useState<TeamOption[]>([])
+
+  // Multi-team builder rows
+  const [teamRows, setTeamRows] = useState<TeamRow[]>([{ id: nextRowId(), teamId: '', pct: 100 }])
 
   const defaultForm = useCallback(
     (): FormState => ({
       supplierId: defaultSupplierId ?? '',
       supplierName: defaultSupplierName ?? '',
-      teamId:
-        activeTeamFilter !== 'all'
-          ? null // will be resolved from teams list once loaded
-          : null,
-      teamName: activeTeamFilter !== 'all' ? activeTeamFilter : null,
       roleTitle: '',
       planviewCode: 'PR',
       resourceLocation: 'onshore',
     }),
-    [defaultSupplierId, defaultSupplierName, activeTeamFilter],
+    [defaultSupplierId, defaultSupplierName],
   )
 
   const [form, setForm] = useState<FormState>(defaultForm)
@@ -181,11 +209,10 @@ export function AddResourceWizard({
       .then(({ suppliers: s, teams: t }) => {
         setSuppliers(s)
         setTeams(t)
-        // Resolve team_id from name if a team filter is active
         if (activeTeamFilter !== 'all') {
           const match = t.find((x) => x.team_name === activeTeamFilter)
           if (match) {
-            setForm((prev) => ({ ...prev, teamId: match.team_id, teamName: match.team_name }))
+            setTeamRows([{ id: nextRowId(), teamId: match.team_id, pct: 100 }])
           }
         }
       })
@@ -202,6 +229,11 @@ export function AddResourceWizard({
       setSearchResults([])
       setIsSearching(false)
       setSelectedResource(null)
+      setShowFork(false)
+      setForkInfo(null)
+      setAddSecondRowBanner(false)
+      setIsCheckingDuplicate(false)
+      setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
       setDuplicateAdvisory(null)
       setSubmitError(null)
       setForm(defaultForm())
@@ -237,21 +269,31 @@ export function AddResourceWizard({
     debounceRef.current = setTimeout(() => runSearch(q), 300)
   }
 
-  function resolveTeamFromFilter(): { teamId: string | null; teamName: string | null } {
-    if (activeTeamFilter === 'all') return { teamId: null, teamName: null }
-    const match = teams.find((t) => t.team_name === activeTeamFilter)
-    return { teamId: match?.team_id ?? null, teamName: activeTeamFilter }
+  async function pickResource(r: ResourceSearchResult) {
+    setIsCheckingDuplicate(true)
+    let checkResult = { exists: false, rows: [] as CheckPeriodRow[], existingTeamAssignments: [] as Array<{ teamId: string; teamName: string; capacitySplit: number }> }
+    try {
+      checkResult = await checkResourceInPeriod(r.resource_id, periodId)
+    } catch {
+      // If check fails, proceed normally
+    }
+    setIsCheckingDuplicate(false)
+
+    if (checkResult.exists) {
+      setForkInfo({ target: r, rows: checkResult.rows, existingTeams: checkResult.existingTeamAssignments })
+      setShowFork(true)
+      return
+    }
+
+    advanceToStep2Existing(r)
   }
 
-  function pickResource(r: ResourceSearchResult) {
+  function advanceToStep2Existing(r: ResourceSearchResult) {
     setSelectedResource(r)
     setMode('existing')
-    const { teamId, teamName } = resolveTeamFromFilter()
     setForm({
       supplierId: r.supplier_id ?? defaultSupplierId ?? '',
       supplierName: r.supplier_name ?? defaultSupplierName ?? '',
-      teamId,
-      teamName,
       roleTitle: r.resource_job_title ?? '',
       planviewCode: 'PR',
       resourceLocation: r.resource_location ?? 'onshore',
@@ -259,15 +301,41 @@ export function AddResourceWizard({
     setStep(2)
   }
 
+  function handleEditTeams() {
+    const info = forkInfo!
+    const rows =
+      info.existingTeams.length > 0
+        ? info.existingTeams.map((t) => ({ id: nextRowId(), teamId: t.teamId, pct: t.capacitySplit }))
+        : [{ id: nextRowId(), teamId: '', pct: 100 }]
+    setTeamRows(rows)
+    setSelectedResource(info.target)
+    setMode('edit-teams')
+    setShowFork(false)
+    setForkInfo(null)
+    setForm({
+      supplierId: info.target.supplier_id ?? defaultSupplierId ?? '',
+      supplierName: info.target.supplier_name ?? defaultSupplierName ?? '',
+      roleTitle: info.rows[0]?.role_title ?? '',
+      planviewCode: (info.rows[0]?.planview_code as 'PR' | 'F_Gov' | 'BAU') ?? 'PR',
+      resourceLocation: info.target.resource_location ?? 'onshore',
+    })
+    setStep(2)
+  }
+
+  function handleAddSecondRow() {
+    const info = forkInfo!
+    setAddSecondRowBanner(true)
+    setShowFork(false)
+    setForkInfo(null)
+    advanceToStep2Existing(info.target)
+  }
+
   function addAsNew(name: string) {
     setMode('new')
     setSelectedResource(null)
-    const { teamId, teamName } = resolveTeamFromFilter()
     setForm({
       supplierId: defaultSupplierId ?? '',
       supplierName: defaultSupplierName ?? '',
-      teamId,
-      teamName,
       roleTitle: name,
       planviewCode: 'PR',
       resourceLocation: 'onshore',
@@ -278,12 +346,9 @@ export function AddResourceWizard({
   function skipToTbc() {
     setMode('tbc')
     setSelectedResource(null)
-    const { teamId, teamName } = resolveTeamFromFilter()
     setForm({
       supplierId: defaultSupplierId ?? '',
       supplierName: defaultSupplierName ?? '',
-      teamId,
-      teamName,
       roleTitle: '',
       planviewCode: 'PR',
       resourceLocation: 'onshore',
@@ -322,22 +387,73 @@ export function AddResourceWizard({
     }))
   }
 
-  function handleTeamChange(teamId: string) {
-    if (teamId === '') {
-      setForm((prev) => ({ ...prev, teamId: null, teamName: null }))
-    } else {
-      const t = teams.find((x) => x.team_id === teamId)
-      setForm((prev) => ({
-        ...prev,
-        teamId,
-        teamName: t?.team_name ?? null,
-      }))
-    }
+  // Team builder handlers
+  function addTeamRow() {
+    setTeamRows((prev) => [...prev, { id: nextRowId(), teamId: '', pct: 0 }])
+  }
+
+  function removeTeamRow(id: string) {
+    setTeamRows((prev) => prev.filter((r) => r.id !== id))
+  }
+
+  function updateTeamRow(id: string, field: 'teamId' | 'pct', value: string | number) {
+    setTeamRows((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, [field]: field === 'pct' ? Number(value) : value } : r,
+      ),
+    )
   }
 
   async function handleSubmit() {
     setIsSubmitting(true)
     setSubmitError(null)
+
+    if (mode === 'edit-teams') {
+      const realAssignments = teamRows
+        .filter((r) => r.teamId !== '')
+        .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+
+      const result = await updateTeamAssignments(
+        selectedResource!.resource_id,
+        periodId,
+        realAssignments,
+      )
+
+      setIsSubmitting(false)
+
+      if (!result.success) {
+        setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+        return
+      }
+
+      const teamPayload = realAssignments.map((a) => {
+        const team = teams.find((t) => t.team_id === a.teamId)
+        return { teamId: a.teamId, teamName: team?.team_name ?? '' }
+      })
+      const supplierData = suppliers.find((s) => s.supplier_id === form.supplierId)
+
+      onSuccess({
+        allocationId: null,
+        isTeamEdit: true,
+        resourceId: selectedResource!.resource_id,
+        resourceName: selectedResource!.resource_name,
+        roleTitle: form.roleTitle,
+        supplierId: form.supplierId || null,
+        supplierName: form.supplierName || null,
+        supplierColour: supplierData?.supplier_colour ?? defaultSupplierColour,
+        supplierSortOrder: supplierData?.sort_order ?? null,
+        resourceLocation: form.resourceLocation,
+        planviewCode: form.planviewCode,
+        teams: teamPayload,
+        displayOrder: null,
+      })
+      return
+    }
+
+    // Normal path: existing / new / tbc
+    const realTeamAssignments = teamRows
+      .filter((r) => r.teamId !== '')
+      .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
 
     const result = await createResourceAndAllocation({
       mode,
@@ -345,7 +461,7 @@ export function AddResourceWizard({
       resourceName: mode === 'new' ? form.roleTitle : null,
       supplierId: form.supplierId,
       supplierName: form.supplierName,
-      teamId: form.teamId,
+      teamAssignments: realTeamAssignments.length > 0 ? realTeamAssignments : undefined,
       roleTitle: form.roleTitle,
       planviewCode: form.planviewCode,
       resourceLocation: form.resourceLocation,
@@ -360,9 +476,16 @@ export function AddResourceWizard({
     }
 
     const supplierData = suppliers.find((s) => s.supplier_id === form.supplierId)
+    const teamPayload = teamRows
+      .filter((r) => r.teamId !== '')
+      .map((r) => {
+        const team = teams.find((t) => t.team_id === r.teamId)
+        return { teamId: r.teamId, teamName: team?.team_name ?? '' }
+      })
 
     onSuccess({
       allocationId: result.allocationId,
+      isTeamEdit: false,
       resourceId: result.resourceId ?? null,
       resourceName:
         mode === 'existing'
@@ -377,10 +500,7 @@ export function AddResourceWizard({
       supplierSortOrder: supplierData?.sort_order ?? null,
       resourceLocation: form.resourceLocation,
       planviewCode: form.planviewCode,
-      teams:
-        form.teamId && form.teamName
-          ? [{ teamId: form.teamId, teamName: form.teamName }]
-          : [],
+      teams: teamPayload,
       displayOrder: result.displayOrder ?? null,
     })
   }
@@ -486,7 +606,10 @@ export function AddResourceWizard({
 
   const fieldWrap: React.CSSProperties = { marginBottom: 14 }
 
-  const nextDisabled = step === 2 && !form.roleTitle.trim()
+  const teamTotal = teamRows.reduce((s, r) => s + r.pct, 0)
+  const roleTitleRequired = mode !== 'edit-teams' && !form.roleTitle.trim()
+  const nextDisabled = step === 2 && (roleTitleRequired || teamTotal !== 100)
+  const submitLabel = mode === 'edit-teams' ? 'Save changes' : 'Add to schedule'
 
   return (
     <div style={overlay} onClick={onClose} role="dialog" aria-modal>
@@ -519,16 +642,25 @@ export function AddResourceWizard({
         {/* Body */}
         <div style={bodyStyle}>
           {step === 1 && (
-            <Step1Body
-              searchQuery={searchQuery}
-              onSearchChange={handleSearchChange}
-              isSearching={isSearching}
-              results={searchResults}
-              onPickResource={pickResource}
-              onAddAsNew={addAsNew}
-              onSkipToTbc={skipToTbc}
-              inputStyle={inputStyle}
-            />
+            showFork && forkInfo ? (
+              <ForkPanel
+                info={forkInfo}
+                onEditTeams={handleEditTeams}
+                onAddSecondRow={handleAddSecondRow}
+                onBack={() => { setShowFork(false); setForkInfo(null) }}
+              />
+            ) : (
+              <Step1Body
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
+                isSearching={isSearching || isCheckingDuplicate}
+                results={searchResults}
+                onPickResource={pickResource}
+                onAddAsNew={addAsNew}
+                onSkipToTbc={skipToTbc}
+                inputStyle={inputStyle}
+              />
+            )
           )}
           {step === 2 && (
             <Step2Body
@@ -537,9 +669,14 @@ export function AddResourceWizard({
               form={form}
               suppliers={suppliers}
               teams={teams}
+              teamRows={teamRows}
+              teamTotal={teamTotal}
               duplicateAdvisory={duplicateAdvisory}
+              addSecondRowBanner={addSecondRowBanner}
               onSupplierChange={handleSupplierChange}
-              onTeamChange={handleTeamChange}
+              onAddTeamRow={addTeamRow}
+              onRemoveTeamRow={removeTeamRow}
+              onTeamRowChange={updateTeamRow}
               onFormChange={(key, val) => setForm((prev) => ({ ...prev, [key]: val }))}
               onChangeResource={() => setStep(1)}
               inputStyle={inputStyle}
@@ -553,6 +690,8 @@ export function AddResourceWizard({
               mode={mode}
               selectedResource={selectedResource}
               form={form}
+              teamRows={teamRows}
+              teams={teams}
               summaryBg={SUMMARY_BG}
             />
           )}
@@ -598,11 +737,240 @@ export function AddResourceWizard({
                 disabled={isSubmitting}
                 style={isSubmitting ? btnDisabled : btnPrimary}
               >
-                {isSubmitting ? 'Adding…' : 'Add to schedule'}
+                {isSubmitting ? 'Saving…' : submitLabel}
               </button>
             )}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Fork panel (duplicate detected) ───────────────────── */
+
+function ForkPanel({
+  info,
+  onEditTeams,
+  onAddSecondRow,
+  onBack,
+}: {
+  info: ForkInfo
+  onEditTeams: () => void
+  onAddSecondRow: () => void
+  onBack: () => void
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          background: '#FFFBEB',
+          border: '1px solid #FCD34D',
+          borderRadius: 8,
+          padding: '14px 16px',
+          marginBottom: 16,
+        }}
+      >
+        <p
+          style={{
+            margin: '0 0 6px',
+            fontSize: 13,
+            fontWeight: 600,
+            color: '#2A2A2D',
+          }}
+        >
+          ⚠ {info.target.resource_name} is already on this period&apos;s schedule
+        </p>
+        {info.rows.map((row, idx) => (
+          <p key={idx} style={{ margin: '4px 0 0', fontSize: 12, color: INACTIVE_GREY }}>
+            {[row.role_title, row.planview_code, row.team_names.join(', ') || 'No Team']
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        <button
+          type="button"
+          onClick={onEditTeams}
+          style={{
+            background: '#2A2A2D',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            padding: '9px 16px',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            fontFamily: 'var(--rmg-font-body)',
+            textAlign: 'left',
+          }}
+        >
+          Edit team assignments
+        </button>
+        <button
+          type="button"
+          onClick={onAddSecondRow}
+          style={{
+            background: 'transparent',
+            color: '#404044',
+            border: '1px solid #C0C0C0',
+            borderRadius: 6,
+            padding: '9px 16px',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: 'pointer',
+            fontFamily: 'var(--rmg-font-body)',
+            textAlign: 'left',
+          }}
+        >
+          Add second row
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onBack}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          fontSize: 12,
+          color: INACTIVE_GREY,
+          cursor: 'pointer',
+          textDecoration: 'underline',
+          padding: 0,
+          fontFamily: 'var(--rmg-font-body)',
+        }}
+      >
+        ← Back to search
+      </button>
+    </div>
+  )
+}
+
+/* ── Team builder ───────────────────────────────────────── */
+
+function TeamBuilder({
+  rows,
+  teams,
+  total,
+  onAdd,
+  onRemove,
+  onChange,
+  selectStyle,
+}: {
+  rows: TeamRow[]
+  teams: TeamOption[]
+  total: number
+  onAdd: () => void
+  onRemove: (id: string) => void
+  onChange: (id: string, field: 'teamId' | 'pct', value: string | number) => void
+  selectStyle: React.CSSProperties
+}) {
+  const totalColour = total === 100 ? DONE_GREEN : total > 100 ? ACTIVE_RED : AMBER
+  const canRemove = rows.length > 1
+
+  return (
+    <div>
+      {rows.map((row) => (
+        <div
+          key={row.id}
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            marginBottom: 8,
+          }}
+        >
+          <select
+            value={row.teamId}
+            onChange={(e) => onChange(row.id, 'teamId', e.target.value)}
+            style={{ ...selectStyle, flex: 1, marginBottom: 0 }}
+          >
+            <option value="">No Team</option>
+            {teams.map((t) => (
+              <option key={t.team_id} value={t.team_id}>
+                {t.team_name}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={row.pct}
+            onChange={(e) => onChange(row.id, 'pct', e.target.value)}
+            style={{
+              ...selectStyle,
+              width: 72,
+              flex: 'none',
+              marginBottom: 0,
+              textAlign: 'right',
+            }}
+          />
+          <span style={{ fontSize: 13, color: '#404044', flexShrink: 0 }}>%</span>
+          {canRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(row.id)}
+              aria-label="Remove row"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: INACTIVE_GREY,
+                fontSize: 16,
+                lineHeight: 1,
+                padding: '4px',
+                flexShrink: 0,
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={onAdd}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          fontSize: 12,
+          color: ACTIVE_RED,
+          cursor: 'pointer',
+          padding: '2px 0',
+          fontFamily: 'var(--rmg-font-body)',
+          fontWeight: 600,
+          textDecoration: 'none',
+          display: 'inline-block',
+          marginBottom: 8,
+        }}
+      >
+        + Add team
+      </button>
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          color: totalColour,
+          fontWeight: 600,
+        }}
+      >
+        Total: {total}%
+        {total === 100 && <span>✓</span>}
+        {total !== 100 && (
+          <span style={{ fontWeight: 400, color: INACTIVE_GREY }}>
+            (must be 100% to continue)
+          </span>
+        )}
       </div>
     </div>
   )
@@ -779,9 +1147,14 @@ function Step2Body({
   form,
   suppliers,
   teams,
+  teamRows,
+  teamTotal,
   duplicateAdvisory,
+  addSecondRowBanner,
   onSupplierChange,
-  onTeamChange,
+  onAddTeamRow,
+  onRemoveTeamRow,
+  onTeamRowChange,
   onFormChange,
   onChangeResource,
   inputStyle,
@@ -794,9 +1167,14 @@ function Step2Body({
   form: FormState
   suppliers: SupplierOption[]
   teams: TeamOption[]
+  teamRows: TeamRow[]
+  teamTotal: number
   duplicateAdvisory: string | null
+  addSecondRowBanner: boolean
   onSupplierChange: (id: string) => void
-  onTeamChange: (id: string) => void
+  onAddTeamRow: () => void
+  onRemoveTeamRow: (id: string) => void
+  onTeamRowChange: (id: string, field: 'teamId' | 'pct', value: string | number) => void
   onFormChange: (key: keyof FormState, val: string) => void
   onChangeResource: () => void
   inputStyle: React.CSSProperties
@@ -806,6 +1184,24 @@ function Step2Body({
 }) {
   return (
     <div>
+      {/* Edit-teams banner */}
+      {mode === 'edit-teams' && selectedResource && (
+        <div
+          style={{
+            background: '#EDF2FF',
+            border: '1px solid #BEC8FF',
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#2A2A2D' }}>
+            Editing team assignments for {selectedResource.resource_name}
+          </p>
+        </div>
+      )}
+
+      {/* Existing resource banner */}
       {mode === 'existing' && selectedResource && (
         <div
           style={{
@@ -856,6 +1252,24 @@ function Step2Body({
         </div>
       )}
 
+      {/* Add-second-row amber banner */}
+      {addSecondRowBanner && (
+        <div
+          style={{
+            background: '#FFFBEB',
+            border: '1px solid #FCD34D',
+            borderRadius: 8,
+            padding: '10px 14px',
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 13, color: '#2A2A2D' }}>
+            ⚠ This resource is already on the schedule — you are adding a second row.
+          </p>
+        </div>
+      )}
+
+      {/* New person banner */}
       {mode === 'new' && (
         <div
           style={{
@@ -897,59 +1311,62 @@ function Step2Body({
       </div>
 
       <div style={fieldWrap}>
-        <label style={labelStyle}>Team</label>
-        <select
-          value={form.teamId ?? ''}
-          onChange={(e) => onTeamChange(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">No Team</option>
-          {teams.map((t) => (
-            <option key={t.team_id} value={t.team_id}>
-              {t.team_name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={fieldWrap}>
-        <label style={labelStyle}>
-          Role title <span style={{ color: ACTIVE_RED }}>*</span>
-        </label>
-        <input
-          type="text"
-          value={form.roleTitle}
-          onChange={(e) => onFormChange('roleTitle', e.target.value)}
-          placeholder="e.g. Senior Backend Engineer"
-          style={inputStyle}
+        <label style={labelStyle}>Team(s)</label>
+        <TeamBuilder
+          rows={teamRows}
+          teams={teams}
+          total={teamTotal}
+          onAdd={onAddTeamRow}
+          onRemove={onRemoveTeamRow}
+          onChange={onTeamRowChange}
+          selectStyle={selectStyle}
         />
       </div>
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>Plan</label>
-        <select
-          value={form.planviewCode}
-          onChange={(e) => onFormChange('planviewCode', e.target.value)}
-          style={selectStyle}
-        >
-          <option value="PR">PR</option>
-          <option value="F_Gov">F_Gov</option>
-          <option value="BAU">BAU</option>
-        </select>
-      </div>
+      {mode !== 'edit-teams' && (
+        <div style={fieldWrap}>
+          <label style={labelStyle}>
+            Role title <span style={{ color: ACTIVE_RED }}>*</span>
+          </label>
+          <input
+            type="text"
+            value={form.roleTitle}
+            onChange={(e) => onFormChange('roleTitle', e.target.value)}
+            placeholder="e.g. Senior Backend Engineer"
+            style={inputStyle}
+          />
+        </div>
+      )}
 
-      <div style={fieldWrap}>
-        <label style={labelStyle}>Location</label>
-        <select
-          value={form.resourceLocation}
-          onChange={(e) => onFormChange('resourceLocation', e.target.value)}
-          style={selectStyle}
-        >
-          <option value="onshore">Onshore</option>
-          <option value="nearshore">Nearshore</option>
-          <option value="offshore">Offshore</option>
-        </select>
-      </div>
+      {mode !== 'edit-teams' && (
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Plan</label>
+          <select
+            value={form.planviewCode}
+            onChange={(e) => onFormChange('planviewCode', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="PR">PR</option>
+            <option value="F_Gov">F_Gov</option>
+            <option value="BAU">BAU</option>
+          </select>
+        </div>
+      )}
+
+      {mode !== 'edit-teams' && (
+        <div style={fieldWrap}>
+          <label style={labelStyle}>Location</label>
+          <select
+            value={form.resourceLocation}
+            onChange={(e) => onFormChange('resourceLocation', e.target.value)}
+            style={selectStyle}
+          >
+            <option value="onshore">Onshore</option>
+            <option value="nearshore">Nearshore</option>
+            <option value="offshore">Offshore</option>
+          </select>
+        </div>
+      )}
     </div>
   )
 }
@@ -960,28 +1377,48 @@ function Step3Body({
   mode,
   selectedResource,
   form,
+  teamRows,
+  teams,
   summaryBg,
 }: {
   mode: WizardMode
   selectedResource: ResourceSearchResult | null
   form: FormState
+  teamRows: TeamRow[]
+  teams: TeamOption[]
   summaryBg: string
 }) {
   const resourceLabel =
-    mode === 'existing'
+    mode === 'edit-teams'
       ? (selectedResource?.resource_name ?? '—')
-      : mode === 'new'
-        ? `${form.roleTitle} (new person)`
-        : 'TBC'
+      : mode === 'existing'
+        ? (selectedResource?.resource_name ?? '—')
+        : mode === 'new'
+          ? `${form.roleTitle} (new person)`
+          : 'TBC'
 
-  const rows: Array<{ label: string; value: string }> = [
-    { label: 'Resource', value: resourceLabel },
-    { label: 'Supplier', value: form.supplierName || '—' },
-    { label: 'Team', value: form.teamName ?? 'No Team' },
-    { label: 'Role', value: form.roleTitle || '—' },
-    { label: 'Plan', value: form.planviewCode },
-    { label: 'Location', value: locationLabel(form.resourceLocation) },
-  ]
+  const teamLabel = teamRows
+    .filter((r) => r.teamId !== '')
+    .map((r) => {
+      const team = teams.find((t) => t.team_id === r.teamId)
+      return `${team?.team_name ?? r.teamId} ${r.pct}%`
+    })
+    .join(', ') || 'No Team'
+
+  const rows: Array<{ label: string; value: string }> =
+    mode === 'edit-teams'
+      ? [
+          { label: 'Resource', value: resourceLabel },
+          { label: 'Team(s)', value: teamLabel },
+        ]
+      : [
+          { label: 'Resource', value: resourceLabel },
+          { label: 'Supplier', value: form.supplierName || '—' },
+          { label: 'Team(s)', value: teamLabel },
+          { label: 'Role', value: form.roleTitle || '—' },
+          { label: 'Plan', value: form.planviewCode },
+          { label: 'Location', value: locationLabel(form.resourceLocation) },
+        ]
 
   return (
     <div>
@@ -1001,9 +1438,11 @@ function Step3Body({
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 12, color: INACTIVE_GREY, margin: 0 }}>
-        Days and rate default to 0 — edit inline after adding.
-      </p>
+      {mode !== 'edit-teams' && (
+        <p style={{ fontSize: 12, color: INACTIVE_GREY, margin: 0 }}>
+          Days and rate default to 0 — edit inline after adding.
+        </p>
+      )}
     </div>
   )
 }

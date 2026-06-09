@@ -30,6 +30,18 @@ export interface WizardData {
   teams: TeamOption[]
 }
 
+export interface CheckPeriodRow {
+  role_title: string | null
+  planview_code: string | null
+  team_names: string[]
+}
+
+export interface CheckPeriodResult {
+  exists: boolean
+  rows: CheckPeriodRow[]
+  existingTeamAssignments: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+}
+
 type RawResourceRow = {
   resource_id: string
   resource_name: string
@@ -125,13 +137,111 @@ export async function fetchWizardData(): Promise<WizardData> {
   return { suppliers, teams }
 }
 
+export async function checkResourceInPeriod(
+  resourceId: string,
+  periodId: string,
+): Promise<CheckPeriodResult> {
+  const supabase = getSupabaseServerClient()
+
+  type RawAllocRow = { allocation_id: string; role_title: string | null; planview_code: string | null }
+  type RawTeamRow = {
+    team_id: string
+    capacity_split: number | null
+    teams: { team_name: string } | { team_name: string }[] | null
+  }
+
+  const [allocResult, teamResult] = await Promise.all([
+    supabase
+      .from('resource_period_allocations')
+      .select('allocation_id, role_title, planview_code')
+      .eq('resource_id', resourceId)
+      .eq('period_id', periodId)
+      .is('deleted_at', null),
+    supabase
+      .from('resource_team_assignments')
+      .select('team_id, capacity_split, teams:team_id(team_name)')
+      .eq('resource_id', resourceId)
+      .eq('period_id', periodId)
+      .is('deleted_at', null),
+  ])
+
+  const allocRows = (allocResult.data ?? []) as unknown as RawAllocRow[]
+  if (allocRows.length === 0) {
+    return { exists: false, rows: [], existingTeamAssignments: [] }
+  }
+
+  const rawTeams = (teamResult.data ?? []) as unknown as RawTeamRow[]
+  const team_names = rawTeams
+    .map((t) => pickOne(t.teams)?.team_name ?? '')
+    .filter(Boolean)
+
+  const existingTeamAssignments = rawTeams.map((t) => ({
+    teamId: t.team_id,
+    teamName: pickOne(t.teams)?.team_name ?? '',
+    capacitySplit: Math.round((t.capacity_split ?? 1) * 100),
+  }))
+
+  const rows: CheckPeriodRow[] = allocRows.map((a) => ({
+    role_title: a.role_title,
+    planview_code: a.planview_code,
+    team_names,
+  }))
+
+  return { exists: true, rows, existingTeamAssignments }
+}
+
+export async function updateTeamAssignments(
+  resourceId: string,
+  periodId: string,
+  assignments: Array<{ teamId: string; capacitySplit: number }>,
+): Promise<{ success: boolean; error?: string }> {
+  const realAssignments = assignments.filter((a) => a.teamId !== '')
+  const total = realAssignments.reduce((s, a) => s + a.capacitySplit, 0)
+
+  if (realAssignments.length > 0 && total !== 100) {
+    return { success: false, error: `Capacity splits must sum to 100 (got ${total})` }
+  }
+
+  const supabase = getSupabaseServerClient()
+
+  const { error: deleteErr } = await supabase
+    .from('resource_team_assignments')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('resource_id', resourceId)
+    .eq('period_id', periodId)
+    .is('deleted_at', null)
+
+  if (deleteErr) {
+    return { success: false, error: deleteErr.message }
+  }
+
+  if (realAssignments.length > 0) {
+    const toInsert = realAssignments.map((a) => ({
+      resource_id: resourceId,
+      team_id: a.teamId,
+      period_id: periodId,
+      capacity_split: a.capacitySplit / 100,
+    }))
+
+    const { error: insertErr } = await supabase
+      .from('resource_team_assignments')
+      .insert(toInsert)
+
+    if (insertErr) {
+      return { success: false, error: insertErr.message }
+    }
+  }
+
+  return { success: true }
+}
+
 export interface CreateAllocationParams {
   mode: 'existing' | 'new' | 'tbc'
   resourceId?: string | null
   resourceName?: string | null
   supplierId: string
   supplierName: string
-  teamId?: string | null
+  teamAssignments?: Array<{ teamId: string; capacitySplit: number }>
   roleTitle: string
   planviewCode: PlanviewCode
   resourceLocation: ResourceLocation
@@ -225,21 +335,22 @@ export async function createResourceAndAllocation(
 
     const allocationId = inserted.allocation_id as string
 
-    // Step 4: insert team assignment if a team was selected
-    if (params.teamId) {
-      const teamInsert: Record<string, unknown> = {
-        team_id: params.teamId,
-        period_id: params.periodId,
-        capacity_split: 1.0,
-      }
+    // Step 4: insert team assignments
+    const realTeamAssignments = (params.teamAssignments ?? []).filter((a) => a.teamId !== '')
+    if (realTeamAssignments.length > 0) {
+      const teamRows = realTeamAssignments.map((a) => {
+        const row: Record<string, unknown> = {
+          team_id: a.teamId,
+          period_id: params.periodId,
+          capacity_split: a.capacitySplit / 100,
+        }
+        if (effectiveResourceId !== null) {
+          row['resource_id'] = effectiveResourceId
+        }
+        return row
+      })
 
-      if (effectiveResourceId !== null) {
-        teamInsert['resource_id'] = effectiveResourceId
-      }
-
-      const { error: teamErr } = await supabase
-        .from('resource_team_assignments')
-        .insert(teamInsert)
+      const { error: teamErr } = await supabase.from('resource_team_assignments').insert(teamRows)
 
       if (teamErr) {
         // Non-fatal: log but don't fail the whole operation

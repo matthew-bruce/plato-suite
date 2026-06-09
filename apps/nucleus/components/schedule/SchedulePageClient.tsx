@@ -398,6 +398,11 @@ export function SchedulePageClient({ data }: Props) {
   }
 
   function handleWizardSuccess(data: WizardSuccessPayload) {
+    if (data.isTeamEdit || !data.allocationId) {
+      setWizardOpen(false)
+      setWizardSupplier(null)
+      return
+    }
     // Allocation.teams is typed as TeamAssignment[] & string[] via the local intersection
     // type. Assign via cast so both the filter logic (TeamAssignment[]) and the type
     // definition (& string[]) are satisfied without widening to any.
