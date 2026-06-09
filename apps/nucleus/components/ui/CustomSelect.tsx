@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface SelectOption {
   value: string
@@ -14,6 +15,12 @@ interface CustomSelectProps {
   placeholder?: string
   /** Optional uppercase label prefix shown before the selected value (e.g. "Planview") */
   label?: string
+}
+
+interface PanelPosition {
+  top: number
+  left: number
+  minWidth: number
 }
 
 function ChevronDown() {
@@ -42,16 +49,46 @@ export function CustomSelect({ options, value, onChange, placeholder, label }: C
   const [open, setOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
   const [triggerHovered, setTriggerHovered] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [panelPos, setPanelPos] = useState<PanelPosition>({ top: 0, left: 0, minWidth: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const active = value !== '' && value !== 'all'
   const currentOption = options.find((o) => o.value === value)
   const displayLabel = currentOption?.label ?? placeholder ?? value
 
+  function calcPosition() {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPanelPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      minWidth: rect.width,
+    })
+  }
+
+  // Recalculate position whenever the panel opens or the viewport moves
+  useEffect(() => {
+    if (!open) return
+    calcPosition()
+    window.addEventListener('scroll', calcPosition, true)
+    window.addEventListener('resize', calcPosition)
+    return () => {
+      window.removeEventListener('scroll', calcPosition, true)
+      window.removeEventListener('resize', calcPosition)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // Click-away: close when clicking outside both trigger and panel
   useEffect(() => {
     if (!open) return
     function handleClickAway(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (
+        triggerRef.current && !triggerRef.current.contains(target) &&
+        panelRef.current && !panelRef.current.contains(target)
+      ) {
         setOpen(false)
       }
     }
@@ -65,9 +102,56 @@ export function CustomSelect({ options, value, onChange, placeholder, label }: C
       ? 'var(--rmg-color-grey-1)'
       : 'var(--rmg-color-grey-2)'
 
+  const panel = open && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={panelRef}
+          style={{
+            position: 'fixed',
+            top: panelPos.top,
+            left: panelPos.left,
+            minWidth: panelPos.minWidth,
+            // Never wider than viewport minus 16px gutter; prevents overflow on 390px screens
+            maxWidth: 'min(220px, calc(100vw - 16px))',
+            background: '#fff',
+            border: '1px solid #EEEEEE',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+            zIndex: 9999,
+            overflow: 'hidden',
+          }}
+        >
+          {options.map((o) => (
+            <div
+              key={o.value}
+              onMouseEnter={() => setHoveredValue(o.value)}
+              onMouseLeave={() => setHoveredValue(null)}
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              style={{
+                padding: '8px 12px',
+                fontSize: 13,
+                fontFamily: 'var(--rmg-font-body)',
+                color: o.value === value ? '#DA202A' : '#2A2A2D',
+                fontWeight: o.value === value ? 600 : 400,
+                background: hoveredValue === o.value ? '#F5F5F5' : 'transparent',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )
+    : null
+
   return (
-    <div ref={containerRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
       <button
+        ref={triggerRef}
         type="button"
         onMouseEnter={() => setTriggerHovered(true)}
         onMouseLeave={() => setTriggerHovered(false)}
@@ -109,47 +193,7 @@ export function CustomSelect({ options, value, onChange, placeholder, label }: C
         <ChevronDown />
       </button>
 
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            minWidth: '100%',
-            // Never wider than viewport minus 16px gutter; prevents overflow on 390px screens
-            maxWidth: 'min(220px, calc(100vw - 16px))',
-            background: '#fff',
-            border: '1px solid #EEEEEE',
-            borderRadius: 8,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
-            zIndex: 200,
-            overflow: 'hidden',
-          }}
-        >
-          {options.map((o) => (
-            <div
-              key={o.value}
-              onMouseEnter={() => setHoveredValue(o.value)}
-              onMouseLeave={() => setHoveredValue(null)}
-              onClick={() => { onChange(o.value); setOpen(false) }}
-              style={{
-                padding: '8px 12px',
-                fontSize: 13,
-                fontFamily: 'var(--rmg-font-body)',
-                color: o.value === value ? '#DA202A' : '#2A2A2D',
-                fontWeight: o.value === value ? 600 : 400,
-                background: hoveredValue === o.value ? '#F5F5F5' : 'transparent',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {o.label}
-            </div>
-          ))}
-        </div>
-      )}
+      {panel}
     </div>
   )
 }
