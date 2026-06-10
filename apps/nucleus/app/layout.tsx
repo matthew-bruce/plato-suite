@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" style={{ height: '100%' }}>
+    <html lang="en" style={{ height: '100%', scrollbarGutter: 'stable' }}>
       <body style={{ margin: 0, height: '100%' }}>
         <PrivacyModeProvider>
           <NucleusAppShell>{children}</NucleusAppShell>

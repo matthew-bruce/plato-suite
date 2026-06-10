@@ -15,11 +15,6 @@ import type {
 
 const WEB_PLATFORM_CODE = 'WEB'
 
-type ResourceEmbed = {
-  resource_name: string
-  resource_location: string | null
-}
-
 type SupplierEmbed = {
   supplier_name: string
   supplier_colour: string | null
@@ -42,8 +37,13 @@ type RawAllocationRow = {
   is_chargeable: boolean
   vat_applies: boolean | null
   display_order: number | null
-  resources: ResourceEmbed | ResourceEmbed[] | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
+}
+
+type RawResourceRow = {
+  resource_id: string
+  resource_name: string
+  resource_location: string | null
 }
 
 type RawTeamAssignmentRow = {
@@ -160,11 +160,7 @@ export async function getSchedulePageData(
         is_chargeable,
         vat_applies,
         display_order,
-        resources:resource_id!left (
-          resource_name,
-          resource_location
-        ),
-        suppliers:supplier_id ( supplier_name, supplier_colour, sort_order )
+        suppliers!left ( supplier_name, supplier_colour, sort_order )
       `,
       )
       .eq('period_id', activePeriodId)
@@ -181,14 +177,27 @@ export async function getSchedulePageData(
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
   const { data: costItemsData } = costItemsResult
 
-  // Build a resource_id → team_names map from ALL active team assignments.
-  // resource_team_assignments has no direct FK to resource_period_allocations,
-  // so we fetch it in a separate query keyed on resource_id.
-  // No is_primary filter — a resource can appear on two teams; both names
-  // are collected into the array and rendered as separate chips in the UI.
+  // Collect non-null resource IDs for separate lookups (resources + teams).
+  // Keeping resource data in a separate query guarantees TBC rows (resource_id=null)
+  // are never silently dropped by PostgREST embedding behaviour.
   const resourceIds = ((allocsData ?? []) as unknown as RawAllocationRow[])
     .map((r) => r.resource_id)
     .filter((id): id is string => id !== null)
+
+  // Build resource_id → { resource_name, resource_location } map
+  const resourceMap = new Map<string, RawResourceRow>()
+  if (resourceIds.length > 0) {
+    const { data: resourceData, error: resourceErr } = await supabase
+      .from('resources')
+      .select('resource_id, resource_name, resource_location')
+      .in('resource_id', resourceIds)
+
+    if (resourceErr) throw new Error(`Failed to load resources: ${resourceErr.message}`)
+
+    for (const r of (resourceData ?? []) as unknown as RawResourceRow[]) {
+      resourceMap.set(r.resource_id, r)
+    }
+  }
 
   const teamMap = new Map<string, TeamAssignment[]>()
   if (resourceIds.length > 0) {
@@ -220,7 +229,7 @@ export async function getSchedulePageData(
     (allocsData ?? []) as unknown as RawAllocationRow[]
   )
     .map((row): ScheduleAllocation => {
-      const resource = pickEmbed(row.resources)
+      const resource = row.resource_id ? (resourceMap.get(row.resource_id) ?? null) : null
       const supplier = pickEmbed(row.suppliers)
       const utilisation = Number(row.utilisation_percent)
       const capacityDays =
@@ -233,6 +242,7 @@ export async function getSchedulePageData(
       const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
       return {
         allocation_id: row.allocation_id,
+        resource_id: row.resource_id,
         resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
         supplier_id: row.supplier_id,

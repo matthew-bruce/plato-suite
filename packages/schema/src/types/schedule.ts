@@ -31,6 +31,7 @@ export interface TeamAssignment {
 
 export interface ScheduleAllocation {
   allocation_id: string
+  resource_id: string | null
   resource_name: string | null
   role_title: string | null
   supplier_id: string | null
