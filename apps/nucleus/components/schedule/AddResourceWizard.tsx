@@ -460,12 +460,13 @@ export function AddResourceWizard({
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
-        const realAssignments = teamRows
+        const teamAssignments = teamRows
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
-        if (realAssignments.length > 0) {
-          await updateTeamAssignments(selectedResource.resource_id, periodId, realAssignments)
-        }
+        // Always call updateTeamAssignments: it DELETEs existing rows first,
+        // then INSERTs new ones. This clears stale assignments even when
+        // the user picks "No Team" or skips, avoiding unique constraint violations.
+        await updateTeamAssignments(selectedResource.resource_id, periodId, teamAssignments)
         setIsSubmitting(false)
         onAssignSuccess?.(allocationId, selectedResource.resource_id, selectedResource.resource_name)
         onClose()
@@ -485,12 +486,11 @@ export function AddResourceWizard({
           setSubmitError(assignResult.error ?? 'Failed to assign resource')
           return
         }
-        const realAssignments = teamRows
+        const teamAssignments = teamRows
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
-        if (realAssignments.length > 0) {
-          await updateTeamAssignments(insertResult.resourceId, periodId, realAssignments)
-        }
+        // Always call updateTeamAssignments — clears any pre-existing rows before inserting.
+        await updateTeamAssignments(insertResult.resourceId, periodId, teamAssignments)
         setIsSubmitting(false)
         onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle)
         onClose()
