@@ -363,6 +363,37 @@ export async function createResourceAndAllocation(
   }
 }
 
+export async function getTeamAssignments(
+  resourceId: string,
+  periodId: string,
+): Promise<Array<{ teamId: string; teamName: string; split: number }>> {
+  const supabase = getSupabaseServerClient()
+
+  type RawRow = {
+    team_id: string
+    capacity_split: number
+    teams: { team_name: string } | { team_name: string }[] | null
+  }
+
+  const { data, error } = await supabase
+    .from('resource_team_assignments')
+    .select('team_id, capacity_split, teams:team_id ( team_name )')
+    .eq('resource_id', resourceId)
+    .eq('period_id', periodId)
+    .is('deleted_at', null)
+
+  if (error) throw new Error(`getTeamAssignments: ${error.message}`)
+
+  return ((data ?? []) as unknown as RawRow[]).map((r) => {
+    const team = pickOne(r.teams)
+    return {
+      teamId: r.team_id,
+      teamName: team?.team_name ?? '',
+      split: Math.round((r.capacity_split ?? 1) * 100),
+    }
+  })
+}
+
 /**
  * Create a bare resource record. Used by assign-mode wizard when the user
  * types a name that has no existing match and chooses "Add as new person".

@@ -7,6 +7,7 @@ export type {
   ResourceLocation,
   Period,
   CostConfiguration,
+  TeamAssignment,
   ScheduleAllocation,
   SchedulePageData,
   PlatformCostItem,

@@ -21,6 +21,7 @@ import { SortableRow } from './SortableRow'
 import type {
   SchedulePageData,
   ScheduleAllocation,
+  TeamAssignment,
   PlatformCostItem,
 } from '@plato/schema'
 import { getSupabaseBrowserClient } from '@plato/schema'
@@ -45,6 +46,8 @@ import {
 import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
 import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
+import { EditTeamsModal } from './EditTeamsModal'
+import type { EditTeamsTarget } from './EditTeamsModal'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -420,6 +423,24 @@ export function SchedulePageClient({ data }: Props) {
     }
   }
 
+  const [editTeamsTarget, setEditTeamsTarget] = useState<EditTeamsTarget | null>(null)
+
+  function handleOpenEditTeams(
+    allocationId: string,
+    resourceId: string,
+    resourceName: string,
+    currentTeams: TeamAssignment[],
+  ) {
+    setEditTeamsTarget({ allocationId, resourceId, resourceName, currentTeams })
+  }
+
+  function handleEditTeamsSave(allocationId: string, newTeams: TeamAssignment[]) {
+    const teams = newTeams as unknown as Allocation['teams']
+    setLocalAllocations((prev) =>
+      prev.map((a) => a.allocation_id === allocationId ? { ...a, teams } : a),
+    )
+  }
+
   function handleOpenWizard(
     supplierId: string | null,
     supplierName: string | null,
@@ -446,6 +467,7 @@ export function SchedulePageClient({ data }: Props) {
     })) as unknown as Allocation['teams']
     const newAlloc: Allocation = {
       allocation_id: data.allocationId,
+      resource_id: data.resourceId ?? null,
       resource_name: data.resourceName,
       role_title: data.roleTitle,
       supplier_id: data.supplierId,
@@ -712,6 +734,7 @@ export function SchedulePageClient({ data }: Props) {
         onDeleteAllocation={handleDeleteAllocation}
         onOpenAssignWizard={handleOpenAssignWizard}
         onUnassignResource={handleUnassignResource}
+        onEditTeams={handleOpenEditTeams}
         onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
         blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
@@ -736,6 +759,14 @@ export function SchedulePageClient({ data }: Props) {
       onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
+    {editTeamsTarget && (
+      <EditTeamsModal
+        target={editTeamsTarget}
+        periodId={period.period_id}
+        onSave={handleEditTeamsSave}
+        onClose={() => setEditTeamsTarget(null)}
+      />
+    )}
     </>
   )
 }
@@ -996,6 +1027,7 @@ function ScheduleTable({
   onDeleteAllocation,
   onOpenAssignWizard,
   onUnassignResource,
+  onEditTeams,
   onAddAllocation,
   onReorder,
   blendedDayRate,
@@ -1025,6 +1057,7 @@ function ScheduleTable({
   onDeleteAllocation: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
+  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
   blendedDayRate: number
@@ -1103,6 +1136,7 @@ function ScheduleTable({
               onDeleteAllocation={onDeleteAllocation}
               onOpenAssignWizard={onOpenAssignWizard}
               onUnassignResource={onUnassignResource}
+              onEditTeams={onEditTeams}
               onAddAllocation={onAddAllocation}
               onReorder={onReorder}
             />
@@ -1402,6 +1436,7 @@ function SupplierSection({
   onDeleteAllocation,
   onOpenAssignWizard,
   onUnassignResource,
+  onEditTeams,
   onAddAllocation,
   onReorder,
 }: {
@@ -1423,6 +1458,7 @@ function SupplierSection({
   onDeleteAllocation: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
+  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
 }) {
@@ -1578,6 +1614,7 @@ function SupplierSection({
                       onDelete={onDeleteAllocation}
                       onOpenAssignWizard={onOpenAssignWizard}
                       onUnassignResource={onUnassignResource}
+                      onEditTeams={onEditTeams}
                       dragHandleSlot={dragHandleSlot}
                     />
                   )}
@@ -1598,6 +1635,7 @@ function SupplierSection({
               onDelete={onDeleteAllocation}
               onOpenAssignWizard={onOpenAssignWizard}
               onUnassignResource={onUnassignResource}
+              onEditTeams={onEditTeams}
               dragHandleSlot={null}
             />
           ))
@@ -2324,6 +2362,17 @@ function UserMinusIcon() {
   )
 }
 
+function UsersIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
 function AllocationRow({
   row,
   vatPct,
@@ -2334,6 +2383,7 @@ function AllocationRow({
   onDelete,
   onOpenAssignWizard,
   onUnassignResource,
+  onEditTeams,
   dragHandleSlot,
 }: {
   row: Allocation
@@ -2345,6 +2395,7 @@ function AllocationRow({
   onDelete: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
+  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
   dragHandleSlot?: React.ReactNode
 }) {
   const { isPrivate } = usePrivacyMode()
@@ -2478,13 +2529,37 @@ function AllocationRow({
             style={editInputStyle}
           />
         </Cell>
-        {/* 3 Team — read-only */}
+        {/* 3 Team — read-only display + Edit teams button for named rows */}
         <Cell>
-          {teams.length === 0 ? (
-            <span style={nullStyle}>No Team</span>
-          ) : (
-            <span style={{ fontSize: '13px', color: '#555' }}>{teams.map((t) => t.teamName).join(', ')}</span>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: '13px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {teams.length === 0 ? <span style={nullStyle}>No Team</span> : teams.map((t) => t.teamName).join(', ')}
+            </span>
+            {!tbc && (
+              <button
+                type="button"
+                onClick={() => onEditTeams(row.allocation_id, row.resource_id!, row.resource_name!, teams as TeamAssignment[])}
+                title="Edit team assignments"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #D0D0D0',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  color: '#555',
+                  padding: '1px 4px',
+                  lineHeight: 1,
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 10,
+                  fontFamily: 'var(--rmg-font-body)',
+                }}
+              >
+                <UsersIcon />
+              </button>
+            )}
+          </div>
         </Cell>
         {/* 4 Utilisation */}
         <Cell>

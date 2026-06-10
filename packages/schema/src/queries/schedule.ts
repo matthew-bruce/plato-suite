@@ -233,6 +233,7 @@ export async function getSchedulePageData(
       const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
       return {
         allocation_id: row.allocation_id,
+        resource_id: row.resource_id,
         resource_name: resource?.resource_name ?? null,
         role_title: row.role_title,
         supplier_id: row.supplier_id,
