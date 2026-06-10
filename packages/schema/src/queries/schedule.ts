@@ -160,11 +160,11 @@ export async function getSchedulePageData(
         is_chargeable,
         vat_applies,
         display_order,
-        resources:resource_id!left (
+        resources!left (
           resource_name,
           resource_location
         ),
-        suppliers:supplier_id ( supplier_name, supplier_colour, sort_order )
+        suppliers!left ( supplier_name, supplier_colour, sort_order )
       `,
       )
       .eq('period_id', activePeriodId)
