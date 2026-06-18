@@ -2,63 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Strategy ─────────────────────────────────────────────────────────────────
 //
-// updateTeamAssignments issues two sequential Supabase queries:
-//   1. resource_team_assignments UPDATE (soft-delete) → .eq().eq().is()
-//   2. resource_team_assignments INSERT → direct resolve
-//
-// If realAssignments is empty (all "No Team"), the INSERT is skipped.
-// Validation rejects early (before any DB call) if real splits sum ≠ 100.
+// updateTeamAssignments now delegates the soft-delete + insert to a single
+// atomic Postgres function via supabase.rpc('update_team_assignments', ...)
+// (migration 017) so a failed insert can never leave a committed delete
+// behind. Validation (splits must sum to 100) still happens client-side
+// before any RPC call.
 
-let updateResult: unknown
-let insertResult: unknown
+let rpcResult: unknown
 
-const fromMock = vi.fn()
+const rpcMock = vi.fn()
 
 vi.mock('@plato/schema', () => ({
-  getSupabaseServerClient: () => ({ from: fromMock }),
+  getSupabaseServerClient: () => ({ rpc: rpcMock }),
 }))
 
 import { updateTeamAssignments } from '../schedule-wizard'
 
-function makeUpdateChain(resolveWith: unknown) {
-  const is = vi.fn().mockResolvedValue(resolveWith)
-  const eq2 = vi.fn().mockReturnValue({ is })
-  const eq1 = vi.fn().mockReturnValue({ eq: eq2 })
-  const update = vi.fn().mockReturnValue({ eq: eq1 })
-  return { update }
-}
-
-// TBC path: .update().eq('allocation_id', ...).is('resource_id', null).is('deleted_at', null)
-function makeTbcUpdateChain(resolveWith: unknown) {
-  const is2 = vi.fn().mockResolvedValue(resolveWith)
-  const is1 = vi.fn().mockReturnValue({ is: is2 })
-  const eq = vi.fn().mockReturnValue({ is: is1 })
-  const update = vi.fn().mockReturnValue({ eq })
-  return { update }
-}
-
-function makeInsertDirect(resolveWith: unknown) {
-  const insert = vi.fn().mockResolvedValue(resolveWith)
-  return { insert }
-}
-
 beforeEach(() => {
   vi.clearAllMocks()
-  updateResult = { error: null }
-  insertResult = { error: null }
+  rpcResult = { data: null, error: null }
+  rpcMock.mockImplementation(() => Promise.resolve(rpcResult))
 })
-
-function setupMocks() {
-  let callIdx = 0
-  fromMock.mockImplementation(() => {
-    callIdx++
-    if (callIdx === 1) return makeUpdateChain(updateResult)
-    if (callIdx === 2) return makeInsertDirect(insertResult)
-    return {}
-  })
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('updateTeamAssignments', () => {
   it('rejects if real splits do not sum to 100', async () => {
@@ -69,57 +33,41 @@ describe('updateTeamAssignments', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('100')
-    expect(fromMock).not.toHaveBeenCalled()
+    expect(rpcMock).not.toHaveBeenCalled()
   })
 
-  it('replaces existing assignments correctly', async () => {
-    setupMocks()
-
+  it('replaces existing assignments correctly (named resource path)', async () => {
     const result = await updateTeamAssignments('res-1', 'period-1', [
       { teamId: 'team-a', capacitySplit: 60 },
       { teamId: 'team-b', capacitySplit: 40 },
     ])
 
     expect(result.success).toBe(true)
-    // Both the soft-delete UPDATE and the INSERT were called
-    const calls = (fromMock.mock.calls as string[][]).map(([t]) => t)
-    expect(calls).toHaveLength(2)
-    calls.forEach((t) => expect(t).toBe('resource_team_assignments'))
-  })
-
-  it('handles the case where no prior assignments exist (soft-delete is a no-op)', async () => {
-    // The update finds no rows to update — still succeeds
-    updateResult = { error: null }
-    insertResult = { error: null }
-    setupMocks()
-
-    const result = await updateTeamAssignments('res-new', 'period-x', [
-      { teamId: 'team-z', capacitySplit: 100 },
-    ])
-
-    expect(result.success).toBe(true)
-    expect(fromMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('succeeds with empty assignments (all No Team — no INSERT issued)', async () => {
-    // Only the soft-delete UPDATE is needed; INSERT is skipped when list is empty
-    let callIdx = 0
-    fromMock.mockImplementation(() => {
-      callIdx++
-      if (callIdx === 1) return makeUpdateChain({ error: null })
-      return {}
+    expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+      p_resource_id: 'res-1',
+      p_period_id: 'period-1',
+      p_allocation_id: null,
+      p_assignments: [
+        { team_id: 'team-a', capacity_split: 60 },
+        { team_id: 'team-b', capacity_split: 40 },
+      ],
     })
+  })
 
+  it('succeeds with empty assignments (all No Team)', async () => {
     const result = await updateTeamAssignments('res-1', 'period-1', [])
 
     expect(result.success).toBe(true)
-    // Only one from() call (the delete); no insert
-    expect(fromMock).toHaveBeenCalledTimes(1)
+    expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+      p_resource_id: 'res-1',
+      p_period_id: 'period-1',
+      p_allocation_id: null,
+      p_assignments: [],
+    })
   })
 
-  it('returns { success: false } when the soft-delete UPDATE fails', async () => {
-    updateResult = { error: { message: 'permission denied' } }
-    setupMocks()
+  it('returns { success: false } and surfaces the error when the RPC fails', async () => {
+    rpcResult = { data: null, error: { message: 'permission denied' } }
 
     const result = await updateTeamAssignments('res-1', 'period-1', [
       { teamId: 'team-a', capacitySplit: 100 },
@@ -127,21 +75,27 @@ describe('updateTeamAssignments', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toBe('permission denied')
-    // INSERT should not have been attempted
-    expect(fromMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not swallow a unique-violation error from a simulated partial failure', async () => {
+    // Mirrors the production incident: an insert that fails after the
+    // soft-delete already ran. With the atomic RPC this is now reported
+    // as a single failed call — there is no separate delete step to leave
+    // committed, but the function must still surface the DB error as-is.
+    rpcResult = { data: null, error: { message: 'duplicate key value violates unique constraint "rta_named_unique"' } }
+
+    const result = await updateTeamAssignments('res-1', 'period-1', [
+      { teamId: 'team-a', capacitySplit: 100 },
+    ])
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('rta_named_unique')
+    expect(rpcMock).toHaveBeenCalledTimes(1)
   })
 
   // ── TBC path (allocationId provided, resourceId null) ───────────────────
 
   it('TBC path: replaces assignments keyed on allocation_id', async () => {
-    let callIdx = 0
-    fromMock.mockImplementation(() => {
-      callIdx++
-      if (callIdx === 1) return makeTbcUpdateChain({ error: null })
-      if (callIdx === 2) return makeInsertDirect({ error: null })
-      return {}
-    })
-
     const result = await updateTeamAssignments(
       null,
       'period-1',
@@ -153,32 +107,31 @@ describe('updateTeamAssignments', () => {
     )
 
     expect(result.success).toBe(true)
-    const calls = (fromMock.mock.calls as string[][]).map(([t]) => t)
-    expect(calls).toHaveLength(2)
-    calls.forEach((t) => expect(t).toBe('resource_team_assignments'))
+    expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+      p_resource_id: null,
+      p_period_id: 'period-1',
+      p_allocation_id: 'alloc-1',
+      p_assignments: [
+        { team_id: 'team-a', capacity_split: 60 },
+        { team_id: 'team-b', capacity_split: 40 },
+      ],
+    })
   })
 
-  it('TBC path: succeeds with empty assignments (no INSERT issued)', async () => {
-    let callIdx = 0
-    fromMock.mockImplementation(() => {
-      callIdx++
-      if (callIdx === 1) return makeTbcUpdateChain({ error: null })
-      return {}
-    })
-
+  it('TBC path: succeeds with empty assignments', async () => {
     const result = await updateTeamAssignments(null, 'period-1', [], 'alloc-1')
 
     expect(result.success).toBe(true)
-    expect(fromMock).toHaveBeenCalledTimes(1)
+    expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+      p_resource_id: null,
+      p_period_id: 'period-1',
+      p_allocation_id: 'alloc-1',
+      p_assignments: [],
+    })
   })
 
-  it('TBC path: returns { success: false } when the soft-delete UPDATE fails', async () => {
-    let callIdx = 0
-    fromMock.mockImplementation(() => {
-      callIdx++
-      if (callIdx === 1) return makeTbcUpdateChain({ error: { message: 'permission denied' } })
-      return {}
-    })
+  it('TBC path: returns { success: false } when the RPC fails', async () => {
+    rpcResult = { data: null, error: { message: 'permission denied' } }
 
     const result = await updateTeamAssignments(
       null,
@@ -189,6 +142,5 @@ describe('updateTeamAssignments', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toBe('permission denied')
-    expect(fromMock).toHaveBeenCalledTimes(1)
   })
 })

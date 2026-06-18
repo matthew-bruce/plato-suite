@@ -198,65 +198,21 @@ export async function updateTeamAssignments(
 
   const supabase = getSupabaseServerClient()
 
-  if (allocationId) {
-    const { error: deleteErr } = await supabase
-      .from('resource_team_assignments')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('allocation_id', allocationId)
-      .is('resource_id', null)
-      .is('deleted_at', null)
-
-    if (deleteErr) {
-      return { success: false, error: deleteErr.message }
-    }
-
-    if (realAssignments.length > 0) {
-      const toInsert = realAssignments.map((a) => ({
-        allocation_id: allocationId,
-        resource_id: null,
-        team_id: a.teamId,
-        period_id: periodId,
-        capacity_split: a.capacitySplit / 100,
-      }))
-
-      const { error: insertErr } = await supabase
-        .from('resource_team_assignments')
-        .insert(toInsert)
-
-      if (insertErr) {
-        return { success: false, error: insertErr.message }
-      }
-    }
-
-    return { success: true }
-  }
-
-  const { error: deleteErr } = await supabase
-    .from('resource_team_assignments')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('resource_id', resourceId)
-    .eq('period_id', periodId)
-    .is('deleted_at', null)
-
-  if (deleteErr) {
-    return { success: false, error: deleteErr.message }
-  }
-
-  if (realAssignments.length > 0) {
-    const toInsert = realAssignments.map((a) => ({
-      resource_id: resourceId,
+  // Soft-delete + insert run inside a single Postgres function (RPC) so both
+  // commit or roll back together — see migration 017. Two separate client
+  // calls here would let a failed insert leave a committed delete behind.
+  const { error } = await supabase.rpc('update_team_assignments', {
+    p_resource_id: resourceId,
+    p_period_id: periodId,
+    p_allocation_id: allocationId ?? null,
+    p_assignments: realAssignments.map((a) => ({
       team_id: a.teamId,
-      period_id: periodId,
-      capacity_split: a.capacitySplit / 100,
-    }))
+      capacity_split: a.capacitySplit,
+    })),
+  })
 
-    const { error: insertErr } = await supabase
-      .from('resource_team_assignments')
-      .insert(toInsert)
-
-    if (insertErr) {
-      return { success: false, error: insertErr.message }
-    }
+  if (error) {
+    return { success: false, error: error.message }
   }
 
   return { success: true }
