@@ -56,6 +56,13 @@
   background: #fafafa;
 }
 
+/* Edit mode only: a stable minimum row height keeps fixed-size controls
+   (e.g. the +VAT checkbox) at a consistent vertical position across rows,
+   regardless of content that wraps (team badges, long role titles). */
+.allocationRowEditing {
+  min-height: 44px;
+}
+
 /* ── Tablet 640px–999px ─────────────────────────────────────────── */
 
 @media (max-width: 999px) {

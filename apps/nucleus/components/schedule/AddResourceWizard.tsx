@@ -9,6 +9,7 @@ import {
   checkResourceInPeriod,
   updateTeamAssignments,
   insertResource,
+  getTeamAssignments,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
@@ -77,6 +78,7 @@ export interface AssignModeConfig {
   roleTitle: string
   supplierId: string | null
   supplierName: string | null
+  resourceLocation?: ResourceLocation | null
 }
 
 export interface AddResourceWizardProps {
@@ -231,6 +233,22 @@ export function AddResourceWizard({
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Assign mode: preload the TBC row's existing team assignment (if any) and
+  // its current resource_location, so the destructive replace in
+  // updateTeamAssignments doesn't silently drop pre-existing data.
+  useEffect(() => {
+    if (!open || !isAssignMode || !assignMode) return
+    setForm((prev) => ({ ...prev, resourceLocation: assignMode.resourceLocation ?? 'onshore' }))
+    getTeamAssignments(null, periodId, assignMode.allocationId)
+      .then((rows) => {
+        if (rows.length > 0) {
+          setTeamRows(rows.map((r) => ({ id: nextRowId(), teamId: r.teamId, pct: r.split })))
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isAssignMode, assignMode])
 
   // Reset when modal closes
   useEffect(() => {
@@ -459,7 +477,7 @@ export function AddResourceWizard({
       }
 
       if (mode === 'existing' && selectedResource) {
-        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id)
+        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
         if (!result.success) {
           setIsSubmitting(false)
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
@@ -479,13 +497,13 @@ export function AddResourceWizard({
       }
 
       if (mode === 'new') {
-        const insertResult = await insertResource(form.roleTitle, supplierId, 'onshore')
+        const insertResult = await insertResource(form.roleTitle, supplierId, form.resourceLocation)
         if (!insertResult.success || !insertResult.resourceId) {
           setIsSubmitting(false)
           setSubmitError(insertResult.error ?? 'Failed to create resource')
           return
         }
-        const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId)
+        const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId, form.resourceLocation)
         if (!assignResult.success) {
           setIsSubmitting(false)
           setSubmitError(assignResult.error ?? 'Failed to assign resource')
@@ -773,6 +791,19 @@ export function AddResourceWizard({
                 <p style={{ margin: '2px 0 0', fontSize: 11, color: INACTIVE_GREY }}>
                   Will be assigned to: {assignMode!.roleTitle || '—'}
                 </p>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Location</label>
+                <select
+                  value={form.resourceLocation}
+                  onChange={(e) => setForm((prev) => ({ ...prev, resourceLocation: e.target.value as ResourceLocation }))}
+                  style={selectStyle}
+                >
+                  <option value="onshore">Onshore</option>
+                  <option value="nearshore">Nearshore</option>
+                  <option value="offshore">Offshore</option>
+                </select>
               </div>
 
               <div style={fieldWrap}>

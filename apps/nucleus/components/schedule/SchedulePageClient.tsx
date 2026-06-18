@@ -23,6 +23,7 @@ import type {
   ScheduleAllocation,
   TeamAssignment,
   PlatformCostItem,
+  ResourceLocation,
 } from '@plato/schema'
 import { getSupabaseBrowserClient } from '@plato/schema'
 import {
@@ -405,8 +406,8 @@ export function SchedulePageClient({ data }: Props) {
     )
   }
 
-  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null): void {
-    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName })
+  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null): void {
+    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName, resourceLocation })
   }
 
   async function handleUnassignResource(allocationId: string): Promise<void> {
@@ -1000,7 +1001,7 @@ function byDisplayOrder(a: ScheduleAllocation, b: ScheduleAllocation): number {
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
 
-type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable'>>
+type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable' | 'resource_location'>>
 
 function ScheduleTable({
   groups,
@@ -1055,7 +1056,7 @@ function ScheduleTable({
   editingSchedule: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -1456,7 +1457,7 @@ function SupplierSection({
   locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -2393,7 +2394,7 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   dragHandleSlot?: React.ReactNode
@@ -2477,7 +2478,7 @@ function AllocationRow({
   if (editingSchedule) {
     return (
       <div
-        className={styles.allocationRow}
+        className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
         style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
@@ -2495,7 +2496,7 @@ function AllocationRow({
               {tbc ? (
                 <button
                   type="button"
-                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name)}
+                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name, row.resource_location)}
                   title="Assign resource"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: 'var(--rmg-color-grey-1)', background: 'transparent', border: '1px dashed var(--rmg-color-grey-2)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
@@ -2606,16 +2607,17 @@ function AllocationRow({
             {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
           </span>
         </Cell>
-        {/* 7 Location — read-only */}
+        {/* 7 Location */}
         <Cell>
-          {row.resource_location ? (
-            <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: locColour, display: 'inline-block', flexShrink: 0 }} />
-              {toTitle(row.resource_location)}
-            </span>
-          ) : (
-            <span style={nullStyle}>—</span>
-          )}
+          <select
+            value={row.resource_location ?? 'onshore'}
+            onChange={(e) => onUpdate(row.allocation_id, { resource_location: e.target.value as Allocation['resource_location'] })}
+            style={{ ...editInputStyle, width: 'auto' }}
+          >
+            <option value="onshore">Onshore</option>
+            <option value="nearshore">Nearshore</option>
+            <option value="offshore">Offshore</option>
+          </select>
         </Cell>
         {/* 8 Days */}
         <Cell align="right">
@@ -2654,16 +2656,17 @@ function AllocationRow({
         </Cell>
         {/* 11 +VAT — checkbox + computed */}
         <Cell align="right" dataLabel="+VAT">
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11, color: '#555' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
             <input
               type="checkbox"
               checked={vatApplies}
               onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
+              style={{ flexShrink: 0, cursor: 'pointer' }}
             />
-            <span style={{ fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
+            <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
               {formatMoney(displayVat)}
             </span>
-          </label>
+          </div>
         </Cell>
       </div>
     )
