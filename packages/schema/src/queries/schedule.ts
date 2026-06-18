@@ -53,6 +53,13 @@ type RawTeamAssignmentRow = {
   teams: TeamEmbed | TeamEmbed[] | null
 }
 
+type RawTbcTeamAssignmentRow = {
+  allocation_id: string | null
+  team_id: string
+  capacity_split: number
+  teams: TeamEmbed | TeamEmbed[] | null
+}
+
 function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
   if (Array.isArray(value)) return value[0] ?? null
@@ -224,6 +231,38 @@ export async function getSchedulePageData(
     }
   }
 
+  // TBC rows (resource_id IS NULL) key their team assignments on allocation_id
+  // instead, since resource_team_assignments.resource_id is NULL for those rows
+  // and can't be joined via the resourceIds lookup above.
+  const tbcAllocationIds = ((allocsData ?? []) as unknown as RawAllocationRow[])
+    .filter((r) => r.resource_id === null)
+    .map((r) => r.allocation_id)
+
+  const allocationTeamMap = new Map<string, TeamAssignment[]>()
+  if (tbcAllocationIds.length > 0) {
+    const { data: tbcTeamData, error: tbcTeamErr } = await supabase
+      .from('resource_team_assignments')
+      .select('allocation_id, team_id, capacity_split, teams ( team_name )')
+      .in('allocation_id', tbcAllocationIds)
+      .is('resource_id', null)
+      .is('deleted_at', null)
+
+    if (tbcTeamErr) throw new Error(`Failed to load TBC team assignments: ${tbcTeamErr.message}`)
+
+    for (const r of (tbcTeamData ?? []) as unknown as RawTbcTeamAssignmentRow[]) {
+      const team = pickEmbed(r.teams)
+      if (team?.team_name && r.allocation_id) {
+        const existing = allocationTeamMap.get(r.allocation_id) ?? []
+        existing.push({
+          teamId: r.team_id,
+          teamName: team.team_name,
+          capacitySplit: Number(r.capacity_split),
+        })
+        allocationTeamMap.set(r.allocation_id, existing)
+      }
+    }
+  }
+
   const vatPct = costConfig?.vat_uplift_percent ?? 0
   const allocations: ScheduleAllocation[] = (
     (allocsData ?? []) as unknown as RawAllocationRow[]
@@ -256,7 +295,10 @@ export async function getSchedulePageData(
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
         vat_applies: vatApplies,
-        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
+        teams:
+          row.resource_id !== null
+            ? (teamMap.get(row.resource_id) ?? [])
+            : (allocationTeamMap.get(row.allocation_id) ?? []),
         base_total_pence: base,
         vat_total_pence: vat,
         display_order: row.display_order,
