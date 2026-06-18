@@ -37,6 +37,7 @@ type RawAllocationRow = {
   is_chargeable: boolean
   vat_applies: boolean | null
   display_order: number | null
+  resource_location: string | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
 
@@ -167,6 +168,7 @@ export async function getSchedulePageData(
         is_chargeable,
         vat_applies,
         display_order,
+        resource_location,
         suppliers!left ( supplier_name, supplier_colour, sort_order )
       `,
       )
@@ -288,7 +290,9 @@ export async function getSchedulePageData(
         supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
         supplier_sort_order: supplier?.sort_order ?? null,
-        resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
+        resource_location: ((row.resource_location ?? resource?.resource_location) as
+          | ResourceLocation
+          | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,
         utilisation_percent: utilisation,
