@@ -28,6 +28,15 @@ function makeUpdateChain(resolveWith: unknown) {
   return { update }
 }
 
+// TBC path: .update().eq('allocation_id', ...).is('resource_id', null).is('deleted_at', null)
+function makeTbcUpdateChain(resolveWith: unknown) {
+  const is2 = vi.fn().mockResolvedValue(resolveWith)
+  const is1 = vi.fn().mockReturnValue({ is: is2 })
+  const eq = vi.fn().mockReturnValue({ is: is1 })
+  const update = vi.fn().mockReturnValue({ eq })
+  return { update }
+}
+
 function makeInsertDirect(resolveWith: unknown) {
   const insert = vi.fn().mockResolvedValue(resolveWith)
   return { insert }
@@ -119,6 +128,67 @@ describe('updateTeamAssignments', () => {
     expect(result.success).toBe(false)
     expect(result.error).toBe('permission denied')
     // INSERT should not have been attempted
+    expect(fromMock).toHaveBeenCalledTimes(1)
+  })
+
+  // ── TBC path (allocationId provided, resourceId null) ───────────────────
+
+  it('TBC path: replaces assignments keyed on allocation_id', async () => {
+    let callIdx = 0
+    fromMock.mockImplementation(() => {
+      callIdx++
+      if (callIdx === 1) return makeTbcUpdateChain({ error: null })
+      if (callIdx === 2) return makeInsertDirect({ error: null })
+      return {}
+    })
+
+    const result = await updateTeamAssignments(
+      null,
+      'period-1',
+      [
+        { teamId: 'team-a', capacitySplit: 60 },
+        { teamId: 'team-b', capacitySplit: 40 },
+      ],
+      'alloc-1',
+    )
+
+    expect(result.success).toBe(true)
+    const calls = (fromMock.mock.calls as string[][]).map(([t]) => t)
+    expect(calls).toHaveLength(2)
+    calls.forEach((t) => expect(t).toBe('resource_team_assignments'))
+  })
+
+  it('TBC path: succeeds with empty assignments (no INSERT issued)', async () => {
+    let callIdx = 0
+    fromMock.mockImplementation(() => {
+      callIdx++
+      if (callIdx === 1) return makeTbcUpdateChain({ error: null })
+      return {}
+    })
+
+    const result = await updateTeamAssignments(null, 'period-1', [], 'alloc-1')
+
+    expect(result.success).toBe(true)
+    expect(fromMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('TBC path: returns { success: false } when the soft-delete UPDATE fails', async () => {
+    let callIdx = 0
+    fromMock.mockImplementation(() => {
+      callIdx++
+      if (callIdx === 1) return makeTbcUpdateChain({ error: { message: 'permission denied' } })
+      return {}
+    })
+
+    const result = await updateTeamAssignments(
+      null,
+      'period-1',
+      [{ teamId: 'team-a', capacitySplit: 100 }],
+      'alloc-1',
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('permission denied')
     expect(fromMock).toHaveBeenCalledTimes(1)
   })
 })

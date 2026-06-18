@@ -427,7 +427,7 @@ export function SchedulePageClient({ data }: Props) {
 
   function handleOpenEditTeams(
     allocationId: string,
-    resourceId: string,
+    resourceId: string | null,
     resourceName: string,
     currentTeams: TeamAssignment[],
   ) {
@@ -1057,7 +1057,7 @@ function ScheduleTable({
   onDeleteAllocation: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
-  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
+  onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
   blendedDayRate: number
@@ -1458,7 +1458,7 @@ function SupplierSection({
   onDeleteAllocation: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
-  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
+  onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
 }) {
@@ -2395,7 +2395,7 @@ function AllocationRow({
   onDelete: (id: string) => Promise<void>
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null) => void
   onUnassignResource: (allocationId: string) => Promise<void>
-  onEditTeams: (allocationId: string, resourceId: string, resourceName: string, currentTeams: TeamAssignment[]) => void
+  onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   dragHandleSlot?: React.ReactNode
 }) {
   const { isPrivate } = usePrivacyMode()
@@ -2529,36 +2529,35 @@ function AllocationRow({
             style={editInputStyle}
           />
         </Cell>
-        {/* 3 Team — read-only display + Edit teams button for named rows */}
+        {/* 3 Team — read-only display + Edit teams button (named rows key on
+            resource_id, TBC rows key on allocation_id) */}
         <Cell>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
             <span style={{ flex: 1, minWidth: 0, fontSize: '13px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {teams.length === 0 ? <span style={nullStyle}>No Team</span> : teams.map((t) => t.teamName).join(', ')}
             </span>
-            {!tbc && (
-              <button
-                type="button"
-                onClick={() => onEditTeams(row.allocation_id, row.resource_id!, row.resource_name!, teams as TeamAssignment[])}
-                title="Edit team assignments"
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #D0D0D0',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  color: '#555',
-                  padding: '1px 4px',
-                  lineHeight: 1,
-                  flexShrink: 0,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 3,
-                  fontSize: 10,
-                  fontFamily: 'var(--rmg-font-body)',
-                }}
-              >
-                <UsersIcon />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => onEditTeams(row.allocation_id, row.resource_id, row.resource_name ?? 'TBC', teams as TeamAssignment[])}
+              title="Edit team assignments"
+              style={{
+                background: 'transparent',
+                border: '1px solid #D0D0D0',
+                borderRadius: 4,
+                cursor: 'pointer',
+                color: '#555',
+                padding: '1px 4px',
+                lineHeight: 1,
+                flexShrink: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                fontSize: 10,
+                fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              <UsersIcon />
+            </button>
           </div>
         </Cell>
         {/* 4 Utilisation */}

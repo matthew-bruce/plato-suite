@@ -370,7 +370,7 @@ export function AddResourceWizard({
     if (isAssignMode) {
       setMode('tbc')
       setSelectedResource(null)
-      setStep(3)
+      setStep(2)
       return
     }
     setMode('tbc')
@@ -443,11 +443,16 @@ export function AddResourceWizard({
 
       if (mode === 'tbc') {
         const result = await unassignResourceFromAllocation(allocationId)
-        setIsSubmitting(false)
         if (!result.success) {
+          setIsSubmitting(false)
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
+        const teamAssignments = teamRows
+          .filter((r) => r.teamId !== '')
+          .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+        await updateTeamAssignments(null, periodId, teamAssignments, allocationId)
+        setIsSubmitting(false)
         onAssignSuccess?.(allocationId, null, null)
         onClose()
         return

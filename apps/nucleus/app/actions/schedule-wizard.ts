@@ -184,9 +184,10 @@ export async function checkResourceInPeriod(
 }
 
 export async function updateTeamAssignments(
-  resourceId: string,
+  resourceId: string | null,
   periodId: string,
   assignments: Array<{ teamId: string; capacitySplit: number }>,
+  allocationId?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const realAssignments = assignments.filter((a) => a.teamId !== '')
   const total = realAssignments.reduce((s, a) => s + a.capacitySplit, 0)
@@ -196,6 +197,39 @@ export async function updateTeamAssignments(
   }
 
   const supabase = getSupabaseServerClient()
+
+  if (allocationId) {
+    const { error: deleteErr } = await supabase
+      .from('resource_team_assignments')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('allocation_id', allocationId)
+      .is('resource_id', null)
+      .is('deleted_at', null)
+
+    if (deleteErr) {
+      return { success: false, error: deleteErr.message }
+    }
+
+    if (realAssignments.length > 0) {
+      const toInsert = realAssignments.map((a) => ({
+        allocation_id: allocationId,
+        resource_id: null,
+        team_id: a.teamId,
+        period_id: periodId,
+        capacity_split: a.capacitySplit / 100,
+      }))
+
+      const { error: insertErr } = await supabase
+        .from('resource_team_assignments')
+        .insert(toInsert)
+
+      if (insertErr) {
+        return { success: false, error: insertErr.message }
+      }
+    }
+
+    return { success: true }
+  }
 
   const { error: deleteErr } = await supabase
     .from('resource_team_assignments')
@@ -339,6 +373,8 @@ export async function createResourceAndAllocation(
         }
         if (effectiveResourceId !== null) {
           row['resource_id'] = effectiveResourceId
+        } else {
+          row['allocation_id'] = allocationId
         }
         return row
       })
@@ -364,8 +400,9 @@ export async function createResourceAndAllocation(
 }
 
 export async function getTeamAssignments(
-  resourceId: string,
+  resourceId: string | null,
   periodId: string,
+  allocationId?: string,
 ): Promise<Array<{ teamId: string; teamName: string; split: number }>> {
   const supabase = getSupabaseServerClient()
 
@@ -375,12 +412,21 @@ export async function getTeamAssignments(
     teams: { team_name: string } | { team_name: string }[] | null
   }
 
-  const { data, error } = await supabase
-    .from('resource_team_assignments')
-    .select('team_id, capacity_split, teams:team_id ( team_name )')
-    .eq('resource_id', resourceId)
-    .eq('period_id', periodId)
-    .is('deleted_at', null)
+  const query = allocationId
+    ? supabase
+        .from('resource_team_assignments')
+        .select('team_id, capacity_split, teams:team_id ( team_name )')
+        .eq('allocation_id', allocationId)
+        .is('resource_id', null)
+        .is('deleted_at', null)
+    : supabase
+        .from('resource_team_assignments')
+        .select('team_id, capacity_split, teams:team_id ( team_name )')
+        .eq('resource_id', resourceId)
+        .eq('period_id', periodId)
+        .is('deleted_at', null)
+
+  const { data, error } = await query
 
   if (error) throw new Error(`getTeamAssignments: ${error.message}`)
 

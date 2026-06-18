@@ -16,7 +16,7 @@ const INACTIVE_GREY = '#8F9495'
 
 export interface EditTeamsTarget {
   allocationId: string
-  resourceId: string
+  resourceId: string | null
   resourceName: string
   currentTeams: TeamAssignment[]
 }
@@ -40,7 +40,7 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
     setSubmitError(null)
     Promise.all([
       fetchWizardData(),
-      getTeamAssignments(target.resourceId, periodId),
+      getTeamAssignments(target.resourceId, periodId, target.resourceId ? undefined : target.allocationId),
     ])
       .then(([wizardData, fetched]) => {
         setTeams(wizardData.teams)
@@ -61,7 +61,7 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
       })
       .catch(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.resourceId, periodId])
+  }, [target.resourceId, target.allocationId, periodId])
 
   const total = assignments.reduce((s, a) => s + a.split, 0)
   const saveDisabled = isSubmitting || total !== 100
@@ -74,6 +74,7 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
       target.resourceId,
       periodId,
       realAssignments.map((a) => ({ teamId: a.teamId, capacitySplit: a.split })),
+      target.resourceId ? undefined : target.allocationId,
     )
     setIsSubmitting(false)
     if (!result.success) {

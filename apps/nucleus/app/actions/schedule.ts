@@ -39,6 +39,20 @@ export async function assignResourceToAllocation(
 
   if (error) return { success: false, error: error.message }
   if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
+
+  // Carry forward any team assignments made while the row was TBC: rekey them
+  // from allocation_id to the now-assigned resource_id. Non-fatal — a failure
+  // here shouldn't roll back the resource assignment itself.
+  const { error: migrateErr } = await supabase
+    .from('resource_team_assignments')
+    .update({ resource_id: resourceId, allocation_id: null })
+    .eq('allocation_id', allocationId)
+    .is('resource_id', null)
+
+  if (migrateErr) {
+    console.error('Failed to migrate TBC team assignments:', migrateErr.message)
+  }
+
   return { success: true }
 }
 

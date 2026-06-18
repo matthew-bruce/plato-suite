@@ -22,8 +22,11 @@ vi.mock('@plato/schema', () => ({
 import { assignResourceToAllocation, unassignResourceFromAllocation } from '../schedule'
 
 function makeUpdateSelectChain(resolveWith: unknown) {
+  // resource_period_allocations path: .update().eq().select()
+  // resource_team_assignments migration path: .update().eq().is()
   const select = vi.fn().mockResolvedValue(resolveWith)
-  const eq = vi.fn().mockReturnValue({ select })
+  const is = vi.fn().mockResolvedValue({ error: null })
+  const eq = vi.fn().mockReturnValue({ select, is })
   const update = vi.fn().mockReturnValue({ eq })
   return { update }
 }
@@ -49,6 +52,16 @@ describe('assignResourceToAllocation', () => {
     expect(result.success).toBe(true)
     expect(result.error).toBeUndefined()
     expect(fromMock).toHaveBeenCalledWith('resource_period_allocations')
+  })
+
+  it('migrates TBC team assignments to the newly assigned resource', async () => {
+    queryResult = { data: [{ allocation_id: 'alloc-1' }], error: null }
+    setupMock()
+
+    const result = await assignResourceToAllocation('alloc-1', 'res-abc')
+
+    expect(result.success).toBe(true)
+    expect(fromMock).toHaveBeenCalledWith('resource_team_assignments')
   })
 
   it('returns { success: false } when allocationId not found (empty data)', async () => {
