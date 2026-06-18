@@ -2807,7 +2807,7 @@ function AllocationRow({
 
       {/* 7 Location */}
       <Cell>
-        {tbc || !row.resource_location ? (
+        {!row.resource_location ? (
           <span style={nullStyle}>—</span>
         ) : (
           <span
