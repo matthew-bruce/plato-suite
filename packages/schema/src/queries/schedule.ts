@@ -281,6 +281,17 @@ export async function getSchedulePageData(
           : Math.round(row.day_rate * capacityDays * (utilisation / 100))
       const vatApplies = row.vat_applies ?? true
       const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
+      const teams =
+        row.resource_id !== null
+          ? (teamMap.get(row.resource_id) ?? [])
+          : (allocationTeamMap.get(row.allocation_id) ?? [])
+      const teamSplitTotal = teams.reduce((s, t) => s + t.capacitySplit, 0)
+      // Zero assignments is an intentional "no team" state, not a partial
+      // allocation — only flag sums strictly between 0 and ~100%.
+      const unallocatedPct =
+        teamSplitTotal > 0 && teamSplitTotal <= 0.999
+          ? Math.round((1 - teamSplitTotal) * 100)
+          : null
       return {
         allocation_id: row.allocation_id,
         resource_id: row.resource_id,
@@ -299,10 +310,8 @@ export async function getSchedulePageData(
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
         vat_applies: vatApplies,
-        teams:
-          row.resource_id !== null
-            ? (teamMap.get(row.resource_id) ?? [])
-            : (allocationTeamMap.get(row.allocation_id) ?? []),
+        teams,
+        unallocatedPct,
         base_total_pence: base,
         vat_total_pence: vat,
         display_order: row.display_order,

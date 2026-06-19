@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff } from 'lucide-react'
+import { EyeOff, AlertTriangle } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -437,8 +437,9 @@ export function SchedulePageClient({ data }: Props) {
 
   function handleEditTeamsSave(allocationId: string, newTeams: TeamAssignment[]) {
     const teams = newTeams as unknown as Allocation['teams']
+    const unallocatedPct = computeUnallocatedPct(newTeams)
     setLocalAllocations((prev) =>
-      prev.map((a) => a.allocation_id === allocationId ? { ...a, teams } : a),
+      prev.map((a) => a.allocation_id === allocationId ? { ...a, teams, unallocatedPct } : a),
     )
   }
 
@@ -2374,6 +2375,32 @@ function UsersIcon() {
   )
 }
 
+function computeUnallocatedPct(teams: TeamAssignment[]): number | null {
+  const total = teams.reduce((s, t) => s + t.capacitySplit, 0)
+  return total > 0 && total <= 0.999 ? Math.round((1 - total) * 100) : null
+}
+
+function UnallocatedWarning({ pct, name }: { pct: number; name: string }) {
+  return (
+    <span
+      title={`${name} has ${100 - pct}% allocated. ${pct}% has no team assigned.`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 3,
+        color: 'var(--rmg-color-red)',
+        fontSize: 11,
+        fontWeight: 600,
+        flexShrink: 0,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <AlertTriangle size={10} aria-hidden />
+      {pct}% unassigned
+    </span>
+  )
+}
+
 function AllocationRow({
   row,
   vatPct,
@@ -2537,6 +2564,9 @@ function AllocationRow({
             <span style={{ flex: 1, minWidth: 0, fontSize: '13px', color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {teams.length === 0 ? <span style={nullStyle}>No Team</span> : teams.map((t) => t.teamName).join(', ')}
             </span>
+            {row.unallocatedPct != null && (
+              <UnallocatedWarning pct={row.unallocatedPct} name={row.resource_name ?? row.role_title ?? 'This row'} />
+            )}
             <button
               type="button"
               onClick={() => onEditTeams(row.allocation_id, row.resource_id, row.resource_name ?? 'TBC', teams as TeamAssignment[])}
@@ -2710,7 +2740,7 @@ function AllocationRow({
         {teams.length === 0 ? (
           <span style={nullStyle}>No Team</span>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
             {teams.map((t) => (
               <span
                 key={t.teamId}
@@ -2735,6 +2765,9 @@ function AllocationRow({
                 {t.teamName} · {Math.round(t.capacitySplit * 100)}%
               </span>
             ))}
+            {row.unallocatedPct != null && (
+              <UnallocatedWarning pct={row.unallocatedPct} name={row.resource_name ?? row.role_title ?? 'This row'} />
+            )}
           </div>
         )}
       </Cell>
