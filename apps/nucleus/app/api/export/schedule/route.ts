@@ -1039,8 +1039,7 @@ export async function GET(request: Request): Promise<Response> {
   for (const item of costItems) {
     const amount = item.amount_pence / 100
     const r = ws3.addRow([
-      item.label, '', '', '',
-      item.cost_item_category,
+      item.label, '', '', '', '',
       '', '', '', '', '', '',
       amount,
       amount,
@@ -1067,10 +1066,11 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawBillableRow = rawSubtotalRow + 3
   ws3.getCell(rawBillableRow, 1).value = 'Total Billable Days'
-  // Range is the allocation rows only (not rawLastDataRow) — the appended
-  // cost-item rows pad columns H/I/K with text "" placeholders, and
-  // SUMPRODUCT raises #VALUE! if any cell in its array is text.
-  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K1:K${rawLastAllocRow}="Yes")*(H1:H${rawLastAllocRow})*(I1:I${rawLastAllocRow}))` }
+  // Range starts at row 2 (first allocation row), not row 1 — row 1 is the
+  // text header row ("Utilisation", "Days", "Chargeable"), and SUMPRODUCT
+  // raises #VALUE! if any cell in its array is text. Also excludes the
+  // appended cost-item rows, which pad these columns with "" placeholders.
+  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))` }
 
   const rawUtilRow = rawSubtotalRow + 4
   ws3.getCell(rawUtilRow, 1).value = 'Utilisation'
