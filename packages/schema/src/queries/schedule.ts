@@ -2,6 +2,7 @@
 // All Supabase access goes through the @plato/schema server client (ADR-027).
 
 import { getSupabaseServerClient } from '../server'
+import { computeUnallocatedPct } from '../utils/schedule'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -285,13 +286,7 @@ export async function getSchedulePageData(
         row.resource_id !== null
           ? (teamMap.get(row.resource_id) ?? [])
           : (allocationTeamMap.get(row.allocation_id) ?? [])
-      const teamSplitTotal = teams.reduce((s, t) => s + t.capacitySplit, 0)
-      // Zero assignments is an intentional "no team" state, not a partial
-      // allocation — only flag sums strictly between 0 and ~100%.
-      const unallocatedPct =
-        teamSplitTotal > 0 && teamSplitTotal <= 0.999
-          ? Math.round((1 - teamSplitTotal) * 100)
-          : null
+      const unallocatedPct = computeUnallocatedPct(teams)
       return {
         allocation_id: row.allocation_id,
         resource_id: row.resource_id,

@@ -25,7 +25,7 @@ import type {
   PlatformCostItem,
   ResourceLocation,
 } from '@plato/schema'
-import { getSupabaseBrowserClient } from '@plato/schema'
+import { getSupabaseBrowserClient, computeUnallocatedPct } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -2373,11 +2373,6 @@ function UsersIcon() {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   )
-}
-
-function computeUnallocatedPct(teams: TeamAssignment[]): number | null {
-  const total = teams.reduce((s, t) => s + t.capacitySplit, 0)
-  return total > 0 && total <= 0.999 ? Math.round((1 - total) * 100) : null
 }
 
 function UnallocatedWarning({ pct, name }: { pct: number; name: string }) {
