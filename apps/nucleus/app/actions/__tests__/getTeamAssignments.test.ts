@@ -27,6 +27,15 @@ function makeSelectChain(resolveWith: unknown) {
   return { select }
 }
 
+// TBC path: .select().eq('allocation_id', ...).is('resource_id', null).is('deleted_at', null)
+function makeTbcSelectChain(resolveWith: unknown) {
+  const is2 = vi.fn().mockResolvedValue(resolveWith)
+  const is1 = vi.fn().mockReturnValue({ is: is2 })
+  const eq = vi.fn().mockReturnValue({ is: is1 })
+  const select = vi.fn().mockReturnValue({ eq })
+  return { select }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -73,5 +82,23 @@ describe('getTeamAssignments', () => {
     )
 
     await expect(getTeamAssignments('res-1', 'period-1')).rejects.toThrow('permission denied')
+  })
+
+  it('TBC path: returns team assignments keyed on allocation_id', async () => {
+    const rawData = [{ team_id: 'team-1', capacity_split: 1.0, teams: { team_name: 'Alpha' } }]
+    fromMock.mockReturnValue(makeTbcSelectChain({ data: rawData, error: null }))
+
+    const result = await getTeamAssignments(null, 'period-1', 'alloc-1')
+
+    expect(result).toEqual([{ teamId: 'team-1', teamName: 'Alpha', split: 100 }])
+    expect(fromMock).toHaveBeenCalledWith('resource_team_assignments')
+  })
+
+  it('TBC path: returns empty array when no assignments exist', async () => {
+    fromMock.mockReturnValue(makeTbcSelectChain({ data: [], error: null }))
+
+    const result = await getTeamAssignments(null, 'period-1', 'alloc-1')
+
+    expect(result).toEqual([])
   })
 })

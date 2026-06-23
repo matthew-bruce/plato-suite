@@ -46,6 +46,10 @@ export interface ScheduleAllocation {
   is_chargeable: boolean
   vat_applies: boolean
   teams: TeamAssignment[]
+  /** Missing capacity, as a whole percentage (e.g. 50 for a 50% split with no
+   *  second team). Undefined/null when fully allocated or when there are no
+   *  team assignments at all (zero is a valid, intentional state). */
+  unallocatedPct?: number | null
   base_total_pence?: number
   vat_total_pence?: number
   display_order: number | null

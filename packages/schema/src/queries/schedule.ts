@@ -2,6 +2,7 @@
 // All Supabase access goes through the @plato/schema server client (ADR-027).
 
 import { getSupabaseServerClient } from '../server'
+import { computeUnallocatedPct } from '../utils/schedule'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -37,6 +38,7 @@ type RawAllocationRow = {
   is_chargeable: boolean
   vat_applies: boolean | null
   display_order: number | null
+  resource_location: string | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
 }
 
@@ -48,6 +50,13 @@ type RawResourceRow = {
 
 type RawTeamAssignmentRow = {
   resource_id: string
+  team_id: string
+  capacity_split: number
+  teams: TeamEmbed | TeamEmbed[] | null
+}
+
+type RawTbcTeamAssignmentRow = {
+  allocation_id: string | null
   team_id: string
   capacity_split: number
   teams: TeamEmbed | TeamEmbed[] | null
@@ -160,6 +169,7 @@ export async function getSchedulePageData(
         is_chargeable,
         vat_applies,
         display_order,
+        resource_location,
         suppliers!left ( supplier_name, supplier_colour, sort_order )
       `,
       )
@@ -224,6 +234,38 @@ export async function getSchedulePageData(
     }
   }
 
+  // TBC rows (resource_id IS NULL) key their team assignments on allocation_id
+  // instead, since resource_team_assignments.resource_id is NULL for those rows
+  // and can't be joined via the resourceIds lookup above.
+  const tbcAllocationIds = ((allocsData ?? []) as unknown as RawAllocationRow[])
+    .filter((r) => r.resource_id === null)
+    .map((r) => r.allocation_id)
+
+  const allocationTeamMap = new Map<string, TeamAssignment[]>()
+  if (tbcAllocationIds.length > 0) {
+    const { data: tbcTeamData, error: tbcTeamErr } = await supabase
+      .from('resource_team_assignments')
+      .select('allocation_id, team_id, capacity_split, teams ( team_name )')
+      .in('allocation_id', tbcAllocationIds)
+      .is('resource_id', null)
+      .is('deleted_at', null)
+
+    if (tbcTeamErr) throw new Error(`Failed to load TBC team assignments: ${tbcTeamErr.message}`)
+
+    for (const r of (tbcTeamData ?? []) as unknown as RawTbcTeamAssignmentRow[]) {
+      const team = pickEmbed(r.teams)
+      if (team?.team_name && r.allocation_id) {
+        const existing = allocationTeamMap.get(r.allocation_id) ?? []
+        existing.push({
+          teamId: r.team_id,
+          teamName: team.team_name,
+          capacitySplit: Number(r.capacity_split),
+        })
+        allocationTeamMap.set(r.allocation_id, existing)
+      }
+    }
+  }
+
   const vatPct = costConfig?.vat_uplift_percent ?? 0
   const allocations: ScheduleAllocation[] = (
     (allocsData ?? []) as unknown as RawAllocationRow[]
@@ -240,6 +282,11 @@ export async function getSchedulePageData(
           : Math.round(row.day_rate * capacityDays * (utilisation / 100))
       const vatApplies = row.vat_applies ?? true
       const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
+      const teams =
+        row.resource_id !== null
+          ? (teamMap.get(row.resource_id) ?? [])
+          : (allocationTeamMap.get(row.allocation_id) ?? [])
+      const unallocatedPct = computeUnallocatedPct(teams)
       return {
         allocation_id: row.allocation_id,
         resource_id: row.resource_id,
@@ -249,14 +296,17 @@ export async function getSchedulePageData(
         supplier_name: supplier?.supplier_name ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
         supplier_sort_order: supplier?.sort_order ?? null,
-        resource_location: (resource?.resource_location as ResourceLocation | undefined) ?? null,
+        resource_location: ((row.resource_location ?? resource?.resource_location) as
+          | ResourceLocation
+          | undefined) ?? null,
         planview_code: (row.planview_code ?? null) as PlanviewCode | null,
         day_rate: row.day_rate,
         utilisation_percent: utilisation,
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
         vat_applies: vatApplies,
-        teams: row.resource_id !== null ? (teamMap.get(row.resource_id) ?? []) : ([] as TeamAssignment[]),
+        teams,
+        unallocatedPct,
         base_total_pence: base,
         vat_total_pence: vat,
         display_order: row.display_order,

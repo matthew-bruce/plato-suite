@@ -564,7 +564,10 @@ export async function GET(request: Request): Promise<Response> {
   const billableDaysRowNum = ws.rowCount + 1
   const billableRow = ws.addRow([
     'Total Billable Days', '', '', '', '', '', '', '',
-    { formula: `=SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastDataRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastDataRow})*(I${FIRST_DATA_ROW}:I${lastDataRow}))` },
+    // Range is the resource rows only (not lastDataRow) — the AD-HOC/ETP
+    // cost-item rows pad columns H/I/K with text "" placeholders, and
+    // SUMPRODUCT raises #VALUE! if any cell in its array is text.
+    { formula: `=SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastResourceRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastResourceRow})*(I${FIRST_DATA_ROW}:I${lastResourceRow}))` },
   ])
   billableRow.getCell(1).font = { bold: true }
 
@@ -1031,11 +1034,12 @@ export async function GET(request: Request): Promise<Response> {
     r.getCell(13).numFmt = '£#,##0.00'
   }
 
+  const rawLastAllocRow = ws3.rowCount
+
   for (const item of costItems) {
     const amount = item.amount_pence / 100
     const r = ws3.addRow([
-      item.label, '', '', '',
-      item.cost_item_category,
+      item.label, '', '', '', '',
       '', '', '', '', '', '',
       amount,
       amount,
@@ -1062,7 +1066,11 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawBillableRow = rawSubtotalRow + 3
   ws3.getCell(rawBillableRow, 1).value = 'Total Billable Days'
-  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K1:K${rawLastDataRow}="Yes")*(H1:H${rawLastDataRow})*(I1:I${rawLastDataRow}))` }
+  // Range starts at row 2 (first allocation row), not row 1 — row 1 is the
+  // text header row ("Utilisation", "Days", "Chargeable"), and SUMPRODUCT
+  // raises #VALUE! if any cell in its array is text. Also excludes the
+  // appended cost-item rows, which pad these columns with "" placeholders.
+  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))` }
 
   const rawUtilRow = rawSubtotalRow + 4
   ws3.getCell(rawUtilRow, 1).value = 'Utilisation'

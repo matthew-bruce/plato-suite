@@ -9,6 +9,7 @@ import {
   checkResourceInPeriod,
   updateTeamAssignments,
   insertResource,
+  getTeamAssignments,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
@@ -50,10 +51,31 @@ interface FormState {
   resourceLocation: ResourceLocation
 }
 
+interface InProgressRole {
+  roleTitle: string
+  planviewCode: 'PR' | 'F_Gov' | 'BAU'
+  resourceLocation: ResourceLocation
+  supplierId: string
+  supplierName: string
+}
+
 interface ForkInfo {
   target: ResourceSearchResult
   rows: CheckPeriodRow[]
   existingTeams: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+  /** The role being defined in steps 1-2 before the user went back to search
+   *  again (via "Change"), if any — lets the fork panel offer "assign to
+   *  this role" instead of only "edit existing" / "add second row". */
+  inProgressRole: InProgressRole | null
+}
+
+/** A "new person" name must be a real name, not the role title it's being
+ *  paired with — guards against accidentally creating a resources row whose
+ *  name is just a job title. */
+function isValidPersonName(name: string, roleTitle: string): boolean {
+  const n = name.trim()
+  if (!n) return false
+  return n.toLowerCase() !== roleTitle.trim().toLowerCase()
 }
 
 export interface WizardSuccessPayload {
@@ -77,6 +99,7 @@ export interface AssignModeConfig {
   roleTitle: string
   supplierId: string | null
   supplierName: string | null
+  resourceLocation?: ResourceLocation | null
 }
 
 export interface AddResourceWizardProps {
@@ -210,6 +233,10 @@ export function AddResourceWizard({
   )
 
   const [form, setForm] = useState<FormState>(defaultForm)
+  // Generic (non-assign) "new person" mode only: dedicated name field, kept
+  // separate from form.roleTitle so the two can never collapse into the same
+  // value (see isValidPersonName).
+  const [newPersonName, setNewPersonName] = useState('')
   const [duplicateAdvisory, setDuplicateAdvisory] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -232,6 +259,22 @@ export function AddResourceWizard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // Assign mode: preload the TBC row's existing team assignment (if any) and
+  // its current resource_location, so the destructive replace in
+  // updateTeamAssignments doesn't silently drop pre-existing data.
+  useEffect(() => {
+    if (!open || !isAssignMode || !assignMode) return
+    setForm((prev) => ({ ...prev, resourceLocation: assignMode.resourceLocation ?? 'onshore' }))
+    getTeamAssignments(null, periodId, assignMode.allocationId)
+      .then((rows) => {
+        if (rows.length > 0) {
+          setTeamRows(rows.map((r) => ({ id: nextRowId(), teamId: r.teamId, pct: r.split })))
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isAssignMode, assignMode])
+
   // Reset when modal closes
   useEffect(() => {
     if (!open) {
@@ -248,6 +291,7 @@ export function AddResourceWizard({
       setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
       setDuplicateAdvisory(null)
       setSubmitError(null)
+      setNewPersonName('')
       setForm(defaultForm())
     }
   }, [open, defaultForm])
@@ -296,7 +340,22 @@ export function AddResourceWizard({
     setIsCheckingDuplicate(false)
 
     if (checkResult.exists) {
-      setForkInfo({ target: r, rows: checkResult.rows, existingTeams: checkResult.existingTeamAssignments })
+      const inProgressRole: InProgressRole | null =
+        (mode === 'new' || mode === 'tbc') && form.roleTitle.trim()
+          ? {
+              roleTitle: form.roleTitle,
+              planviewCode: form.planviewCode,
+              resourceLocation: form.resourceLocation,
+              supplierId: form.supplierId,
+              supplierName: form.supplierName,
+            }
+          : null
+      setForkInfo({
+        target: r,
+        rows: checkResult.rows,
+        existingTeams: checkResult.existingTeamAssignments,
+        inProgressRole,
+      })
       setShowFork(true)
       return
     }
@@ -346,6 +405,27 @@ export function AddResourceWizard({
     advanceToStep2Existing(info.target)
   }
 
+  // Assigns the matched existing resource to the role currently being
+  // defined (captured as forkInfo.inProgressRole) instead of discarding that
+  // role and either editing the resource's other allocation or creating a
+  // disconnected second row.
+  function handleAssignToRole() {
+    const info = forkInfo!
+    const role = info.inProgressRole!
+    setShowFork(false)
+    setForkInfo(null)
+    setSelectedResource(info.target)
+    setMode('existing')
+    setForm({
+      supplierId: role.supplierId,
+      supplierName: role.supplierName,
+      roleTitle: role.roleTitle,
+      planviewCode: role.planviewCode,
+      resourceLocation: role.resourceLocation,
+    })
+    setStep(2)
+  }
+
   function addAsNew(name: string) {
     if (isAssignMode) {
       setMode('new')
@@ -356,10 +436,11 @@ export function AddResourceWizard({
     }
     setMode('new')
     setSelectedResource(null)
+    setNewPersonName(name)
     setForm({
       supplierId: defaultSupplierId ?? '',
       supplierName: defaultSupplierName ?? '',
-      roleTitle: name,
+      roleTitle: '',
       planviewCode: 'PR',
       resourceLocation: 'onshore',
     })
@@ -370,7 +451,7 @@ export function AddResourceWizard({
     if (isAssignMode) {
       setMode('tbc')
       setSelectedResource(null)
-      setStep(3)
+      setStep(2)
       return
     }
     setMode('tbc')
@@ -387,11 +468,12 @@ export function AddResourceWizard({
 
   // Duplicate advisory check when entering step 2 in new mode
   useEffect(() => {
-    if (step !== 2 || mode !== 'new' || !form.roleTitle) {
+    const nameToCheck = isAssignMode ? form.roleTitle : newPersonName
+    if (step !== 2 || mode !== 'new' || !nameToCheck) {
       setDuplicateAdvisory(null)
       return
     }
-    searchResources(form.roleTitle)
+    searchResources(nameToCheck)
       .then((results) => {
         if (results.length > 0) {
           const names = results
@@ -443,18 +525,23 @@ export function AddResourceWizard({
 
       if (mode === 'tbc') {
         const result = await unassignResourceFromAllocation(allocationId)
-        setIsSubmitting(false)
         if (!result.success) {
+          setIsSubmitting(false)
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
+        const teamAssignments = teamRows
+          .filter((r) => r.teamId !== '')
+          .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+        await updateTeamAssignments(null, periodId, teamAssignments, allocationId)
+        setIsSubmitting(false)
         onAssignSuccess?.(allocationId, null, null)
         onClose()
         return
       }
 
       if (mode === 'existing' && selectedResource) {
-        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id)
+        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
         if (!result.success) {
           setIsSubmitting(false)
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
@@ -474,13 +561,18 @@ export function AddResourceWizard({
       }
 
       if (mode === 'new') {
-        const insertResult = await insertResource(form.roleTitle, supplierId, 'onshore')
+        if (!isValidPersonName(form.roleTitle, assignMode!.roleTitle)) {
+          setIsSubmitting(false)
+          setSubmitError("Enter the person's name")
+          return
+        }
+        const insertResult = await insertResource(form.roleTitle, supplierId, form.resourceLocation)
         if (!insertResult.success || !insertResult.resourceId) {
           setIsSubmitting(false)
           setSubmitError(insertResult.error ?? 'Failed to create resource')
           return
         }
-        const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId)
+        const assignResult = await assignResourceToAllocation(allocationId, insertResult.resourceId, form.resourceLocation)
         if (!assignResult.success) {
           setIsSubmitting(false)
           setSubmitError(assignResult.error ?? 'Failed to assign resource')
@@ -544,6 +636,12 @@ export function AddResourceWizard({
     }
 
     // Normal path: existing / new / tbc
+    if (mode === 'new' && !isValidPersonName(newPersonName, form.roleTitle)) {
+      setIsSubmitting(false)
+      setSubmitError("Enter the person's name")
+      return
+    }
+
     const realTeamAssignments = teamRows
       .filter((r) => r.teamId !== '')
       .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
@@ -551,7 +649,7 @@ export function AddResourceWizard({
     const result = await createResourceAndAllocation({
       mode,
       resourceId: mode === 'existing' ? (selectedResource?.resource_id ?? null) : null,
-      resourceName: mode === 'new' ? form.roleTitle : null,
+      resourceName: mode === 'new' ? newPersonName.trim() : null,
       supplierId: form.supplierId,
       supplierName: form.supplierName,
       teamAssignments: realTeamAssignments.length > 0 ? realTeamAssignments : undefined,
@@ -584,7 +682,7 @@ export function AddResourceWizard({
         mode === 'existing'
           ? (selectedResource?.resource_name ?? null)
           : mode === 'new'
-            ? form.roleTitle
+            ? newPersonName.trim()
             : null,
       roleTitle: form.roleTitle,
       supplierId: form.supplierId || null,
@@ -702,8 +800,15 @@ export function AddResourceWizard({
 
   const teamTotal = teamRows.reduce((s, r) => s + r.pct, 0)
   const roleTitleRequired = mode !== 'edit-teams' && !form.roleTitle.trim()
+  const newPersonInvalid =
+    mode === 'new' &&
+    (isAssignMode
+      ? !isValidPersonName(form.roleTitle, assignMode!.roleTitle)
+      : !isValidPersonName(newPersonName, form.roleTitle))
   const nextDisabled = step === 2 && (
-    isAssignMode ? teamTotal !== 100 : (roleTitleRequired || teamTotal !== 100)
+    isAssignMode
+      ? (teamTotal !== 100 || newPersonInvalid)
+      : (roleTitleRequired || teamTotal !== 100 || newPersonInvalid)
   )
   const submitLabel = mode === 'edit-teams' ? 'Save changes' : 'Add to schedule'
 
@@ -743,6 +848,7 @@ export function AddResourceWizard({
                 info={forkInfo}
                 onEditTeams={handleEditTeams}
                 onAddSecondRow={handleAddSecondRow}
+                onAssignToRole={forkInfo.inProgressRole ? handleAssignToRole : undefined}
                 onBack={() => { setShowFork(false); setForkInfo(null) }}
               />
             ) : (
@@ -768,6 +874,24 @@ export function AddResourceWizard({
                 <p style={{ margin: '2px 0 0', fontSize: 11, color: INACTIVE_GREY }}>
                   Will be assigned to: {assignMode!.roleTitle || '—'}
                 </p>
+                {mode === 'new' && newPersonInvalid && (
+                  <p style={{ margin: '6px 0 0', fontSize: 12, color: ACTIVE_RED }}>
+                    Enter the person&apos;s name
+                  </p>
+                )}
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Location</label>
+                <select
+                  value={form.resourceLocation}
+                  onChange={(e) => setForm((prev) => ({ ...prev, resourceLocation: e.target.value as ResourceLocation }))}
+                  style={selectStyle}
+                >
+                  <option value="onshore">Onshore</option>
+                  <option value="nearshore">Nearshore</option>
+                  <option value="offshore">Offshore</option>
+                </select>
               </div>
 
               <div style={fieldWrap}>
@@ -815,6 +939,9 @@ export function AddResourceWizard({
               teamTotal={teamTotal}
               duplicateAdvisory={duplicateAdvisory}
               addSecondRowBanner={addSecondRowBanner}
+              personName={newPersonName}
+              personNameInvalid={newPersonInvalid}
+              onPersonNameChange={setNewPersonName}
               onSupplierChange={handleSupplierChange}
               onAddTeamRow={addTeamRow}
               onRemoveTeamRow={removeTeamRow}
@@ -832,6 +959,7 @@ export function AddResourceWizard({
               mode={mode}
               selectedResource={selectedResource}
               form={form}
+              personName={newPersonName}
               teamRows={teamRows}
               teams={teams}
               summaryBg={SUMMARY_BG}
@@ -896,11 +1024,13 @@ function ForkPanel({
   info,
   onEditTeams,
   onAddSecondRow,
+  onAssignToRole,
   onBack,
 }: {
   info: ForkInfo
   onEditTeams: () => void
   onAddSecondRow: () => void
+  onAssignToRole?: () => void
   onBack: () => void
 }) {
   return (
@@ -934,6 +1064,26 @@ function ForkPanel({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        {onAssignToRole && (
+          <button
+            type="button"
+            onClick={onAssignToRole}
+            style={{
+              background: ACTIVE_RED,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '9px 16px',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              fontFamily: 'var(--rmg-font-body)',
+              textAlign: 'left',
+            }}
+          >
+            Assign to &quot;{info.inProgressRole!.roleTitle}&quot;
+          </button>
+        )}
         <button
           type="button"
           onClick={onEditTeams}
@@ -1327,6 +1477,9 @@ function Step2Body({
   teamTotal,
   duplicateAdvisory,
   addSecondRowBanner,
+  personName,
+  personNameInvalid,
+  onPersonNameChange,
   onSupplierChange,
   onAddTeamRow,
   onRemoveTeamRow,
@@ -1347,6 +1500,9 @@ function Step2Body({
   teamTotal: number
   duplicateAdvisory: string | null
   addSecondRowBanner: boolean
+  personName: string
+  personNameInvalid: boolean
+  onPersonNameChange: (val: string) => void
   onSupplierChange: (id: string) => void
   onAddTeamRow: () => void
   onRemoveTeamRow: (id: string) => void
@@ -1467,6 +1623,26 @@ function Step2Body({
         </div>
       )}
 
+      {mode === 'new' && (
+        <div style={fieldWrap}>
+          <label style={labelStyle}>
+            Person&apos;s name <span style={{ color: ACTIVE_RED }}>*</span>
+          </label>
+          <input
+            type="text"
+            value={personName}
+            onChange={(e) => onPersonNameChange(e.target.value)}
+            placeholder="e.g. Sarah Chen"
+            style={inputStyle}
+          />
+          {personNameInvalid && (
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: ACTIVE_RED }}>
+              Enter the person&apos;s name
+            </p>
+          )}
+        </div>
+      )}
+
       <div style={fieldWrap}>
         <label style={labelStyle}>Supplier</label>
         <select
@@ -1553,6 +1729,7 @@ function Step3Body({
   mode,
   selectedResource,
   form,
+  personName,
   teamRows,
   teams,
   summaryBg,
@@ -1561,6 +1738,7 @@ function Step3Body({
   mode: WizardMode
   selectedResource: ResourceSearchResult | null
   form: FormState
+  personName: string
   teamRows: TeamRow[]
   teams: TeamOption[]
   summaryBg: string
@@ -1571,7 +1749,7 @@ function Step3Body({
     const resourceLabel =
       mode === 'tbc' ? 'TBC'
       : mode === 'existing' ? (selectedResource?.resource_name ?? '—')
-      : `${form.roleTitle} (new person)`
+      : `${form.roleTitle} (new person)` // assign-mode: form.roleTitle holds the person's name
 
     const teamLabel = teamRows
       .filter((r) => r.teamId !== '')
@@ -1614,7 +1792,7 @@ function Step3Body({
       : mode === 'existing'
         ? (selectedResource?.resource_name ?? '—')
         : mode === 'new'
-          ? `${form.roleTitle} (new person)`
+          ? `${personName} (new person)`
           : 'TBC'
 
   const teamLabel = teamRows

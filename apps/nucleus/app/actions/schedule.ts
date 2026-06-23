@@ -1,6 +1,7 @@
 'use server'
 
 import { getSupabaseServerClient } from '@plato/schema'
+import type { ResourceLocation } from '@plato/schema'
 
 /**
  * Toggle the `locked` flag on a period. Locking makes the Platform Schedule
@@ -22,23 +23,42 @@ export async function togglePeriodLocked(
 }
 
 /**
- * Assign a resource to a TBC allocation row. Sets resource_id and updated_at.
- * Returns { success: false } if the allocation does not exist.
+ * Assign a resource to a TBC allocation row. Sets resource_id (and optionally
+ * resource_location) plus updated_at. Returns { success: false } if the
+ * allocation does not exist.
  */
 export async function assignResourceToAllocation(
   allocationId: string,
   resourceId: string,
+  resourceLocation?: ResourceLocation,
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseServerClient()
 
+  const updates: Record<string, unknown> = { resource_id: resourceId, updated_at: new Date().toISOString() }
+  if (resourceLocation) updates['resource_location'] = resourceLocation
+
   const { data, error } = await supabase
     .from('resource_period_allocations')
-    .update({ resource_id: resourceId, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq('allocation_id', allocationId)
     .select('allocation_id')
 
   if (error) return { success: false, error: error.message }
   if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
+
+  // Carry forward any team assignments made while the row was TBC: rekey them
+  // from allocation_id to the now-assigned resource_id. Non-fatal — a failure
+  // here shouldn't roll back the resource assignment itself.
+  const { error: migrateErr } = await supabase
+    .from('resource_team_assignments')
+    .update({ resource_id: resourceId, allocation_id: null })
+    .eq('allocation_id', allocationId)
+    .is('resource_id', null)
+
+  if (migrateErr) {
+    console.error('Failed to migrate TBC team assignments:', migrateErr.message)
+  }
+
   return { success: true }
 }
 
@@ -51,6 +71,18 @@ export async function unassignResourceFromAllocation(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseServerClient()
 
+  const { data: existing, error: fetchErr } = await supabase
+    .from('resource_period_allocations')
+    .select('resource_id, period_id')
+    .eq('allocation_id', allocationId)
+    .maybeSingle()
+
+  if (fetchErr) return { success: false, error: fetchErr.message }
+  if (!existing) return { success: false, error: 'Allocation not found' }
+
+  const previousResourceId = (existing as { resource_id: string | null }).resource_id
+  const periodId = (existing as { period_id: string }).period_id
+
   const { data, error } = await supabase
     .from('resource_period_allocations')
     .update({ resource_id: null, updated_at: new Date().toISOString() })
@@ -59,6 +91,23 @@ export async function unassignResourceFromAllocation(
 
   if (error) return { success: false, error: error.message }
   if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
+
+  // Carry forward any team assignments the resource had while named: rekey
+  // them from resource_id to the now-TBC allocation_id, symmetric with the
+  // migration in assignResourceToAllocation. Non-fatal.
+  if (previousResourceId) {
+    const { error: migrateErr } = await supabase
+      .from('resource_team_assignments')
+      .update({ allocation_id: allocationId, resource_id: null })
+      .eq('resource_id', previousResourceId)
+      .eq('period_id', periodId)
+      .is('deleted_at', null)
+
+    if (migrateErr) {
+      console.error('Failed to migrate team assignments to TBC:', migrateErr.message)
+    }
+  }
+
   return { success: true }
 }
 

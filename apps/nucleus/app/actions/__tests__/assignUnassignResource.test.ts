@@ -2,16 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Strategy ─────────────────────────────────────────────────────────────────
 //
-// Both assignResourceToAllocation and unassignResourceFromAllocation issue a
-// single Supabase query:
+// assignResourceToAllocation issues:
+//   resource_period_allocations UPDATE → .eq('allocation_id', ...).select('allocation_id')
+//   resource_team_assignments UPDATE → .eq('allocation_id', ...).is('resource_id', ...)
 //
-//   resource_period_allocations UPDATE → .eq('allocation_id', ...) → .select('allocation_id')
+// unassignResourceFromAllocation issues:
+//   resource_period_allocations SELECT → .eq('allocation_id', ...).maybeSingle()
+//   resource_period_allocations UPDATE → .eq('allocation_id', ...).select('allocation_id')
+//   resource_team_assignments UPDATE → .eq('resource_id', ...).eq('period_id', ...).is('deleted_at', ...)
 //
-// Success: data array has ≥ 1 row → { success: true }
-// Not found: data array is empty → { success: false, error: 'Allocation not found' }
-// DB error: error object present → { success: false, error: message }
+// A generic chainable mock is used: every chain method returns the same
+// thenable object so any call sequence resolves to the queued response for
+// that table.
 
-let queryResult: unknown
+let responses: Record<string, unknown[]>
 
 const fromMock = vi.fn()
 
@@ -21,29 +25,34 @@ vi.mock('@plato/schema', () => ({
 
 import { assignResourceToAllocation, unassignResourceFromAllocation } from '../schedule'
 
-function makeUpdateSelectChain(resolveWith: unknown) {
-  const select = vi.fn().mockResolvedValue(resolveWith)
-  const eq = vi.fn().mockReturnValue({ select })
-  const update = vi.fn().mockReturnValue({ eq })
-  return { update }
+function makeChain(result: unknown) {
+  const chain: Record<string, unknown> = {}
+  const methods = ['select', 'update', 'eq', 'is', 'maybeSingle']
+  for (const m of methods) {
+    chain[m] = vi.fn().mockReturnValue(chain)
+  }
+  // Make the chain awaitable, resolving to `result`.
+  ;(chain as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve(result)
+  return chain
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  queryResult = { data: [{ allocation_id: 'alloc-1' }], error: null }
+  responses = {
+    resource_period_allocations: [{ data: [{ allocation_id: 'alloc-1' }], error: null }],
+    resource_team_assignments: [{ error: null }],
+  }
+  fromMock.mockImplementation((table: string) => {
+    const queue = responses[table] ?? [{ data: [], error: null }]
+    const next = queue.length > 1 ? queue.shift() : queue[0]
+    return makeChain(next)
+  })
 })
-
-function setupMock() {
-  fromMock.mockImplementation(() => makeUpdateSelectChain(queryResult))
-}
 
 // ── assignResourceToAllocation ────────────────────────────────────────────────
 
 describe('assignResourceToAllocation', () => {
   it('updates resource_id and returns success', async () => {
-    queryResult = { data: [{ allocation_id: 'alloc-1' }], error: null }
-    setupMock()
-
     const result = await assignResourceToAllocation('alloc-1', 'res-abc')
 
     expect(result.success).toBe(true)
@@ -51,9 +60,15 @@ describe('assignResourceToAllocation', () => {
     expect(fromMock).toHaveBeenCalledWith('resource_period_allocations')
   })
 
+  it('migrates TBC team assignments to the newly assigned resource', async () => {
+    const result = await assignResourceToAllocation('alloc-1', 'res-abc')
+
+    expect(result.success).toBe(true)
+    expect(fromMock).toHaveBeenCalledWith('resource_team_assignments')
+  })
+
   it('returns { success: false } when allocationId not found (empty data)', async () => {
-    queryResult = { data: [], error: null }
-    setupMock()
+    responses.resource_period_allocations = [{ data: [], error: null }]
 
     const result = await assignResourceToAllocation('nonexistent', 'res-abc')
 
@@ -62,8 +77,7 @@ describe('assignResourceToAllocation', () => {
   })
 
   it('returns { success: false } on DB error', async () => {
-    queryResult = { data: null, error: { message: 'foreign key violation' } }
-    setupMock()
+    responses.resource_period_allocations = [{ data: null, error: { message: 'foreign key violation' } }]
 
     const result = await assignResourceToAllocation('alloc-1', 'bad-resource')
 
@@ -76,8 +90,10 @@ describe('assignResourceToAllocation', () => {
 
 describe('unassignResourceFromAllocation', () => {
   it('sets resource_id to null and returns success', async () => {
-    queryResult = { data: [{ allocation_id: 'alloc-2' }], error: null }
-    setupMock()
+    responses.resource_period_allocations = [
+      { data: { resource_id: 'res-abc', period_id: 'period-1' }, error: null },
+      { data: [{ allocation_id: 'alloc-2' }], error: null },
+    ]
 
     const result = await unassignResourceFromAllocation('alloc-2')
 
@@ -86,9 +102,32 @@ describe('unassignResourceFromAllocation', () => {
     expect(fromMock).toHaveBeenCalledWith('resource_period_allocations')
   })
 
-  it('returns { success: false } when allocationId not found (empty data)', async () => {
-    queryResult = { data: [], error: null }
-    setupMock()
+  it('migrates named team assignments to the now-TBC allocation', async () => {
+    responses.resource_period_allocations = [
+      { data: { resource_id: 'res-abc', period_id: 'period-1' }, error: null },
+      { data: [{ allocation_id: 'alloc-2' }], error: null },
+    ]
+
+    const result = await unassignResourceFromAllocation('alloc-2')
+
+    expect(result.success).toBe(true)
+    expect(fromMock).toHaveBeenCalledWith('resource_team_assignments')
+  })
+
+  it('skips team migration when there was no previous resource', async () => {
+    responses.resource_period_allocations = [
+      { data: { resource_id: null, period_id: 'period-1' }, error: null },
+      { data: [{ allocation_id: 'alloc-2' }], error: null },
+    ]
+
+    const result = await unassignResourceFromAllocation('alloc-2')
+
+    expect(result.success).toBe(true)
+    expect(fromMock).not.toHaveBeenCalledWith('resource_team_assignments')
+  })
+
+  it('returns { success: false } when allocationId not found (no existing row)', async () => {
+    responses.resource_period_allocations = [{ data: null, error: null }]
 
     const result = await unassignResourceFromAllocation('nonexistent')
 
@@ -96,9 +135,20 @@ describe('unassignResourceFromAllocation', () => {
     expect(result.error).toContain('not found')
   })
 
-  it('returns { success: false } on DB error', async () => {
-    queryResult = { data: null, error: { message: 'permission denied' } }
-    setupMock()
+  it('returns { success: false } on fetch error', async () => {
+    responses.resource_period_allocations = [{ data: null, error: { message: 'permission denied' } }]
+
+    const result = await unassignResourceFromAllocation('alloc-2')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('permission denied')
+  })
+
+  it('returns { success: false } on update error', async () => {
+    responses.resource_period_allocations = [
+      { data: { resource_id: 'res-abc', period_id: 'period-1' }, error: null },
+      { data: null, error: { message: 'permission denied' } },
+    ]
 
     const result = await unassignResourceFromAllocation('alloc-2')
 

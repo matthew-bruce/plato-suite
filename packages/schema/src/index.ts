@@ -14,6 +14,7 @@ export type {
 } from './types/schedule'
 
 export { getSchedulePageData } from './queries/schedule'
+export { computeUnallocatedPct } from './utils/schedule'
 
 export type { PeriodSummary, AttentionItem, HomepageData } from './types/homepage'
 export { getHomepageData } from './queries/homepage'
