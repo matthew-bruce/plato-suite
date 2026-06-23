@@ -232,6 +232,62 @@ Two completely separate concepts. No shared table. No FK between them.
 
 **Dropped.** Cost codes (Planview-style BAU/F_GOV/PR) are not Plato's concern. Planview owns that. No `cost_codes` table.
 
+### 1.13 Migrations 016–018
+
+**016 — `rta_tbc_unique`/`rta_named_unique` exclude soft-deleted rows.** Both
+partial unique indexes on `resource_team_assignments` now add
+`AND deleted_at IS NULL` to their `WHERE` clause:
+
+```sql
+CREATE UNIQUE INDEX rta_named_unique ON resource_team_assignments (resource_id, team_id, period_id)
+  WHERE (resource_id IS NOT NULL AND deleted_at IS NULL);
+CREATE UNIQUE INDEX rta_tbc_unique ON resource_team_assignments (allocation_id, team_id)
+  WHERE (resource_id IS NULL AND allocation_id IS NOT NULL AND deleted_at IS NULL);
+```
+
+Without `deleted_at IS NULL`, a soft-deleted row still counted toward the
+unique key, so re-inserting the same `(resource_id, team_id, period_id)` (or
+`(allocation_id, team_id)`) combination — e.g. re-assigning the same person
+to the same team after an edit — hit a unique-violation against its own
+soft-deleted predecessor. The index has to mirror the soft-delete filter the
+rest of the app applies, or soft delete silently blocks re-insertion forever.
+
+**017 — `update_team_assignments` RPC.** Atomic replace of a resource's (or a
+TBC allocation's) team assignments in one round trip, instead of a
+client-side delete-then-insert that could partially fail.
+
+```sql
+update_team_assignments(
+  p_resource_id    uuid,
+  p_period_id      uuid,
+  p_allocation_id  uuid,
+  p_assignments    jsonb
+) RETURNS void
+```
+
+If `p_allocation_id` is provided, it soft-deletes existing TBC rows for that
+allocation (`resource_id IS NULL`) and inserts the new set keyed on
+`allocation_id`. Otherwise it soft-deletes existing rows for
+`(resource_id, period_id)` and inserts the new set keyed on `resource_id`.
+`p_assignments` is a JSON array of `{ team_id, capacity_split }` (capacity
+split given 0–100, divided by 100 on insert).
+
+**018 — Open write policies on 14 named reference/lookup tables.** Added
+`ALL`/`true` RLS write policies (`"Open write — dev phase (ADR-031)"`) to:
+`arts`, `disciplines`, `infrastructures`, `org_containers`, `organisations`,
+`periods`, `planning_increments`, `platform_cost_items`,
+`resource_period_allocations`, `resource_skills`,
+`resource_team_assignments`, `resources`, `role_definitions`, `roles`,
+`skills`, `suppliers`, `team_workstreams`. (Several of these already had open
+*read* policies from earlier migrations; 018 is what opened *write*.)
+
+**Deliberately excluded — still locked pending real auth design:** `users`
+(superuser/self-access policies only), `cost_configurations` (superuser-only
+write, open read), `supplier_rate_cards` (superuser-only, no open policy at
+all). These three carry the most commercially/identity-sensitive data in the
+schema and must not get a blanket open-write policy just because the rest of
+the dev-phase tables did.
+
 ---
 
 ## Section 2 — Decisions OPEN
@@ -325,6 +381,38 @@ Pick one before exposing the resources list to non-superusers.
   Discipline seed values to be confirmed before this file is written.
 - Add `packages/schema/migrations/README.md` explaining the
   immutable-baseline convention.
+
+---
+
+## Section 4a — Known gotchas
+
+Accumulated failure modes worth checking before assuming a new bug is novel.
+
+- **SUMPRODUCT is poisoned by a single text cell.** Excel's `SUMPRODUCT`
+  raises `#VALUE!` if *any* cell in any of its operand ranges is text —
+  including an empty-string `''` placeholder or a text header row caught by
+  an off-by-one range. Unlike `SUM`/`SUBTOTAL`, which silently skip/ignore
+  text cells, `SUMPRODUCT` does elementwise array arithmetic and has no such
+  tolerance. When building exported spreadsheets with mixed
+  numeric/placeholder rows (e.g. resource rows followed by cost-item summary
+  rows), any `SUMPRODUCT` range must start strictly after the header row and
+  exclude any appended rows that pad numeric columns with `''`.
+
+- **The "dead auth-gated RLS policy" trap.** A table can have a correct
+  `plato_is_superuser()` (or similar role-gated) RLS policy and *still* be
+  fully readable/writable by anyone, if a separate open policy
+  (`USING (true)`) also exists on the same table for the same command. RLS
+  policies are OR'd together per command — adding a tightly-scoped policy
+  does not retract a previously-added open one. Before treating a table as
+  "properly locked down," check `pg_policies` for *every* policy on that
+  table, not just the one that looks intentional.
+
+- **Partial unique indexes backing soft-delete patterns need
+  `deleted_at IS NULL` in the `WHERE` clause.** A partial unique index that
+  enforces uniqueness on an active-row key (e.g. one team assignment per
+  resource per period) must also filter `deleted_at IS NULL`, or a
+  soft-deleted row permanently blocks re-insertion of the same key. See
+  migration 016 (1.13) for the concrete incident this caused.
 
 ---
 

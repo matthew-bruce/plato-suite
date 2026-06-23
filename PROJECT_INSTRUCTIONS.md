@@ -139,6 +139,10 @@ period-scoped rows.
   workstream membership — not yet implemented
 - Remaining teams need Q4 period-scoped team assignment backfill
 - VAT uplift UI bug: incorrectly applied to RMG resources on schedule page
+- **Team Cosmos is empty in Q2 FY 26/27** — operationally replaced by new
+  Team Sagan. Retain/retire/repurpose decision for Cosmos still pending
+  from Matt — do not assume it should be deleted or hidden until that
+  decision is made.
 
 ---
 
