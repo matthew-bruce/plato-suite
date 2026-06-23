@@ -73,7 +73,7 @@ the active build priority and the primary reference client implementation.
 Always verify project ID before any DDL or destructive SQL.
 The correct live project is **always** `nwltpivvqynkfghazjpi`.
 
-### Seeded data state (as of May 2026)
+### Seeded data state (as of June 2026)
 
 **Periods (all correct):**
 - Q4 FY 25/26 · 1 Jan 2026 – 31 Mar 2026 · Closed
@@ -81,7 +81,8 @@ The correct live project is **always** `nwltpivvqynkfghazjpi`.
 - Q2 FY 26/27 · 1 Jul 2026 – 30 Sep 2026 · Draft
 
 **Teams (Web Platform):** Janus, Orion, Pulsar, Nebula, Helios, Cosmos,
-Cygnus, DST
+Cygnus, DST, ETP, Pluto (decommissioned — no deleted_at, filtered by
+absence of current-state assignments), Shared Resources
 
 **Workstreams (Web Platform):**
 - Web & App (WAA) — T4B — Janus, Nebula, Cosmos, Cygnus
@@ -89,27 +90,34 @@ Cygnus, DST
 - Platform Engineering — T4T — Helios
 - External — T4T — DST
 
-**Schedule data:** Q4 FY 25/26 has 74 allocations (69 named + 5 TBC/Vacant),
-fully reconciled against the original Day Rate Calculator spreadsheet in
-May 2026. Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
+**Schedule data:** Q4 FY 25/26 fully reconciled. Q1 FY 26/27 cloned
+from Q4 as starting point (75 allocation rows). Q2 FY 26/27 team
+assignments cloned from current-state, no allocations yet.
 
-**Q4 FY 25/26 reconciliation status (May 2026):**
-- North Highland: ✅ reconciled
-- Lean Tree: ✅ reconciled
-- Happy Team: ✅ reconciled — Natalia Zalewska added (was missing)
-- TAAS: ✅ reconciled — Ankit Singh at 90% utilisation, £400/day
-- Capgemini: ✅ reconciled — 34 named + 1 TBC (DevOps Senior Consultant).
-  Dipti Chaudhari Q4 allocation soft-deleted (was not on Q4 schedule).
-  Amol Tate has two rows: offshore (9 days, F_Gov) + UK (45 days, F_Gov).
-  Dipti Chaudhari resource record retained — rate needs confirming before
-  she appears on any future schedule.
-- RMG: ✅ reconciled — 11 named + 4 TBC (Programme Manager, Senior SW
-  Engineer F_Gov, Test Manager, Test Engineer). DB total (£379,763) is
-  higher than original spreadsheet (£306,683) because the spreadsheet had
-  a formula error excluding Paul Williams and Selen Hamilton (both F_Gov,
-  both correct at £580/day × 63 days). DB is the correct source of truth.
-- VAT uplift incorrectly applied to RMG internal resources in the schedule
-  page UI — known issue, parked, to fix in a UI pass.
+**Q4 FY 25/26 reconciliation (June 2026 — COMPLETE):**
+- All 6 suppliers reconciled to spreadsheet BASE totals exactly.
+- Grand total BASE: £1,822,134.56 ✅ (exact match)
+- Grand total +VAT: £1,921,477.15 (app) vs £1,921,505.26 (spreadsheet)
+  — £28.11 residual difference = acceptable pence-level rounding.
+- VAT rate stored as 7.082% (3dp) in cost_configurations — corrected
+  from 7.08% which caused the rounding gap.
+- RMG contractors (Semiu Salawu, TBC Programme Manager, TBC Test Manager,
+  TBC Test Engineer) correctly attract VAT via vat_applies = true.
+  RMG FTEs (11 named) have vat_applies = false.
+- TBC DevOps Senior Consultant (CG) role_title corrected to
+  "Non-Factory Service Engineer".
+- Dipti Borole (formerly Deepti Borole / Dipti Chaudhari) — merged to
+  single resource record "Dipti Borole", old "Dipti Chaudhari" record
+  soft-deleted.
+
+**Q4 FY 25/26 team assignment backfill — COMPLETE:**
+All teams fully backfilled with period-scoped rows for Q4:
+Janus ✅, Nebula ✅, Orion ✅, Cosmos ✅, Cygnus ✅, Pluto ✅,
+DST ✅, Shared Resources ✅, ETP ✅ (Emil Nowak 50%)
+Pulsar and Helios: not applicable for Q4 (came into use Q1 FY 26/27)
+
+**Q1 FY 26/27 team assignments:** Cloned from current-state (NULL
+period_id rows) — 78 rows covering all active teams.
 
 **Migration history (Nucleus, applied to `nwltpivvqynkfghazjpi`):**
 
@@ -122,23 +130,43 @@ May 2026. Q1 FY 26/27 and Q2 FY 26/27 have no allocations yet.
 | 005_schedule_display_fields | role_title and planview_code snapshot columns on resource_period_allocations |
 | 006_rpa_nullable_resource_id | resource_id nullable on resource_period_allocations (TBC/Vacant slots) |
 | 007_rpa_supplier_id | supplier_id added to resource_period_allocations; backfilled for all rows; CHECK constraint: resource_id IS NOT NULL OR supplier_id IS NOT NULL |
+| 008_platform_cost_items | platform_cost_items table — period-scoped ad-hoc platform costs with inline CRUD |
+| 009_rpa_vat_applies | vat_applies BOOLEAN on resource_period_allocations — explicit per-row VAT flag replacing supplier name inference |
+| 010_cost_config_vat_precision | vat_uplift_percent and on_costs_uplift_percent widened to NUMERIC(10,5) |
 
-**Team assignment backfill status (Q4 FY 25/26):**
-Period-scoped `resource_team_assignments` rows (period_id = Q4) exist for:
-- Janus: 13 rows ✅
-- Nebula: 10 rows ✅ (Dipti Chaudhari excluded)
-All other teams (Orion, Pulsar, Cosmos, Cygnus, Helios, DST): not yet
-backfilled — will show "No team" on Q4 schedule until populated.
-Current-state assignments (period_id IS NULL) remain untouched alongside
-period-scoped rows.
+**platform_cost_items — Q4 FY 25/26 (3 rows seeded):**
+- Camel Resources: £68,200
+- SLZ: £47,080
+- Late Timesheets from 24/25: £19,220
+Q1 and Q2 have no cost items — these were Q4-specific recovered costs.
 
-**Known data issues to resolve:**
-- Q1 FY 26/27 schedule not yet populated
-- TCS resources not yet seeded (0 named TCS people)
+**vat_applies flag — rules:**
+- `false`: RMG internal FTEs (Matthew Bruce, Paul Williams, Selen Hamilton,
+  Mike James, Ajmal Malik, Justin Fox, Anjusmita Choudhury, Dipti Devanga,
+  James Baxter, Leopold Kwok, Rohith Nair) + TBC Senior SW Eng F_Gov
+- `true`: ALL external suppliers + RMG contractors (Semiu Salawu,
+  TBC Programme Manager, TBC Test Manager, TBC Test Engineer)
+- Default for new rows: `true`
+
+**Known issues to resolve (next session):**
+- Ad-hoc items not period-scoped in UI — adding/deleting affects all
+  periods including closed ones. Bug: platform_cost_items correctly has
+  period_id but the UI mutation does not filter by current period.
+- Period selector on schedule does not reload ad-hoc items without a
+  hard refresh — client state not resetting on period change.
+- Inline CRUD for resource/allocation rows not visibly working in UI
+  despite being implemented — needs investigation.
+- Q1 FY 26/27 allocations need review — cloned from Q4 but capacity_days
+  need updating for Q1 working days (65) and any starters/leavers.
+- TCS resources not yet seeded (0 named TCS people).
 - Orion workstream change (OOH → WAA in Q2) requires date-bounded
-  workstream membership — not yet implemented
-- Remaining teams need Q4 period-scoped team assignment backfill
-- VAT uplift UI bug: incorrectly applied to RMG resources on schedule page
+  workstream membership — not yet implemented.
+- resource_id NOT NULL on resource_team_assignments — blocks vacant role
+  team assignment until migration to make it nullable.
+- team_id snapshot column on resource_period_allocations not yet
+  implemented (deferred — full design discussion completed this session,
+  decision: nullable FK with soft-deleted teams, same pattern as
+  supplier_id on migration 007).
 - **Team Cosmos is empty in Q2 FY 26/27** — operationally replaced by new
   Team Sagan. Retain/retire/repurpose decision for Cosmos still pending
   from Matt — do not assume it should be deleted or hidden until that
