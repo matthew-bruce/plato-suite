@@ -441,8 +441,8 @@ export function SchedulePageClient({ data }: Props) {
     )
   }
 
-  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null): void {
-    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName, resourceLocation })
+  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }): void {
+    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName, resourceLocation, capacityDays: seat?.capacityDays ?? null, dayRate: seat?.dayRate, teamNames: seat?.teamNames })
   }
 
   async function handleUnassignResource(allocationId: string): Promise<void> {
@@ -803,8 +803,10 @@ export function SchedulePageClient({ data }: Props) {
       defaultSupplierColour={wizardSupplier?.supplierColour ?? '#8F9495'}
       activeSupplierFilter={selectedSuppliers}
       activeTeamFilter={teamFilter}
+      periodWorkingDays={workingDays}
       assignMode={assignWizardTarget ?? undefined}
       onAssignSuccess={handleAssignSuccess}
+      onConflictResolved={() => router.refresh()}
       onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
@@ -1104,7 +1106,7 @@ function ScheduleTable({
   editingSchedule: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -1510,7 +1512,7 @@ function SupplierSection({
   locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -2468,7 +2470,7 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   dragHandleSlot?: React.ReactNode
@@ -2570,7 +2572,7 @@ function AllocationRow({
               {tbc ? (
                 <button
                   type="button"
-                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name, row.resource_location)}
+                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name, row.resource_location, { capacityDays: row.capacity_days, dayRate: row.day_rate, teamNames: (row.teams ?? []).map((t) => t.teamName) })}
                   title="Assign resource"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: 'var(--rmg-color-grey-1)', background: 'transparent', border: '1px dashed var(--rmg-color-grey-2)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >

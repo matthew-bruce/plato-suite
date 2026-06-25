@@ -10,18 +10,25 @@ import {
   updateTeamAssignments,
   insertResource,
   getTeamAssignments,
+  findResourcePeriodConflicts,
+  connectKeepExisting,
+  connectUseVacant,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
   SupplierOption,
   TeamOption,
   CheckPeriodRow,
+  ConflictAllocation,
 } from '@/app/actions/schedule-wizard'
 import {
   assignResourceToAllocation,
   unassignResourceFromAllocation,
 } from '@/app/actions/schedule'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
+import { formatMoneyPence } from '@/lib/schedule/format'
+import { computeConflictDayMath } from '@/lib/schedule/conflictDayMath'
+import type { ConflictDayMath } from '@/lib/schedule/conflictDayMath'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -100,6 +107,11 @@ export interface AssignModeConfig {
   supplierId: string | null
   supplierName: string | null
   resourceLocation?: ResourceLocation | null
+  /** The vacant seat's own figures, shown in the same-period conflict dialog
+   *  when the resource being assigned already holds another allocation. */
+  capacityDays?: number | null
+  dayRate?: number
+  teamNames?: string[]
 }
 
 export interface AddResourceWizardProps {
@@ -110,9 +122,16 @@ export interface AddResourceWizardProps {
   defaultSupplierColour: string
   activeSupplierFilter: string[]
   activeTeamFilter: string
+  /** Period's standard working days, used by the same-period conflict dialog's
+   *  day-math framing. */
+  periodWorkingDays: number
   /** When set the wizard operates in assign-only mode (no new allocation is created). */
   assignMode?: AssignModeConfig
   onAssignSuccess?: (allocationId: string, resourceId: string | null, resourceName: string | null) => void
+  /** Called after a same-period conflict is resolved by merging records (the
+   *  "Connect and…" options), which soft-delete one row and rewrite another —
+   *  the parent should re-fetch to reflect the merged state. */
+  onConflictResolved?: () => void
   onClose: () => void
   onSuccess: (data: WizardSuccessPayload) => void
 }
@@ -194,8 +213,10 @@ export function AddResourceWizard({
   defaultSupplierColour,
   activeSupplierFilter,
   activeTeamFilter,
+  periodWorkingDays,
   assignMode,
   onAssignSuccess,
+  onConflictResolved,
   onClose,
   onSuccess,
 }: AddResourceWizardProps) {
@@ -240,6 +261,16 @@ export function AddResourceWizard({
   const [duplicateAdvisory, setDuplicateAdvisory] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Same-period conflict dialog: shown when an already-recognised resource is
+  // about to be connected while it already holds another active allocation in
+  // this period. Variant A = filling a vacant seat (comparison + four options),
+  // variant B = creating a new role (two options). Never a hard block.
+  const [conflictDialog, setConflictDialog] = useState<{
+    variant: 'A' | 'B'
+    conflicts: ConflictAllocation[]
+    dayMath: ConflictDayMath
+  } | null>(null)
 
   // Load suppliers + teams when modal opens
   useEffect(() => {
@@ -291,6 +322,7 @@ export function AddResourceWizard({
       setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
       setDuplicateAdvisory(null)
       setSubmitError(null)
+      setConflictDialog(null)
       setNewPersonName('')
       setForm(defaultForm())
     }
@@ -515,7 +547,7 @@ export function AddResourceWizard({
     )
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(bypassConflict = false) {
     setIsSubmitting(true)
     setSubmitError(null)
 
@@ -541,6 +573,27 @@ export function AddResourceWizard({
       }
 
       if (mode === 'existing' && selectedResource) {
+        // Same-period conflict check (variant A — filling a vacant seat). Skip
+        // the vacant seat itself via excludeAllocationId.
+        if (!bypassConflict) {
+          let conflicts: ConflictAllocation[] = []
+          try {
+            conflicts = await findResourcePeriodConflicts(selectedResource.resource_id, periodId, allocationId)
+          } catch {
+            // If the check fails, fall through and assign as normal.
+          }
+          if (conflicts.length > 0) {
+            const dayMath = computeConflictDayMath(
+              conflicts.map((c) => c.capacity_days),
+              assignMode!.capacityDays ?? 0,
+              periodWorkingDays,
+            )
+            setIsSubmitting(false)
+            setConflictDialog({ variant: 'A', conflicts, dayMath })
+            return
+          }
+        }
+
         const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
         if (!result.success) {
           setIsSubmitting(false)
@@ -642,6 +695,28 @@ export function AddResourceWizard({
       return
     }
 
+    // Same-period conflict check (variant B — creating a new role for an
+    // already-recognised resource, no vacant seat to compare against). The new
+    // allocation's capacity_days defaults to 0 (set inline after adding).
+    if (mode === 'existing' && selectedResource && !bypassConflict) {
+      let conflicts: ConflictAllocation[] = []
+      try {
+        conflicts = await findResourcePeriodConflicts(selectedResource.resource_id, periodId, null)
+      } catch {
+        // If the check fails, fall through and create as normal.
+      }
+      if (conflicts.length > 0) {
+        const dayMath = computeConflictDayMath(
+          conflicts.map((c) => c.capacity_days),
+          0,
+          periodWorkingDays,
+        )
+        setIsSubmitting(false)
+        setConflictDialog({ variant: 'B', conflicts, dayMath })
+        return
+      }
+    }
+
     const realTeamAssignments = teamRows
       .filter((r) => r.teamId !== '')
       .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
@@ -694,6 +769,53 @@ export function AddResourceWizard({
       teams: teamPayload,
       displayOrder: result.displayOrder ?? null,
     })
+  }
+
+  /* ── Same-period conflict resolution (variant A "Connect and…" options) ── */
+
+  async function handleConnectKeepExisting() {
+    if (!isAssignMode || !assignMode || !selectedResource) return
+    setIsSubmitting(true)
+    setSubmitError(null)
+    const result = await connectKeepExisting(
+      selectedResource.resource_id,
+      periodId,
+      assignMode.allocationId,
+    )
+    setIsSubmitting(false)
+    if (!result.success) {
+      setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+      return
+    }
+    setConflictDialog(null)
+    onConflictResolved?.()
+    onClose()
+  }
+
+  async function handleConnectUseVacant() {
+    if (!isAssignMode || !assignMode || !selectedResource || !conflictDialog) return
+    // The superseded standalone row is the resource's other active allocation.
+    // (A resource holding several is the rare case; the first is superseded and
+    // the rest are left untouched — still no hard block.)
+    const supersededId = conflictDialog.conflicts[0]?.allocation_id
+    if (!supersededId) return
+    setIsSubmitting(true)
+    setSubmitError(null)
+    const result = await connectUseVacant(
+      selectedResource.resource_id,
+      periodId,
+      assignMode.allocationId,
+      supersededId,
+      form.resourceLocation,
+    )
+    setIsSubmitting(false)
+    if (!result.success) {
+      setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+      return
+    }
+    setConflictDialog(null)
+    onConflictResolved?.()
+    onClose()
   }
 
   if (!open) return null
@@ -1004,7 +1126,7 @@ export function AddResourceWizard({
             {step === 3 && (
               <button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => handleSubmit()}
                 disabled={isSubmitting}
                 style={isSubmitting ? btnDisabled : btnPrimary}
               >
@@ -1013,6 +1135,273 @@ export function AddResourceWizard({
             )}
           </div>
         </div>
+      </div>
+
+      {conflictDialog && (
+        <ConflictDialog
+          variant={conflictDialog.variant}
+          dayMath={conflictDialog.dayMath}
+          existing={conflictDialog.conflicts[0] ?? null}
+          resourceName={selectedResource?.resource_name ?? '—'}
+          vacantSeat={
+            isAssignMode && assignMode
+              ? {
+                  roleTitle: assignMode.roleTitle || '—',
+                  capacityDays: assignMode.capacityDays ?? null,
+                  dayRate: assignMode.dayRate ?? 0,
+                  teamNames: assignMode.teamNames ?? [],
+                }
+              : null
+          }
+          isSubmitting={isSubmitting}
+          onKeepExisting={handleConnectKeepExisting}
+          onUseVacant={handleConnectUseVacant}
+          onKeepBoth={() => {
+            setConflictDialog(null)
+            handleSubmit(true)
+          }}
+          onCancel={() => setConflictDialog(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Same-period conflict dialog ─────────────────────────── */
+
+interface VacantSeatSummary {
+  roleTitle: string
+  capacityDays: number | null
+  dayRate: number
+  teamNames: string[]
+}
+
+function dayLabel(days: number | null): string {
+  if (days === null) return '— days'
+  return `${days} day${days === 1 ? '' : 's'}`
+}
+
+function teamLabel(names: string[]): string {
+  return names.length > 0 ? names.join(', ') : 'No team'
+}
+
+/** One labelled record card used in the variant-A side-by-side comparison. */
+function ConflictRecordCard({
+  heading,
+  role,
+  teams,
+  capacityDays,
+  dayRate,
+  emphasised,
+}: {
+  heading: string
+  role: string
+  teams: string
+  capacityDays: number | null
+  dayRate: number
+  emphasised: boolean
+}) {
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    fontSize: 12,
+    marginTop: 4,
+  }
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 0,
+        background: 'var(--rmg-color-white)',
+        border: emphasised
+          ? '1.5px solid rgba(218,32,42,0.22)'
+          : '1px solid var(--rmg-color-grey-3)',
+        borderRadius: 8,
+        padding: '10px 12px',
+      }}
+    >
+      <p
+        style={{
+          margin: '0 0 6px',
+          fontSize: 11,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          color: 'var(--rmg-color-grey-1)',
+        }}
+      >
+        {heading}
+      </p>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--rmg-color-text-heading)' }}>
+        {role || '—'}
+      </p>
+      <div style={rowStyle}>
+        <span style={{ color: 'var(--rmg-color-grey-1)' }}>Team</span>
+        <span style={{ color: 'var(--rmg-color-text-body)', textAlign: 'right' }}>{teams}</span>
+      </div>
+      <div style={rowStyle}>
+        <span style={{ color: 'var(--rmg-color-grey-1)' }}>Capacity</span>
+        <span style={{ color: 'var(--rmg-color-text-body)' }}>{dayLabel(capacityDays)}</span>
+      </div>
+      <div style={rowStyle}>
+        <span style={{ color: 'var(--rmg-color-grey-1)' }}>Rate</span>
+        <span style={{ color: 'var(--rmg-color-text-body)' }}>{formatMoneyPence(dayRate)}/day</span>
+      </div>
+    </div>
+  )
+}
+
+function ConflictDialog({
+  variant,
+  dayMath,
+  existing,
+  resourceName,
+  vacantSeat,
+  isSubmitting,
+  onKeepExisting,
+  onUseVacant,
+  onKeepBoth,
+  onCancel,
+}: {
+  variant: 'A' | 'B'
+  dayMath: ConflictDayMath
+  existing: ConflictAllocation | null
+  resourceName: string
+  vacantSeat: VacantSeatSummary | null
+  isSubmitting: boolean
+  onKeepExisting: () => void
+  onUseVacant: () => void
+  onKeepBoth: () => void
+  onCancel: () => void
+}) {
+  const overlay: React.CSSProperties = {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(42, 42, 45, 0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10000,
+  }
+  const card: React.CSSProperties = {
+    background: 'var(--rmg-color-white)',
+    borderRadius: 12,
+    width: 480,
+    maxWidth: 'calc(100vw - 32px)',
+    maxHeight: 'calc(100vh - 64px)',
+    overflowY: 'auto',
+    boxShadow: '0 8px 40px rgba(0,0,0,0.22)',
+    fontFamily: 'var(--rmg-font-body)',
+    padding: '20px',
+  }
+
+  // Shared button styles — emphasised (recommended) vs muted (de-emphasised)
+  // follow the codebase conventions (ADR-023, inline styles, --rmg-* tokens).
+  const btnBlock: React.CSSProperties = {
+    width: '100%',
+    textAlign: 'left',
+    borderRadius: 6,
+    padding: '10px 14px',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+    fontFamily: 'var(--rmg-font-body)',
+    marginBottom: 8,
+  }
+  const btnEmphasised: React.CSSProperties = {
+    ...btnBlock,
+    background: ACTIVE_RED,
+    color: 'var(--rmg-color-white)',
+    border: 'none',
+  }
+  const btnNeutral: React.CSSProperties = {
+    ...btnBlock,
+    background: 'var(--rmg-color-black)',
+    color: 'var(--rmg-color-white)',
+    border: 'none',
+  }
+  const btnMuted: React.CSSProperties = {
+    ...btnBlock,
+    background: 'transparent',
+    color: 'var(--rmg-color-grey-1)',
+    border: '1px solid var(--rmg-color-grey-2)',
+  }
+
+  // Over capacity → keeping the existing details is recommended; fitting within
+  // a normal quarter → keeping both rows separate is recommended.
+  const keepExistingStyle = dayMath.overCapacity ? btnEmphasised : btnMuted
+  const keepBothStyle = dayMath.overCapacity ? btnMuted : btnEmphasised
+
+  const framing = (
+    <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--rmg-color-text-body)', lineHeight: 1.45 }}>
+      {resourceName} already has {dayMath.existingCount} other active allocation
+      {dayMath.existingCount === 1 ? '' : 's'} this period totalling{' '}
+      {dayMath.existingTotalCapacityDays} day{dayMath.existingTotalCapacityDays === 1 ? '' : 's'}.
+      With this row that is{' '}
+      <strong style={{ color: dayMath.overCapacity ? ACTIVE_RED : 'var(--rmg-color-text-heading)' }}>
+        {dayMath.combinedCapacityDays} of {dayMath.periodWorkingDays} working days
+      </strong>{' '}
+      in this period
+      {dayMath.overCapacity ? ' — over a full quarter.' : '.'}
+    </p>
+  )
+
+  return (
+    <div style={overlay} onClick={(e) => e.stopPropagation()}>
+      <div style={card} onClick={(e) => e.stopPropagation()}>
+        <p style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, color: 'var(--rmg-color-text-heading)' }}>
+          {resourceName} is already on this period&apos;s schedule
+        </p>
+
+        {framing}
+
+        {variant === 'A' && vacantSeat && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <ConflictRecordCard
+              heading="Vacant seat"
+              role={vacantSeat.roleTitle}
+              teams={teamLabel(vacantSeat.teamNames)}
+              capacityDays={vacantSeat.capacityDays}
+              dayRate={vacantSeat.dayRate}
+              emphasised={!dayMath.overCapacity}
+            />
+            <ConflictRecordCard
+              heading="Existing entry"
+              role={existing?.role_title ?? '—'}
+              teams={teamLabel(existing?.team_names ?? [])}
+              capacityDays={existing?.capacity_days ?? null}
+              dayRate={existing?.day_rate ?? 0}
+              emphasised={dayMath.overCapacity}
+            />
+          </div>
+        )}
+
+        {variant === 'A' ? (
+          <>
+            <button type="button" style={keepExistingStyle} disabled={isSubmitting} onClick={onKeepExisting}>
+              Connect and keep existing details
+            </button>
+            <button type="button" style={btnNeutral} disabled={isSubmitting} onClick={onUseVacant}>
+              Connect and use vacant seat details
+            </button>
+            <button type="button" style={keepBothStyle} disabled={isSubmitting} onClick={onKeepBoth}>
+              Keep both as separate rows
+            </button>
+            <button type="button" style={btnMuted} disabled={isSubmitting} onClick={onCancel}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" style={keepBothStyle} disabled={isSubmitting} onClick={onKeepBoth}>
+              Keep both as separate rows
+            </button>
+            <button type="button" style={btnMuted} disabled={isSubmitting} onClick={onCancel}>
+              Cancel
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
