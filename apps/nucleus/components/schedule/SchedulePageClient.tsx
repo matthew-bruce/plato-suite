@@ -63,6 +63,8 @@ import {
   getTextColour,
   withAlpha,
   sortAllocations as sortByColumn,
+  sumFilteredDays,
+  formatDaysTotal,
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
@@ -1085,6 +1087,8 @@ function ScheduleTable({
     }, 0)
   }, 0)
 
+  const footerDays = sumFilteredDays(groups, activeTeamFilter)
+
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
 
@@ -1179,9 +1183,12 @@ function ScheduleTable({
         >
           <div
             className={styles.bandLeft}
-            style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
+            style={{ gridColumn: '1 / span 8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
           >
             {footerLabel}
+          </div>
+          <div style={{ gridColumn: 9 }}>
+            <BandTotal label="Days" value={formatDaysTotal(footerDays)} />
           </div>
           <div style={{ gridColumn: 11 }}>
             <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />

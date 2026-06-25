@@ -1,6 +1,8 @@
 // Pure UI helpers for the Platform Schedule v5 page.
 // Money is stored as integer pence per ADR-029.
 
+import { getCapacitySplit } from '../scheduleUtils'
+
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
   const decimals = opts.decimals ?? 2
   const value = pence / 100
@@ -20,6 +22,34 @@ export function getUtilColour(pct: number): string {
 export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
   return planviewCode !== 'BAU'
+}
+
+interface DaysRow {
+  capacity_days: number | null
+  planview_code: string | null | undefined
+  teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+}
+
+// Sums capacity_days across groups/rows using the same row filter and
+// capacity-split weighting as the BASE/+VAT footer totals (isIncludedInBaseCost
+// + getCapacitySplit), so the Days total stays in lockstep with those figures.
+export function sumFilteredDays<T extends DaysRow>(
+  groups: { rows: T[] }[],
+  activeTeamFilter: string | null,
+): number {
+  return groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
+    }, 0)
+  }, 0)
+}
+
+// Formats a Days total: plain whole numbers, halves keep one decimal,
+// never a forced trailing zero (48 not 48.0, 48.5 stays 48.5).
+export function formatDaysTotal(days: number): string {
+  const rounded = Math.round(days * 10) / 10
+  return rounded.toLocaleString('en-GB', { maximumFractionDigits: 1 })
 }
 
 export function isChargeableRow(planviewCode: string | null | undefined): boolean {
