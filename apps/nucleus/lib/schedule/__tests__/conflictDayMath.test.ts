@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeConflictDayMath } from '../conflictDayMath'
+import { computeConflictDayMath, describeConflictPresentation } from '../conflictDayMath'
 
 // A normal quarter is ~61 working days (see workingDaysBetween / format.ts).
 const PERIOD = 61
@@ -55,5 +55,53 @@ describe('computeConflictDayMath', () => {
     expect(r.existingTotalCapacityDays).toBe(10)
     expect(r.combinedCapacityDays).toBe(10)
     expect(r.overCapacity).toBe(false)
+  })
+})
+
+describe('describeConflictPresentation', () => {
+  // Boundary: exactly one existing row + a vacant seat = 2 total rows.
+  it('1 existing with vacant seat → comparison cards, "both" wording, 4 options', () => {
+    const p = describeConflictPresentation(1, true)
+    expect(p.totalRows).toBe(2)
+    expect(p.layout).toBe('compare')
+    expect(p.showConnectOptions).toBe(true)
+    expect(p.optionCount).toBe(4)
+    expect(p.keepLabel).toBe('Keep both as separate rows')
+  })
+
+  // Boundary: two or more existing rows = 3+ total rows.
+  it('2 existing with vacant seat → list, dynamic count of 3, 2 options only', () => {
+    const p = describeConflictPresentation(2, true)
+    expect(p.totalRows).toBe(3)
+    expect(p.layout).toBe('list')
+    expect(p.showConnectOptions).toBe(false)
+    expect(p.optionCount).toBe(2)
+    expect(p.keepLabel).toBe('Keep all 3 as separate rows')
+  })
+
+  it('3 existing with vacant seat → list, dynamic count of 4', () => {
+    const p = describeConflictPresentation(3, true)
+    expect(p.totalRows).toBe(4)
+    expect(p.layout).toBe('list')
+    expect(p.optionCount).toBe(2)
+    expect(p.keepLabel).toBe('Keep all 4 as separate rows')
+  })
+
+  // No vacant seat (new-role path) never offers the merge options, even for a
+  // single existing row.
+  it('1 existing, no vacant seat → list, "both" wording, 2 options', () => {
+    const p = describeConflictPresentation(1, false)
+    expect(p.totalRows).toBe(2)
+    expect(p.layout).toBe('list')
+    expect(p.showConnectOptions).toBe(false)
+    expect(p.optionCount).toBe(2)
+    expect(p.keepLabel).toBe('Keep both as separate rows')
+  })
+
+  it('2 existing, no vacant seat → list, "Keep all 3" wording, 2 options', () => {
+    const p = describeConflictPresentation(2, false)
+    expect(p.layout).toBe('list')
+    expect(p.keepLabel).toBe('Keep all 3 as separate rows')
+    expect(p.optionCount).toBe(2)
   })
 })

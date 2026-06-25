@@ -6,7 +6,6 @@ import {
   searchResources,
   fetchWizardData,
   createResourceAndAllocation,
-  checkResourceInPeriod,
   updateTeamAssignments,
   insertResource,
   getTeamAssignments,
@@ -18,7 +17,6 @@ import type {
   ResourceSearchResult,
   SupplierOption,
   TeamOption,
-  CheckPeriodRow,
   ConflictAllocation,
 } from '@/app/actions/schedule-wizard'
 import {
@@ -27,7 +25,7 @@ import {
 } from '@/app/actions/schedule'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { formatMoneyPence } from '@/lib/schedule/format'
-import { computeConflictDayMath } from '@/lib/schedule/conflictDayMath'
+import { computeConflictDayMath, describeConflictPresentation } from '@/lib/schedule/conflictDayMath'
 import type { ConflictDayMath } from '@/lib/schedule/conflictDayMath'
 
 /* ── Constants ──────────────────────────────────────────── */
@@ -56,24 +54,23 @@ interface FormState {
   roleTitle: string
   planviewCode: 'PR' | 'F_Gov' | 'BAU'
   resourceLocation: ResourceLocation
+  /** Optional starting capacity in days, as a raw input string ('' = blank →
+   *  defaults to 0, edit inline after adding). New-person / TBC paths only. */
+  capacityDays?: string
+  /** Optional starting day rate in pounds, as a raw input string. */
+  dayRate?: string
 }
 
-interface InProgressRole {
-  roleTitle: string
-  planviewCode: 'PR' | 'F_Gov' | 'BAU'
-  resourceLocation: ResourceLocation
-  supplierId: string
-  supplierName: string
-}
-
-interface ForkInfo {
-  target: ResourceSearchResult
-  rows: CheckPeriodRow[]
-  existingTeams: Array<{ teamId: string; teamName: string; capacitySplit: number }>
-  /** The role being defined in steps 1-2 before the user went back to search
-   *  again (via "Change"), if any — lets the fork panel offer "assign to
-   *  this role" instead of only "edit existing" / "add second row". */
-  inProgressRole: InProgressRole | null
+/** Parse the optional Details-step capacity/rate inputs. Blank stays blank
+ *  (undefined → the row defaults to 0). Days are stored as-is; the day rate is
+ *  entered in pounds and stored as integer pence (matching inline editing). */
+function parseOptionalFigures(form: FormState): { capacityDays?: number; dayRate?: number } {
+  const capStr = form.capacityDays?.trim() ?? ''
+  const rateStr = form.dayRate?.trim() ?? ''
+  return {
+    capacityDays: capStr === '' ? undefined : Math.max(0, parseFloat(capStr) || 0),
+    dayRate: rateStr === '' ? undefined : Math.max(0, Math.round((parseFloat(rateStr) || 0) * 100)),
+  }
 }
 
 /** A "new person" name must be a real name, not the role title it's being
@@ -230,11 +227,8 @@ export function AddResourceWizard({
   const [selectedResource, setSelectedResource] = useState<ResourceSearchResult | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Fork panel (duplicate detection)
+  // Spinner shown while the same-period conflict check runs on pick.
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false)
-  const [showFork, setShowFork] = useState(false)
-  const [forkInfo, setForkInfo] = useState<ForkInfo | null>(null)
-  const [addSecondRowBanner, setAddSecondRowBanner] = useState(false)
 
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
   const [teams, setTeams] = useState<TeamOption[]>([])
@@ -315,9 +309,6 @@ export function AddResourceWizard({
       setSearchResults([])
       setIsSearching(false)
       setSelectedResource(null)
-      setShowFork(false)
-      setForkInfo(null)
-      setAddSecondRowBanner(false)
       setIsCheckingDuplicate(false)
       setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
       setDuplicateAdvisory(null)
@@ -353,49 +344,9 @@ export function AddResourceWizard({
     debounceRef.current = setTimeout(() => runSearch(q), 300)
   }
 
-  async function pickResource(r: ResourceSearchResult) {
-    // In assign mode: skip duplicate check, go to teams step
-    if (isAssignMode) {
-      setSelectedResource(r)
-      setMode('existing')
-      setStep(2)
-      return
-    }
-
-    setIsCheckingDuplicate(true)
-    let checkResult = { exists: false, rows: [] as CheckPeriodRow[], existingTeamAssignments: [] as Array<{ teamId: string; teamName: string; capacitySplit: number }> }
-    try {
-      checkResult = await checkResourceInPeriod(r.resource_id, periodId)
-    } catch {
-      // If check fails, proceed normally
-    }
-    setIsCheckingDuplicate(false)
-
-    if (checkResult.exists) {
-      const inProgressRole: InProgressRole | null =
-        (mode === 'new' || mode === 'tbc') && form.roleTitle.trim()
-          ? {
-              roleTitle: form.roleTitle,
-              planviewCode: form.planviewCode,
-              resourceLocation: form.resourceLocation,
-              supplierId: form.supplierId,
-              supplierName: form.supplierName,
-            }
-          : null
-      setForkInfo({
-        target: r,
-        rows: checkResult.rows,
-        existingTeams: checkResult.existingTeamAssignments,
-        inProgressRole,
-      })
-      setShowFork(true)
-      return
-    }
-
-    advanceToStep2Existing(r)
-  }
-
-  function advanceToStep2Existing(r: ResourceSearchResult) {
+  // Set the existing-resource form (does not change step), so the conflict
+  // checkpoint and the normal "continue to Details" path share one place.
+  function prepareExistingForm(r: ResourceSearchResult) {
     setSelectedResource(r)
     setMode('existing')
     setForm({
@@ -405,56 +356,44 @@ export function AddResourceWizard({
       planviewCode: 'PR',
       resourceLocation: r.resource_location ?? 'onshore',
     })
-    setStep(2)
   }
 
-  function handleEditTeams() {
-    const info = forkInfo!
-    const rows =
-      info.existingTeams.length > 0
-        ? info.existingTeams.map((t) => ({ id: nextRowId(), teamId: t.teamId, pct: t.capacitySplit }))
-        : [{ id: nextRowId(), teamId: '', pct: 100 }]
-    setTeamRows(rows)
-    setSelectedResource(info.target)
-    setMode('edit-teams')
-    setShowFork(false)
-    setForkInfo(null)
-    setForm({
-      supplierId: info.target.supplier_id ?? defaultSupplierId ?? '',
-      supplierName: info.target.supplier_name ?? defaultSupplierName ?? '',
-      roleTitle: info.rows[0]?.role_title ?? '',
-      planviewCode: (info.rows[0]?.planview_code as 'PR' | 'F_Gov' | 'BAU') ?? 'PR',
-      resourceLocation: info.target.resource_location ?? 'onshore',
-    })
-    setStep(2)
-  }
+  // Picking an existing resource fires the same-period conflict check inline,
+  // as a checkpoint within Step 1 (Search) — before Teams/Details ever render.
+  // Found conflicts → the conflict dialog (variant A for the vacant-seat path,
+  // variant B for the new-role path). None → continue exactly as before.
+  async function pickResource(r: ResourceSearchResult) {
+    setIsCheckingDuplicate(true)
+    let conflicts: ConflictAllocation[] = []
+    try {
+      conflicts = await findResourcePeriodConflicts(
+        r.resource_id,
+        periodId,
+        isAssignMode ? assignMode!.allocationId : null,
+      )
+    } catch {
+      // If the check fails, proceed without it.
+    }
+    setIsCheckingDuplicate(false)
 
-  function handleAddSecondRow() {
-    const info = forkInfo!
-    setAddSecondRowBanner(true)
-    setShowFork(false)
-    setForkInfo(null)
-    advanceToStep2Existing(info.target)
-  }
+    if (isAssignMode) {
+      setSelectedResource(r)
+      setMode('existing')
+    } else {
+      prepareExistingForm(r)
+    }
 
-  // Assigns the matched existing resource to the role currently being
-  // defined (captured as forkInfo.inProgressRole) instead of discarding that
-  // role and either editing the resource's other allocation or creating a
-  // disconnected second row.
-  function handleAssignToRole() {
-    const info = forkInfo!
-    const role = info.inProgressRole!
-    setShowFork(false)
-    setForkInfo(null)
-    setSelectedResource(info.target)
-    setMode('existing')
-    setForm({
-      supplierId: role.supplierId,
-      supplierName: role.supplierName,
-      roleTitle: role.roleTitle,
-      planviewCode: role.planviewCode,
-      resourceLocation: role.resourceLocation,
-    })
+    if (conflicts.length > 0) {
+      const newCapacityDays = isAssignMode ? (assignMode!.capacityDays ?? 0) : 0
+      const dayMath = computeConflictDayMath(
+        conflicts.map((c) => c.capacity_days),
+        newCapacityDays,
+        periodWorkingDays,
+      )
+      setConflictDialog({ variant: isAssignMode ? 'A' : 'B', conflicts, dayMath })
+      return
+    }
+
     setStep(2)
   }
 
@@ -547,7 +486,7 @@ export function AddResourceWizard({
     )
   }
 
-  async function handleSubmit(bypassConflict = false) {
+  async function handleSubmit() {
     setIsSubmitting(true)
     setSubmitError(null)
 
@@ -573,27 +512,6 @@ export function AddResourceWizard({
       }
 
       if (mode === 'existing' && selectedResource) {
-        // Same-period conflict check (variant A — filling a vacant seat). Skip
-        // the vacant seat itself via excludeAllocationId.
-        if (!bypassConflict) {
-          let conflicts: ConflictAllocation[] = []
-          try {
-            conflicts = await findResourcePeriodConflicts(selectedResource.resource_id, periodId, allocationId)
-          } catch {
-            // If the check fails, fall through and assign as normal.
-          }
-          if (conflicts.length > 0) {
-            const dayMath = computeConflictDayMath(
-              conflicts.map((c) => c.capacity_days),
-              assignMode!.capacityDays ?? 0,
-              periodWorkingDays,
-            )
-            setIsSubmitting(false)
-            setConflictDialog({ variant: 'A', conflicts, dayMath })
-            return
-          }
-        }
-
         const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
         if (!result.success) {
           setIsSubmitting(false)
@@ -695,31 +613,11 @@ export function AddResourceWizard({
       return
     }
 
-    // Same-period conflict check (variant B — creating a new role for an
-    // already-recognised resource, no vacant seat to compare against). The new
-    // allocation's capacity_days defaults to 0 (set inline after adding).
-    if (mode === 'existing' && selectedResource && !bypassConflict) {
-      let conflicts: ConflictAllocation[] = []
-      try {
-        conflicts = await findResourcePeriodConflicts(selectedResource.resource_id, periodId, null)
-      } catch {
-        // If the check fails, fall through and create as normal.
-      }
-      if (conflicts.length > 0) {
-        const dayMath = computeConflictDayMath(
-          conflicts.map((c) => c.capacity_days),
-          0,
-          periodWorkingDays,
-        )
-        setIsSubmitting(false)
-        setConflictDialog({ variant: 'B', conflicts, dayMath })
-        return
-      }
-    }
-
     const realTeamAssignments = teamRows
       .filter((r) => r.teamId !== '')
       .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
+
+    const { capacityDays, dayRate } = parseOptionalFigures(form)
 
     const result = await createResourceAndAllocation({
       mode,
@@ -732,6 +630,8 @@ export function AddResourceWizard({
       planviewCode: form.planviewCode,
       resourceLocation: form.resourceLocation,
       periodId,
+      capacityDays,
+      dayRate,
     })
 
     setIsSubmitting(false)
@@ -838,7 +738,11 @@ export function AddResourceWizard({
     borderRadius: 12,
     width: 520,
     maxWidth: 'calc(100vw - 32px)',
-    height: 560,
+    // The Details step stacks more fields than a fixed 560px card could hold,
+    // which forced an inner scrollbar. Size to content instead: a minHeight
+    // keeps the short steps roomy, maxHeight caps growth to the viewport, and
+    // the body only scrolls if content genuinely exceeds that cap.
+    minHeight: 520,
     maxHeight: 'calc(100vh - 64px)',
     display: 'flex',
     flexDirection: 'column',
@@ -965,26 +869,16 @@ export function AddResourceWizard({
         {/* Body */}
         <div style={bodyStyle}>
           {step === 1 && (
-            showFork && forkInfo ? (
-              <ForkPanel
-                info={forkInfo}
-                onEditTeams={handleEditTeams}
-                onAddSecondRow={handleAddSecondRow}
-                onAssignToRole={forkInfo.inProgressRole ? handleAssignToRole : undefined}
-                onBack={() => { setShowFork(false); setForkInfo(null) }}
-              />
-            ) : (
-              <Step1Body
-                searchQuery={searchQuery}
-                onSearchChange={handleSearchChange}
-                isSearching={isSearching || isCheckingDuplicate}
-                results={searchResults}
-                onPickResource={pickResource}
-                onAddAsNew={addAsNew}
-                onSkipToTbc={skipToTbc}
-                inputStyle={inputStyle}
-              />
-            )
+            <Step1Body
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              isSearching={isSearching || isCheckingDuplicate}
+              results={searchResults}
+              onPickResource={pickResource}
+              onAddAsNew={addAsNew}
+              onSkipToTbc={skipToTbc}
+              inputStyle={inputStyle}
+            />
           )}
           {step === 2 && isAssignMode && (
             <div>
@@ -1060,7 +954,6 @@ export function AddResourceWizard({
               teamRows={teamRows}
               teamTotal={teamTotal}
               duplicateAdvisory={duplicateAdvisory}
-              addSecondRowBanner={addSecondRowBanner}
               personName={newPersonName}
               personNameInvalid={newPersonInvalid}
               onPersonNameChange={setNewPersonName}
@@ -1141,26 +1034,43 @@ export function AddResourceWizard({
         <ConflictDialog
           variant={conflictDialog.variant}
           dayMath={conflictDialog.dayMath}
-          existing={conflictDialog.conflicts[0] ?? null}
+          existingRows={conflictDialog.conflicts}
           resourceName={selectedResource?.resource_name ?? '—'}
-          vacantSeat={
+          newRow={
             isAssignMode && assignMode
               ? {
+                  heading: 'Vacant seat',
                   roleTitle: assignMode.roleTitle || '—',
                   capacityDays: assignMode.capacityDays ?? null,
                   dayRate: assignMode.dayRate ?? 0,
                   teamNames: assignMode.teamNames ?? [],
                 }
-              : null
+              : {
+                  heading: 'New role',
+                  roleTitle: form.roleTitle || '—',
+                  capacityDays: null,
+                  dayRate: 0,
+                  teamNames: [],
+                }
           }
           isSubmitting={isSubmitting}
           onKeepExisting={handleConnectKeepExisting}
           onUseVacant={handleConnectUseVacant}
           onKeepBoth={() => {
+            // "Keep both/all as separate rows" → continue into the normal Teams
+            // (vacant-seat path) or Details (new-role path) step.
             setConflictDialog(null)
-            handleSubmit(true)
+            setStep(2)
           }}
-          onCancel={() => setConflictDialog(null)}
+          onCancel={() => {
+            // Back to Step 1 with the search cleared.
+            setConflictDialog(null)
+            setSelectedResource(null)
+            setSearchQuery('')
+            setSearchResults([])
+            setMode('tbc')
+            setStep(1)
+          }}
         />
       )}
     </div>
@@ -1169,11 +1079,58 @@ export function AddResourceWizard({
 
 /* ── Same-period conflict dialog ─────────────────────────── */
 
-interface VacantSeatSummary {
+interface NewRowSummary {
+  /** "Vacant seat" (vacant-seat path) or "New role" (new-role path). */
+  heading: string
   roleTitle: string
   capacityDays: number | null
   dayRate: number
   teamNames: string[]
+}
+
+/** One existing/new entry rendered as a single line in the multi-row list. */
+function ConflictListRow({
+  heading,
+  role,
+  teams,
+  capacityDays,
+  dayRate,
+  isNew,
+}: {
+  heading: string
+  role: string
+  teams: string
+  capacityDays: number | null
+  dayRate: number
+  isNew: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        gap: 8,
+        padding: '8px 12px',
+        borderRadius: 6,
+        marginBottom: 6,
+        background: isNew ? 'rgba(218,32,42,0.05)' : 'var(--rmg-color-grey-4)',
+        border: isNew ? '1px solid rgba(218,32,42,0.22)' : '1px solid var(--rmg-color-grey-3)',
+      }}
+    >
+      <span style={{ fontSize: 12, color: 'var(--rmg-color-text-body)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {isNew && (
+          <span style={{ fontWeight: 700, color: ACTIVE_RED, marginRight: 6, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            New
+          </span>
+        )}
+        {[role || '—', teams, dayLabel(capacityDays), `${formatMoneyPence(dayRate)}/day`].join(' · ')}
+      </span>
+      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--rmg-color-grey-1)', flexShrink: 0 }}>
+        {heading}
+      </span>
+    </div>
+  )
 }
 
 function dayLabel(days: number | null): string {
@@ -1255,9 +1212,9 @@ function ConflictRecordCard({
 function ConflictDialog({
   variant,
   dayMath,
-  existing,
+  existingRows,
   resourceName,
-  vacantSeat,
+  newRow,
   isSubmitting,
   onKeepExisting,
   onUseVacant,
@@ -1266,15 +1223,18 @@ function ConflictDialog({
 }: {
   variant: 'A' | 'B'
   dayMath: ConflictDayMath
-  existing: ConflictAllocation | null
+  existingRows: ConflictAllocation[]
   resourceName: string
-  vacantSeat: VacantSeatSummary | null
+  newRow: NewRowSummary
   isSubmitting: boolean
   onKeepExisting: () => void
   onUseVacant: () => void
   onKeepBoth: () => void
   onCancel: () => void
 }) {
+  // Display decision (pure): how many rows, which layout, button copy/count.
+  const present = describeConflictPresentation(existingRows.length, variant === 'A')
+
   const overlay: React.CSSProperties = {
     position: 'fixed',
     inset: 0,
@@ -1328,10 +1288,12 @@ function ConflictDialog({
     border: '1px solid var(--rmg-color-grey-2)',
   }
 
-  // Over capacity → keeping the existing details is recommended; fitting within
-  // a normal quarter → keeping both rows separate is recommended.
+  // Compare layout: over capacity → keeping existing details is recommended;
+  // fitting within a quarter → keeping the rows separate is recommended. In the
+  // list layout the only real action is keep-separate, so it's the primary.
   const keepExistingStyle = dayMath.overCapacity ? btnEmphasised : btnMuted
-  const keepBothStyle = dayMath.overCapacity ? btnMuted : btnEmphasised
+  const keepSeparateStyle =
+    present.layout === 'list' ? btnEmphasised : dayMath.overCapacity ? btnMuted : btnEmphasised
 
   const framing = (
     <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--rmg-color-text-body)', lineHeight: 1.45 }}>
@@ -1356,28 +1318,50 @@ function ConflictDialog({
 
         {framing}
 
-        {variant === 'A' && vacantSeat && (
+        {present.layout === 'compare' ? (
           <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
             <ConflictRecordCard
-              heading="Vacant seat"
-              role={vacantSeat.roleTitle}
-              teams={teamLabel(vacantSeat.teamNames)}
-              capacityDays={vacantSeat.capacityDays}
-              dayRate={vacantSeat.dayRate}
+              heading={newRow.heading}
+              role={newRow.roleTitle}
+              teams={teamLabel(newRow.teamNames)}
+              capacityDays={newRow.capacityDays}
+              dayRate={newRow.dayRate}
               emphasised={!dayMath.overCapacity}
             />
             <ConflictRecordCard
               heading="Existing entry"
-              role={existing?.role_title ?? '—'}
-              teams={teamLabel(existing?.team_names ?? [])}
-              capacityDays={existing?.capacity_days ?? null}
-              dayRate={existing?.day_rate ?? 0}
+              role={existingRows[0]?.role_title ?? '—'}
+              teams={teamLabel(existingRows[0]?.team_names ?? [])}
+              capacityDays={existingRows[0]?.capacity_days ?? null}
+              dayRate={existingRows[0]?.day_rate ?? 0}
               emphasised={dayMath.overCapacity}
+            />
+          </div>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            {existingRows.map((row, idx) => (
+              <ConflictListRow
+                key={row.allocation_id}
+                heading={`Existing ${idx + 1}`}
+                role={row.role_title ?? '—'}
+                teams={teamLabel(row.team_names)}
+                capacityDays={row.capacity_days}
+                dayRate={row.day_rate}
+                isNew={false}
+              />
+            ))}
+            <ConflictListRow
+              heading={newRow.heading}
+              role={newRow.roleTitle}
+              teams={teamLabel(newRow.teamNames)}
+              capacityDays={newRow.capacityDays}
+              dayRate={newRow.dayRate}
+              isNew
             />
           </div>
         )}
 
-        {variant === 'A' ? (
+        {present.showConnectOptions && (
           <>
             <button type="button" style={keepExistingStyle} disabled={isSubmitting} onClick={onKeepExisting}>
               Connect and keep existing details
@@ -1385,148 +1369,15 @@ function ConflictDialog({
             <button type="button" style={btnNeutral} disabled={isSubmitting} onClick={onUseVacant}>
               Connect and use vacant seat details
             </button>
-            <button type="button" style={keepBothStyle} disabled={isSubmitting} onClick={onKeepBoth}>
-              Keep both as separate rows
-            </button>
-            <button type="button" style={btnMuted} disabled={isSubmitting} onClick={onCancel}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" style={keepBothStyle} disabled={isSubmitting} onClick={onKeepBoth}>
-              Keep both as separate rows
-            </button>
-            <button type="button" style={btnMuted} disabled={isSubmitting} onClick={onCancel}>
-              Cancel
-            </button>
           </>
         )}
-      </div>
-    </div>
-  )
-}
-
-/* ── Fork panel (duplicate detected) ───────────────────── */
-
-function ForkPanel({
-  info,
-  onEditTeams,
-  onAddSecondRow,
-  onAssignToRole,
-  onBack,
-}: {
-  info: ForkInfo
-  onEditTeams: () => void
-  onAddSecondRow: () => void
-  onAssignToRole?: () => void
-  onBack: () => void
-}) {
-  return (
-    <div>
-      <div
-        style={{
-          background: '#FFFBEB',
-          border: '1px solid #FCD34D',
-          borderRadius: 8,
-          padding: '14px 16px',
-          marginBottom: 16,
-        }}
-      >
-        <p
-          style={{
-            margin: '0 0 6px',
-            fontSize: 13,
-            fontWeight: 600,
-            color: '#2A2A2D',
-          }}
-        >
-          ⚠ {info.target.resource_name} is already on this period&apos;s schedule
-        </p>
-        {info.rows.map((row, idx) => (
-          <p key={idx} style={{ margin: '4px 0 0', fontSize: 12, color: INACTIVE_GREY }}>
-            {[row.role_title, row.planview_code, row.team_names.join(', ') || 'No Team']
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-        {onAssignToRole && (
-          <button
-            type="button"
-            onClick={onAssignToRole}
-            style={{
-              background: ACTIVE_RED,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              padding: '9px 16px',
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: 'pointer',
-              fontFamily: 'var(--rmg-font-body)',
-              textAlign: 'left',
-            }}
-          >
-            Assign to &quot;{info.inProgressRole!.roleTitle}&quot;
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onEditTeams}
-          style={{
-            background: '#2A2A2D',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            padding: '9px 16px',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            fontFamily: 'var(--rmg-font-body)',
-            textAlign: 'left',
-          }}
-        >
-          Edit team assignments
+        <button type="button" style={keepSeparateStyle} disabled={isSubmitting} onClick={onKeepBoth}>
+          {present.keepLabel}
         </button>
-        <button
-          type="button"
-          onClick={onAddSecondRow}
-          style={{
-            background: 'transparent',
-            color: '#404044',
-            border: '1px solid #C0C0C0',
-            borderRadius: 6,
-            padding: '9px 16px',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            fontFamily: 'var(--rmg-font-body)',
-            textAlign: 'left',
-          }}
-        >
-          Add second row
+        <button type="button" style={btnMuted} disabled={isSubmitting} onClick={onCancel}>
+          Cancel
         </button>
       </div>
-
-      <button
-        type="button"
-        onClick={onBack}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          fontSize: 12,
-          color: INACTIVE_GREY,
-          cursor: 'pointer',
-          textDecoration: 'underline',
-          padding: 0,
-          fontFamily: 'var(--rmg-font-body)',
-        }}
-      >
-        ← Back to search
-      </button>
     </div>
   )
 }
@@ -1865,7 +1716,6 @@ function Step2Body({
   teamRows,
   teamTotal,
   duplicateAdvisory,
-  addSecondRowBanner,
   personName,
   personNameInvalid,
   onPersonNameChange,
@@ -1888,7 +1738,6 @@ function Step2Body({
   teamRows: TeamRow[]
   teamTotal: number
   duplicateAdvisory: string | null
-  addSecondRowBanner: boolean
   personName: string
   personNameInvalid: boolean
   onPersonNameChange: (val: string) => void
@@ -1970,23 +1819,6 @@ function Step2Body({
           >
             Change
           </button>
-        </div>
-      )}
-
-      {/* Add-second-row amber banner */}
-      {addSecondRowBanner && (
-        <div
-          style={{
-            background: '#FFFBEB',
-            border: '1px solid #FCD34D',
-            borderRadius: 8,
-            padding: '10px 14px',
-            marginBottom: 16,
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 13, color: '#2A2A2D' }}>
-            ⚠ This resource is already on the schedule — you are adding a second row.
-          </p>
         </div>
       )}
 
@@ -2108,6 +1940,36 @@ function Step2Body({
           </select>
         </div>
       )}
+
+      {/* Optional starting figures — brand-new-person and TBC rows are created
+          at 0 days / £0 by default; fill these to seed them directly. */}
+      {(mode === 'new' || mode === 'tbc') && (
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ ...fieldWrap, flex: 1 }}>
+            <label style={labelStyle}>Capacity (days)</label>
+            <input
+              type="number"
+              min={0}
+              value={form.capacityDays ?? ''}
+              onChange={(e) => onFormChange('capacityDays', e.target.value)}
+              placeholder="Optional"
+              style={inputStyle}
+            />
+          </div>
+          <div style={{ ...fieldWrap, flex: 1 }}>
+            <label style={labelStyle}>Day rate (£)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.dayRate ?? ''}
+              onChange={(e) => onFormChange('dayRate', e.target.value)}
+              placeholder="Optional"
+              style={inputStyle}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -2192,6 +2054,11 @@ function Step3Body({
     })
     .join(', ') || 'No Team'
 
+  // Optional starting figures (new / TBC paths). When provided they appear in
+  // the summary like any other field and the "edit inline" note drops away.
+  const { capacityDays, dayRate } = parseOptionalFigures(form)
+  const hasFigures = capacityDays !== undefined || dayRate !== undefined
+
   const rows: Array<{ label: string; value: string }> =
     mode === 'edit-teams'
       ? [
@@ -2205,6 +2072,12 @@ function Step3Body({
           { label: 'Role', value: form.roleTitle || '—' },
           { label: 'Plan', value: form.planviewCode },
           { label: 'Location', value: locationLabel(form.resourceLocation) },
+          ...(capacityDays !== undefined
+            ? [{ label: 'Capacity (days)', value: String(capacityDays) }]
+            : []),
+          ...(dayRate !== undefined
+            ? [{ label: 'Day rate', value: `${formatMoneyPence(dayRate)}/day` }]
+            : []),
         ]
 
   return (
@@ -2225,7 +2098,7 @@ function Step3Body({
           </div>
         ))}
       </div>
-      {mode !== 'edit-teams' && (
+      {mode !== 'edit-teams' && !hasFigures && (
         <p style={{ fontSize: 12, color: INACTIVE_GREY, margin: 0 }}>
           Days and rate default to 0 — edit inline after adding.
         </p>

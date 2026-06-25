@@ -30,18 +30,6 @@ export interface WizardData {
   teams: TeamOption[]
 }
 
-export interface CheckPeriodRow {
-  role_title: string | null
-  planview_code: string | null
-  team_names: string[]
-}
-
-export interface CheckPeriodResult {
-  exists: boolean
-  rows: CheckPeriodRow[]
-  existingTeamAssignments: Array<{ teamId: string; teamName: string; capacitySplit: number }>
-}
-
 type RawResourceRow = {
   resource_id: string
   resource_name: string
@@ -128,59 +116,6 @@ export async function fetchWizardData(): Promise<WizardData> {
   }))
 
   return { suppliers, teams }
-}
-
-export async function checkResourceInPeriod(
-  resourceId: string,
-  periodId: string,
-): Promise<CheckPeriodResult> {
-  const supabase = getSupabaseServerClient()
-
-  type RawAllocRow = { allocation_id: string; role_title: string | null; planview_code: string | null }
-  type RawTeamRow = {
-    team_id: string
-    capacity_split: number | null
-    teams: { team_name: string } | { team_name: string }[] | null
-  }
-
-  const [allocResult, teamResult] = await Promise.all([
-    supabase
-      .from('resource_period_allocations')
-      .select('allocation_id, role_title, planview_code')
-      .eq('resource_id', resourceId)
-      .eq('period_id', periodId)
-      .is('deleted_at', null),
-    supabase
-      .from('resource_team_assignments')
-      .select('team_id, capacity_split, teams:team_id(team_name)')
-      .eq('resource_id', resourceId)
-      .eq('period_id', periodId)
-      .is('deleted_at', null),
-  ])
-
-  const allocRows = (allocResult.data ?? []) as unknown as RawAllocRow[]
-  if (allocRows.length === 0) {
-    return { exists: false, rows: [], existingTeamAssignments: [] }
-  }
-
-  const rawTeams = (teamResult.data ?? []) as unknown as RawTeamRow[]
-  const team_names = rawTeams
-    .map((t) => pickOne(t.teams)?.team_name ?? '')
-    .filter(Boolean)
-
-  const existingTeamAssignments = rawTeams.map((t) => ({
-    teamId: t.team_id,
-    teamName: pickOne(t.teams)?.team_name ?? '',
-    capacitySplit: Math.round((t.capacity_split ?? 1) * 100),
-  }))
-
-  const rows: CheckPeriodRow[] = allocRows.map((a) => ({
-    role_title: a.role_title,
-    planview_code: a.planview_code,
-    team_names,
-  }))
-
-  return { exists: true, rows, existingTeamAssignments }
 }
 
 /**
@@ -356,6 +291,10 @@ export interface CreateAllocationParams {
   planviewCode: PlanviewCode
   resourceLocation: ResourceLocation
   periodId: string
+  /** Optional starting capacity in days. Omitted/undefined → 0 (edit inline). */
+  capacityDays?: number
+  /** Optional starting day rate in integer pence. Omitted/undefined → 0. */
+  dayRate?: number
 }
 
 export interface CreateAllocationResult {
@@ -421,9 +360,9 @@ export async function createResourceAndAllocation(
       role_title: params.roleTitle,
       planview_code: params.planviewCode,
       resource_location: params.resourceLocation,
-      day_rate: 0,
+      day_rate: params.dayRate ?? 0,
       utilisation_percent: 100,
-      capacity_days: 0,
+      capacity_days: params.capacityDays ?? 0,
       is_chargeable: false,
       vat_applies: true,
       display_order: newDisplayOrder,

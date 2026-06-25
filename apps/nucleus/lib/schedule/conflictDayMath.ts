@@ -52,3 +52,48 @@ export function computeConflictDayMath(
     overCapacity: combinedCapacityDays > periodWorkingDays,
   }
 }
+
+/**
+ * How the conflict dialog should present a given set of existing allocations.
+ * This is the display decision only — the day-math above is untouched; this
+ * just reasons about how many rows are involved.
+ *
+ * - Exactly one existing row, filling a vacant seat → side-by-side comparison
+ *   with all four options (the two "Connect and…" merges plus keep-separate and
+ *   cancel). Merging into a single counterpart is a clean decision.
+ * - Two or more existing rows (or no vacant seat to merge into) → a plain list;
+ *   merging would mean choosing which of several rows to fold into, so only
+ *   "keep all separate" and "cancel" are offered.
+ */
+export interface ConflictPresentation {
+  /** Existing rows + the new one being added. */
+  totalRows: number
+  /** 'compare' = side-by-side cards; 'list' = vertical list of rows. */
+  layout: 'compare' | 'list'
+  /** Whether the two "Connect and…" merge options are offered. */
+  showConnectOptions: boolean
+  /** Total number of action buttons shown, including Cancel. */
+  optionCount: number
+  /** Copy for the keep-separate button, pluralised/counted live. */
+  keepLabel: string
+}
+
+export function describeConflictPresentation(
+  existingCount: number,
+  hasVacantSeat: boolean,
+): ConflictPresentation {
+  const totalRows = existingCount + 1
+  const showConnectOptions = hasVacantSeat && existingCount === 1
+  return {
+    totalRows,
+    layout: showConnectOptions ? 'compare' : 'list',
+    showConnectOptions,
+    // compare → keep-existing, use-vacant, keep-separate, cancel (4)
+    // list    → keep-separate, cancel (2)
+    optionCount: showConnectOptions ? 4 : 2,
+    keepLabel:
+      totalRows === 2
+        ? 'Keep both as separate rows'
+        : `Keep all ${totalRows} as separate rows`,
+  }
+}
