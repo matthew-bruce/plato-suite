@@ -1,12 +1,7 @@
-import { getHomepageData } from '@plato/schema'
-import { HomepageClient } from './_components/HomepageClient'
+import { redirect } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-
-type SearchParams = Promise<{ period?: string }>
-
-export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
-  const { period } = await searchParams
-  const data = await getHomepageData(period)
-  return <HomepageClient data={data} />
+// TEMP: defaulting home to Schedule until Dashboard is fixed.
+// Revert to Dashboard (see app/dashboard/page.tsx) once ready.
+export default function HomePage() {
+  redirect('/schedule')
 }
