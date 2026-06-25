@@ -426,3 +426,12 @@ Accumulated failure modes worth checking before assuming a new bug is novel.
 - Discipline seed value list (data migration session).
 - `workstream_theme` value list — user-defined, not an enum, no seed needed.
 - Read-gating of `day_rate_override` (see 2.4) — a `002+` concern.
+- **Versioned `vat_uplift_percent` / `on_costs_uplift_percent`.** Migration 019
+  added effective-dated, insert-only history for `blended_day_rate_override`
+  (resolved via the shared `pickEffectiveCostConfig` / `resolveCostConfiguration`
+  path, set via the insert-only `setBlendedRate` action, gated by the shared
+  three-state editability check `getRateEditability`). The other two
+  `cost_configurations` uplift columns still behave as a single mutable value
+  and need the *same* treatment eventually: their own effective-dated set
+  action (insert-only, respecting `cost_configurations_unique`) gated by the
+  same three-state check. Not built now — recorded so it isn't lost.

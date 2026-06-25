@@ -2,6 +2,7 @@
 // This function never throws — all errors return the empty structure.
 
 import { getSupabaseServerClient } from '../server'
+import { resolveCostConfiguration } from './costConfig'
 import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepage'
 import type { PeriodStatus } from '../types/schedule'
 
@@ -75,15 +76,11 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
 
     let vatPct = 0
     if (platformResult.data?.platform_id) {
-      const { data: ccData } = await supabase
-        .from('cost_configurations')
-        .select('vat_uplift_percent')
-        .eq('platform_id', platformResult.data.platform_id)
-        .lte('effective_from', periodRow.period_start_date as string)
-        .is('deleted_at', null)
-        .order('effective_from', { ascending: false })
-        .limit(1)
-      if (ccData?.[0]) vatPct = Number(ccData[0].vat_uplift_percent)
+      const cc = await resolveCostConfiguration(
+        platformResult.data.platform_id as string,
+        periodRow.period_start_date as string,
+      )
+      if (cc) vatPct = cc.vat_uplift_percent
     }
 
     const { data: allocsRaw, error: allocsErr } = await supabase

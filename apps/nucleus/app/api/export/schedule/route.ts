@@ -1,6 +1,8 @@
 import ExcelJS from 'exceljs'
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerClient, resolveCostConfigurationByCode } from '@plato/schema'
 import { workingDaysBetween } from '@/lib/schedule/format'
+
+const WEB_PLATFORM_CODE = 'WEB'
 
 /* ── Query result shapes ──────────────────────────────────────────── */
 
@@ -8,11 +10,6 @@ interface PeriodRow {
   period_name: string
   period_start_date: string
   period_end_date: string
-}
-
-interface CostConfigRow {
-  vat_uplift_percent: number
-  blended_day_rate_override: number | null
 }
 
 type CostItemCategory = 'ADHOC' | 'ETP' | 'SHARED_SERVICES'
@@ -167,15 +164,13 @@ export async function GET(request: Request): Promise<Response> {
   if (!periodData) return new Response('Period not found', { status: 404 })
   const period = periodData as PeriodRow
 
-  /* ── Query 2: Cost configuration ── */
-  const { data: ccData } = await supabase
-    .from('cost_configurations')
-    .select('vat_uplift_percent, blended_day_rate_override')
-    .is('deleted_at', null)
-    .order('effective_from', { ascending: false })
-    .limit(1)
-
-  const costConfig = ccData?.[0] as CostConfigRow | undefined
+  /* ── Query 2: Cost configuration (effective-dated, Web platform) ── */
+  // Shared resolver: the row whose effective_from is the latest on or before
+  // this period's start date — not merely the most recent row overall.
+  const costConfig = await resolveCostConfigurationByCode(
+    WEB_PLATFORM_CODE,
+    period.period_start_date,
+  )
   const vatUpliftPercent: number = costConfig?.vat_uplift_percent ?? 0
   // Round to exactly 5 dp so the cell reads 1.07082, not 1.0708200000001
   const vatMultiplier = parseFloat((1 + Number(vatUpliftPercent) / 100).toFixed(5))

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle } from 'lucide-react'
+import { EyeOff, AlertTriangle, Pencil } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -50,6 +50,9 @@ import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard
 import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
 import { workingDaysBetween } from '@/lib/schedule/format'
+import { getRateEditability } from '@/lib/rates/editability'
+import { setBlendedRate } from '@/app/actions/rates'
+import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
@@ -640,7 +643,12 @@ export function SchedulePageClient({ data }: Props) {
         onExport={handleExportToExcel}
       />
 
-      <KpiStrip totals={totals} costConfig={costConfig} />
+      <KpiStrip
+        totals={totals}
+        costConfig={costConfig}
+        period={period}
+        onRateSaved={() => router.refresh()}
+      />
 
       <div ref={toolbarSentinelRef} />
       <div
@@ -870,6 +878,8 @@ function ClockIcon({ size = 12 }: { size?: number }) {
 function KpiStrip({
   totals,
   costConfig,
+  period,
+  onRateSaved,
 }: {
   totals: {
     totalPlatform: number
@@ -881,6 +891,8 @@ function KpiStrip({
     chargeableDays: number
   }
   costConfig: SchedulePageData['costConfig']
+  period: SchedulePageData['period']
+  onRateSaved: () => void
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -959,6 +971,177 @@ function KpiStrip({
         sub="Allocations · chargeable days"
         accent="#8F9495"
       />
+      <RateWidget
+        period={period}
+        costConfig={costConfig}
+        advisedRate={advisedRate}
+        totalPRDays={totalPRDays}
+        currentRate={currentRate}
+        overrideSet={overrideSet}
+        onRateSaved={onRateSaved}
+        isPrivate={isPrivate}
+      />
+    </div>
+  )
+}
+
+/* ── Inline blended-rate widget (Schedule page only) ───────────────── */
+
+function RateWidget({
+  period,
+  costConfig,
+  advisedRate,
+  totalPRDays,
+  currentRate,
+  overrideSet,
+  onRateSaved,
+  isPrivate,
+}: {
+  period: SchedulePageData['period']
+  costConfig: SchedulePageData['costConfig']
+  advisedRate: number
+  totalPRDays: number
+  currentRate: number
+  overrideSet: boolean
+  onRateSaved: () => void
+  isPrivate: boolean
+}) {
+  const editState = getRateEditability(period)
+  const platformId = costConfig?.platform_id ?? null
+
+  const [editing, setEditing] = useState(false)
+  const [warnOpen, setWarnOpen] = useState(false)
+  const [rate, setRate] = useState(String(currentRate || ''))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function openEditor() {
+    setRate(String(currentRate || ''))
+    setError(null)
+    if (editState.kind === 'warn') {
+      setWarnOpen(true)
+    } else {
+      setEditing(true)
+    }
+  }
+
+  async function doSave() {
+    if (!platformId) {
+      setError('No cost configuration for this platform.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+    const result = await setBlendedRate(platformId, period.period_start_date, pence)
+    setSaving(false)
+    if (!result.success) {
+      setError(result.error ?? 'Something went wrong.')
+      return
+    }
+    setEditing(false)
+    onRateSaved()
+  }
+
+  // Live variance preview against the advised-rate formula (recovery variance):
+  // (proposed rate − advised rate) × chargeable PR days.
+  const proposed = parseFloat(rate) || 0
+  const previewVariance = (proposed - advisedRate) * totalPRDays
+  const previewColour = previewVariance < 0 ? '#C8102E' : previewVariance > 0 ? '#3B6D11' : '#2A2A2D'
+  const previewLabel =
+    previewVariance < 0 ? 'shortfall' : previewVariance > 0 ? 'surplus' : 'on target'
+
+  const card: React.CSSProperties = {
+    background: 'white',
+    borderRadius: 10,
+    padding: '14px 16px 13px',
+    border: editing ? '1.5px solid rgba(218,32,42,0.35)' : '1px solid #EEEEEE',
+    position: 'relative',
+    overflow: 'hidden',
+  }
+  const labelRow: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+    color: '#8F9495', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+  }
+
+  return (
+    <div style={card}>
+      <div style={labelRow}>
+        <span>Blended rate (this period)</span>
+        {editState.kind === 'locked' ? (
+          <span title="Period locked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
+        ) : !editing ? (
+          <button
+            type="button"
+            onClick={openEditor}
+            aria-label="Edit blended rate"
+            title="Edit blended rate"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DA202A', padding: 0, display: 'inline-flex' }}
+          >
+            <Pencil size={13} />
+          </button>
+        ) : null}
+      </div>
+
+      {!editing ? (
+        <div style={{ marginTop: 6, fontSize: 22, fontWeight: 600, color: '#DA202A', filter: isPrivate ? 'blur(6px)' : undefined }}>
+          {overrideSet ? formatMoney(Math.round(currentRate * 100), { decimals: 2 }) : '—'}
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495' }}>/day</span>
+        </div>
+      ) : (
+        <div style={{ marginTop: 8 }}>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={rate}
+            autoFocus
+            onChange={(e) => setRate(e.target.value)}
+            style={{
+              width: '100%', fontFamily: 'var(--rmg-font-body)', fontSize: 14, padding: '6px 10px',
+              border: '1px solid #D0D0D0', borderRadius: 6, outline: 'none', boxSizing: 'border-box', color: '#2A2A2D',
+            }}
+          />
+          <p style={{ margin: '8px 0 0', fontSize: 11, color: '#8F9495' }}>
+            Advised: {formatMoney(Math.round(advisedRate * 100), { decimals: 2 })}/day ·{' '}
+            <span style={{ color: previewColour, fontWeight: 600 }}>
+              {previewVariance < 0 ? '−' : previewVariance > 0 ? '+' : ''}£{Math.abs(Math.round(previewVariance)).toLocaleString('en-GB')} {previewLabel}
+            </span>
+          </p>
+          {error && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#C8102E' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={doSave}
+              disabled={saving}
+              style={{
+                background: saving ? '#C0C0C0' : '#DA202A', color: '#fff', border: 'none', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setError(null) }}
+              style={{
+                background: 'transparent', color: '#404044', border: '1px solid #C0C0C0', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {warnOpen && editState.kind === 'warn' && (
+        <ConfirmDialog
+          message={editState.message}
+          onConfirm={() => { setWarnOpen(false); setEditing(true) }}
+          onCancel={() => setWarnOpen(false)}
+        />
+      )}
     </div>
   )
 }

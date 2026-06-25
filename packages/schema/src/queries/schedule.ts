@@ -3,6 +3,7 @@
 
 import { getSupabaseServerClient } from '../server'
 import { computeUnallocatedPct } from '../utils/schedule'
+import { resolveCostConfigurationByCode } from './costConfig'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -116,42 +117,11 @@ export async function getSchedulePageData(
     locked: periodData.locked as boolean,
   }
 
-  const { data: platformRow } = await supabase
-    .from('platforms')
-    .select('platform_id')
-    .eq('platform_code', WEB_PLATFORM_CODE)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  let costConfig: CostConfiguration | null = null
-  if (platformRow?.platform_id) {
-    const { data: ccData, error: ccErr } = await supabase
-      .from('cost_configurations')
-      .select(
-        'cost_configuration_id, platform_id, vat_uplift_percent, on_costs_uplift_percent, blended_day_rate_override, effective_from',
-      )
-      .eq('platform_id', platformRow.platform_id)
-      .lte('effective_from', period.period_start_date)
-      .is('deleted_at', null)
-      .order('effective_from', { ascending: false })
-      .limit(1)
-
-    if (ccErr) throw new Error(`Failed to load cost config: ${ccErr.message}`)
-    const row = ccData?.[0]
-    if (row) {
-      costConfig = {
-        cost_configuration_id: row.cost_configuration_id as string,
-        platform_id: row.platform_id as string,
-        vat_uplift_percent: Number(row.vat_uplift_percent),
-        on_costs_uplift_percent: Number(row.on_costs_uplift_percent),
-        blended_day_rate_override:
-          row.blended_day_rate_override === null
-            ? null
-            : Number(row.blended_day_rate_override),
-        effective_from: row.effective_from as string,
-      }
-    }
-  }
+  // Effective-dated cost config for the Web platform, via the shared resolver.
+  const costConfig: CostConfiguration | null = await resolveCostConfigurationByCode(
+    WEB_PLATFORM_CODE,
+    period.period_start_date,
+  )
 
   const [allocsResult, costItemsResult] = await Promise.all([
     supabase
