@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { getSupabaseServerClient, resolveCostConfigurationByCode } from '@plato/schema'
 import { workingDaysBetween } from '@/lib/schedule/format'
+import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -1087,6 +1088,20 @@ export async function GET(request: Request): Promise<Response> {
   ws3.getCell(rawCurrentRow, 9).value =
     blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
   ws3.getCell(rawCurrentRow, 9).numFmt = '£#,##0.00'
+
+  /* ── Totals reflection table — cross-sheet formulas into the Summary
+     tab's own supplier breakdown (cols C/H), never a recomputed SUMIF and
+     never a hardcoded supplier list, so it can't drift from Summary. ── */
+  buildRawDataTotalsTable({
+    ws: ws3,
+    startRow: rawCurrentRow + 2,
+    summarySheetName: sanitiseSheetName('Summary'),
+    supplierNames: orderedSuppliers,
+    summaryCostColumn: 'C',
+    summaryResourceColumn: 'H',
+    summaryFirstSupplierRow: supplierDataStart,
+    headerFillArgb: HEADER_ARGB,
+  })
 
   /* ── Serialise to buffer ── */
   const buffer = await wb.xlsx.writeBuffer()
