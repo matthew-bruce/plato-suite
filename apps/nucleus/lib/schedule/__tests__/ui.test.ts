@@ -10,6 +10,8 @@ import {
   withAlpha,
   sortAllocations,
   pickDefaultPeriodId,
+  sumFilteredDays,
+  formatDaysTotal,
 } from '../ui'
 
 describe('formatMoney', () => {
@@ -251,5 +253,77 @@ describe('pickDefaultPeriodId', () => {
       { period_id: 'historic', period_status: 'historic' },
     ])
     expect(out).toBe('historic')
+  })
+})
+
+describe('sumFilteredDays', () => {
+  type Row = {
+    capacity_days: number | null
+    planview_code: string | null
+    teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+  }
+  function groupOf(rows: Row[]) {
+    return [{ rows }]
+  }
+
+  it('returns 0 for an empty array', () => {
+    expect(sumFilteredDays([], null)).toBe(0)
+  })
+
+  it('sums whole-number days across rows', () => {
+    const rows: Row[] = [
+      { capacity_days: 10, planview_code: 'PR' },
+      { capacity_days: 20, planview_code: 'PR' },
+    ]
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(30)
+  })
+
+  it('sums mixed whole and half-day values', () => {
+    const rows: Row[] = [
+      { capacity_days: 48.5, planview_code: 'PR' },
+      { capacity_days: 10, planview_code: 'F_Gov' },
+    ]
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(58.5)
+  })
+
+  it('sums a single row', () => {
+    const rows: Row[] = [{ capacity_days: 10.5, planview_code: 'PR' }]
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(10.5)
+  })
+
+  it('excludes BAU rows, matching the BASE/+VAT footer filter', () => {
+    const rows: Row[] = [
+      { capacity_days: 10, planview_code: 'PR' },
+      { capacity_days: 99, planview_code: 'BAU' },
+    ]
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(10)
+  })
+
+  it('applies the team capacity split when a team filter is active', () => {
+    const rows: Row[] = [
+      {
+        capacity_days: 10,
+        planview_code: 'PR',
+        teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
+      },
+    ]
+    expect(sumFilteredDays(groupOf(rows), 'Alpha')).toBe(5)
+  })
+})
+
+describe('formatDaysTotal', () => {
+  it('formats zero', () => {
+    expect(formatDaysTotal(0)).toBe('0')
+  })
+  it('drops the decimal for whole numbers', () => {
+    expect(formatDaysTotal(48)).toBe('48')
+  })
+  it('keeps one decimal for half-day values', () => {
+    expect(formatDaysTotal(48.5)).toBe('48.5')
+    expect(formatDaysTotal(10.5)).toBe('10.5')
+  })
+  it('rounds to one decimal without forcing a trailing zero', () => {
+    expect(formatDaysTotal(48.04)).toBe('48')
+    expect(formatDaysTotal(48.06)).toBe('48.1')
   })
 })
