@@ -120,6 +120,12 @@ export function SchedulePageClient({ data }: Props) {
   const [editingEtpSs, setEditingEtpSs] = useState(false)
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
   const [editingSchedule, setEditingSchedule] = useState(false)
+  // Applied blended rate held in local state so a rate edit recomputes the
+  // rate-derived KPIs through the same optimistic-state path as every other
+  // inline edit on this page — not a separate router refetch.
+  const [localBlendedRatePence, setLocalBlendedRatePence] = useState<number | null>(
+    costConfig?.blended_day_rate_override ?? null,
+  )
   // Editability is driven solely by the period's locked flag (not status).
   const [isLocked, setIsLocked] = useState(period.locked)
   const [lockPending, setLockPending] = useState(false)
@@ -137,6 +143,7 @@ export function SchedulePageClient({ data }: Props) {
     setEditingAdHoc(false)
     setEditingEtpSs(false)
     setIsLocked(period.locked)
+    setLocalBlendedRatePence(costConfig?.blended_day_rate_override ?? null)
     // New schedule data has arrived for the selected period — dismiss the overlay.
     clearLoading()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -305,6 +312,13 @@ export function SchedulePageClient({ data }: Props) {
       headcount: localAllocations.length,
     }
   }, [localAllocations, localCostItems, vatPct])
+
+  // costConfig with the locally-edited blended rate folded in, so every reader
+  // (KPI cards, team run-rate) reflects an in-session rate change immediately.
+  const effectiveCostConfig = useMemo(
+    () => (costConfig ? { ...costConfig, blended_day_rate_override: localBlendedRatePence } : costConfig),
+    [costConfig, localBlendedRatePence],
+  )
 
   const isUnfiltered =
     search.trim() === '' &&
@@ -645,9 +659,10 @@ export function SchedulePageClient({ data }: Props) {
 
       <KpiStrip
         totals={totals}
-        costConfig={costConfig}
+        costConfig={effectiveCostConfig}
         period={period}
-        onRateSaved={() => router.refresh()}
+        locked={isLocked}
+        onRateSaved={(pence) => setLocalBlendedRatePence(pence)}
       />
 
       <div ref={toolbarSentinelRef} />
@@ -794,7 +809,7 @@ export function SchedulePageClient({ data }: Props) {
         onEditTeams={handleOpenEditTeams}
         onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
-        blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
+        blendedDayRate={(effectiveCostConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
       />
     </div>
@@ -879,6 +894,7 @@ function KpiStrip({
   totals,
   costConfig,
   period,
+  locked,
   onRateSaved,
 }: {
   totals: {
@@ -892,7 +908,8 @@ function KpiStrip({
   }
   costConfig: SchedulePageData['costConfig']
   period: SchedulePageData['period']
-  onRateSaved: () => void
+  locked: boolean
+  onRateSaved: (newRatePence: number) => void
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -935,13 +952,18 @@ function KpiStrip({
         accent="#DA202A"
         blur={isPrivate}
       />
-      <KpiCard
-        label="Current Blended Rate"
-        value={dayRateValue}
-        valueColor="#DA202A"
-        sub={`Implied rate (ex. ETP & SS): ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
-        accent="#DA202A"
-        emphasised={overrideSet}
+      <AppliedBlendedRateCard
+        period={period}
+        locked={locked}
+        platformId={costConfig?.platform_id ?? null}
+        displayValue={dayRateValue}
+        overrideSet={overrideSet}
+        currentRate={currentRate}
+        advisedRate={advisedRate}
+        totalPRDays={totalPRDays}
+        impliedExEtp={formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}
+        onRateSaved={onRateSaved}
+        isPrivate={isPrivate}
       />
       <KpiCard
         label="Advised Blended Rate"
@@ -971,43 +993,41 @@ function KpiStrip({
         sub="Allocations · chargeable days"
         accent="#8F9495"
       />
-      <RateWidget
-        period={period}
-        costConfig={costConfig}
-        advisedRate={advisedRate}
-        totalPRDays={totalPRDays}
-        currentRate={currentRate}
-        overrideSet={overrideSet}
-        onRateSaved={onRateSaved}
-        isPrivate={isPrivate}
-      />
     </div>
   )
 }
 
-/* ── Inline blended-rate widget (Schedule page only) ───────────────── */
+/* ── Applied Blended Rate card (merged display + inline editor) ─────── */
 
-function RateWidget({
+function AppliedBlendedRateCard({
   period,
-  costConfig,
+  locked,
+  platformId,
+  displayValue,
+  overrideSet,
+  currentRate,
   advisedRate,
   totalPRDays,
-  currentRate,
-  overrideSet,
+  impliedExEtp,
   onRateSaved,
   isPrivate,
 }: {
   period: SchedulePageData['period']
-  costConfig: SchedulePageData['costConfig']
+  locked: boolean
+  platformId: string | null
+  displayValue: string
+  overrideSet: boolean
+  currentRate: number
   advisedRate: number
   totalPRDays: number
-  currentRate: number
-  overrideSet: boolean
-  onRateSaved: () => void
+  impliedExEtp: string
+  onRateSaved: (newRatePence: number) => void
   isPrivate: boolean
 }) {
-  const editState = getRateEditability(period)
-  const platformId = costConfig?.platform_id ?? null
+  // Editability reads the LIVE lock, not the page-load snapshot: fold the
+  // current `locked` flag into the period before the check. locked === true
+  // returns { kind: 'locked' } and hard-blocks editing regardless of status.
+  const editState = getRateEditability({ ...period, locked })
 
   const [editing, setEditing] = useState(false)
   const [warnOpen, setWarnOpen] = useState(false)
@@ -1016,6 +1036,9 @@ function RateWidget({
   const [error, setError] = useState<string | null>(null)
 
   function openEditor() {
+    // Defence in depth: a locked period can never open the editor, even if a
+    // stale handler somehow fires.
+    if (editState.kind === 'locked') return
     setRate(String(currentRate || ''))
     setError(null)
     if (editState.kind === 'warn') {
@@ -1040,7 +1063,7 @@ function RateWidget({
       return
     }
     setEditing(false)
-    onRateSaved()
+    onRateSaved(pence)
   }
 
   // Live variance preview against the advised-rate formula (recovery variance):
@@ -1055,7 +1078,11 @@ function RateWidget({
     background: 'white',
     borderRadius: 10,
     padding: '14px 16px 13px',
-    border: editing ? '1.5px solid rgba(218,32,42,0.35)' : '1px solid #EEEEEE',
+    border: editing
+      ? '1.5px solid rgba(218,32,42,0.35)'
+      : overrideSet
+      ? '1.5px solid rgba(218,32,42,0.22)'
+      : '1px solid #EEEEEE',
     position: 'relative',
     overflow: 'hidden',
   }
@@ -1067,15 +1094,15 @@ function RateWidget({
   return (
     <div style={card}>
       <div style={labelRow}>
-        <span>Blended rate (this period)</span>
+        <span>Applied Blended Rate</span>
         {editState.kind === 'locked' ? (
-          <span title="Period locked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
+          <span title="Period locked — rate changes blocked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
         ) : !editing ? (
           <button
             type="button"
             onClick={openEditor}
-            aria-label="Edit blended rate"
-            title="Edit blended rate"
+            aria-label="Edit applied blended rate"
+            title="Edit applied blended rate"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DA202A', padding: 0, display: 'inline-flex' }}
           >
             <Pencil size={13} />
@@ -1084,10 +1111,21 @@ function RateWidget({
       </div>
 
       {!editing ? (
-        <div style={{ marginTop: 6, fontSize: 22, fontWeight: 600, color: '#DA202A', filter: isPrivate ? 'blur(6px)' : undefined }}>
-          {overrideSet ? formatMoney(Math.round(currentRate * 100), { decimals: 2 }) : '—'}
-          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495' }}>/day</span>
-        </div>
+        <>
+          <div
+            style={{
+              fontFamily: 'var(--rmg-font-display)', fontSize: 21, fontWeight: 700, color: '#DA202A',
+              letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6,
+              filter: isPrivate ? 'blur(6px)' : undefined,
+            }}
+          >
+            {displayValue}
+            <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495', letterSpacing: 0 }}>/day</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4 }}>
+            {overrideSet ? `Applied to this period · implied ex. ETP & SS: ${impliedExEtp}/day` : `Implied — no rate set · ${impliedExEtp}/day ex. ETP & SS`}
+          </div>
+        </>
       ) : (
         <div style={{ marginTop: 8 }}>
           <input
@@ -1134,6 +1172,9 @@ function RateWidget({
           </div>
         </div>
       )}
+
+      {/* Bottom accent bar — matches the sibling KpiCards. */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: '#DA202A' }} />
 
       {warnOpen && editState.kind === 'warn' && (
         <ConfirmDialog

@@ -36,35 +36,23 @@ export async function setBlendedRate(
 
   const supabase = getSupabaseServerClient()
 
-  // Carry VAT / on-costs forward from the platform's most recent live config so
-  // those uplifts are unchanged — only the blended rate moves.
-  const { data: latest } = await supabase
-    .from('cost_configurations')
-    .select('vat_uplift_percent, on_costs_uplift_percent')
-    .eq('platform_id', platformId)
-    .is('deleted_at', null)
-    .order('effective_from', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const vatUplift = latest?.vat_uplift_percent ?? 0
-  const onCostsUplift = latest?.on_costs_uplift_percent ?? 0
-
-  const { data, error } = await supabase
-    .from('cost_configurations')
-    .insert({
-      platform_id: platformId,
-      effective_from: effectiveFrom,
-      blended_day_rate_override: Math.round(newRatePence),
-      vat_uplift_percent: vatUplift,
-      on_costs_uplift_percent: onCostsUplift,
-    })
-    .select('cost_configuration_id')
-    .single()
+  // Write through the set_blended_rate RPC rather than a direct INSERT.
+  // cost_configurations has FORCE ROW LEVEL SECURITY and was deliberately left
+  // off the dev-phase open-write policy (migration 018), so the anon role the
+  // app uses cannot INSERT into it directly. The RPC is SECURITY DEFINER and
+  // owned by a BYPASSRLS role — the single sanctioned write path. It also
+  // carries VAT / on-costs forward from the platform's most recent live config,
+  // so those uplifts are unchanged; only the blended rate moves.
+  const { data, error } = await supabase.rpc('set_blended_rate', {
+    p_platform_id: platformId,
+    p_effective_from: effectiveFrom,
+    p_blended_rate_pence: Math.round(newRatePence),
+  })
 
   if (error) {
     // 23505 = unique_violation — the (platform_id, effective_from) index caught
-    // a same-date row. Surface a real message, do not overwrite.
+    // a same-date row. The RPC lets it propagate, so PostgREST surfaces the
+    // SQLSTATE here. Surface a real message, do not overwrite.
     if (error.code === '23505') {
       return {
         success: false,
@@ -74,5 +62,6 @@ export async function setBlendedRate(
     return { success: false, error: error.message }
   }
 
-  return { success: true, costConfigurationId: data?.cost_configuration_id as string }
+  // The RPC returns the new cost_configuration_id (uuid) as its scalar result.
+  return { success: true, costConfigurationId: (data as string | null) ?? undefined }
 }
