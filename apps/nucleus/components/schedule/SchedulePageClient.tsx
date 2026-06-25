@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { EyeOff, AlertTriangle } from 'lucide-react'
 import {
@@ -74,6 +74,10 @@ type Props = { data: SchedulePageData }
 
 const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
 
+// Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
+// the fixed global header the sticky toolbar must clear.
+const PLATO_SHELL_HEADER_HEIGHT = 40
+
 const COL_PADDING = '0 16px 0 12px'
 
 const RMG_SUPPLIER_NAME = 'Royal Mail Group'
@@ -139,6 +143,35 @@ export function SchedulePageClient({ data }: Props) {
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // Tracks whether the sticky toolbar has scrolled away from its natural
+  // resting position, so we can show a "now floating" shadow only then.
+  const toolbarSentinelRef = useRef<HTMLDivElement>(null)
+  const [toolbarStuck, setToolbarStuck] = useState(false)
+  useEffect(() => {
+    const sentinel = toolbarSentinelRef.current
+    if (!sentinel) return
+
+    function findScrollAncestor(el: HTMLElement): HTMLElement | null {
+      let node = el.parentElement
+      while (node) {
+        if (/(auto|scroll)/.test(window.getComputedStyle(node).overflowY)) return node
+        node = node.parentElement
+      }
+      return null
+    }
+
+    const scrollAncestor = findScrollAncestor(sentinel)
+    const scrollTarget: HTMLElement | Window = scrollAncestor ?? window
+
+    function handleScroll() {
+      setToolbarStuck(sentinel!.getBoundingClientRect().top <= PLATO_SHELL_HEADER_HEIGHT)
+    }
+
+    handleScroll()
+    scrollTarget.addEventListener('scroll', handleScroll, { passive: true })
+    return () => scrollTarget.removeEventListener('scroll', handleScroll)
   }, [])
 
   const workingDays = useMemo(
@@ -609,7 +642,19 @@ export function SchedulePageClient({ data }: Props) {
 
       <KpiStrip totals={totals} costConfig={costConfig} />
 
-      <div style={{ marginBottom: 14 }}>
+      <div ref={toolbarSentinelRef} />
+      <div
+        style={{
+          marginBottom: 14,
+          position: 'sticky',
+          // PlatoShell's global header is a fixed 40px bar (zIndex 100) above
+          // everything — stick just below it, not behind it.
+          top: PLATO_SHELL_HEADER_HEIGHT,
+          zIndex: 10,
+          boxShadow: toolbarStuck ? 'var(--rmg-shadow-header)' : 'none',
+          transition: 'box-shadow 120ms ease',
+        }}
+      >
         <PageToolbar
           primaryRow={
             <>
