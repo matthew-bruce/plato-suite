@@ -6,20 +6,25 @@ import type { ResourceLocation } from '@plato/schema'
 /**
  * Toggle the `locked` flag on a period. Locking makes the Platform Schedule
  * read-only; unlocking re-enables editing. Returns the new locked state.
+ *
+ * Routed through the set_period_locked RPC so that a false→true transition
+ * atomically captures a period_cost_snapshots row (the resolved rate/VAT/
+ * on-costs at that instant) BEFORE the flag flips — freezing the period's cost
+ * figures against any later rate-table edits. The RPC is SECURITY DEFINER; the
+ * open/locked semantics are unchanged from before.
  */
 export async function togglePeriodLocked(
   periodId: string,
   locked: boolean,
 ): Promise<{ locked: boolean }> {
   const supabase = getSupabaseServerClient()
-  const { error } = await supabase
-    .from('periods')
-    .update({ locked })
-    .eq('period_id', periodId)
-    .is('deleted_at', null)
+  const { data, error } = await supabase.rpc('set_period_locked', {
+    p_period_id: periodId,
+    p_locked: locked,
+  })
 
   if (error) throw new Error(`Failed to update period lock: ${error.message}`)
-  return { locked }
+  return { locked: (data as boolean | null) ?? locked }
 }
 
 /**

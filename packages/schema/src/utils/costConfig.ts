@@ -37,3 +37,27 @@ export function pickEffectiveCostConfig<T extends EffectiveDatedRow>(
   }
   return best
 }
+
+/**
+ * Resolve the *applied* configuration for a period — the single rule the
+ * Schedule page (Applied Blended Rate and everything derived from it) and the
+ * homepage obey:
+ *
+ *   - locked period  → always its frozen snapshot, captured at lock time. The
+ *     live rows are never consulted, so later edits/deletes to
+ *     cost_configurations cannot move a locked period's figures, full stop.
+ *   - unlocked (draft) → the live effective-dated lookup, exactly as before, so
+ *     a draft immediately reflects rate-table changes.
+ *
+ * Keeping this decision in one pure function means the "locked reads snapshot,
+ * draft reads live" rule is unit-testable without touching the database.
+ */
+export function pickAppliedCostConfig<T extends EffectiveDatedRow>(opts: {
+  locked: boolean
+  snapshot: T | null
+  liveRows: T[]
+  targetDateISO: string
+}): T | null {
+  if (opts.locked) return opts.snapshot
+  return pickEffectiveCostConfig(opts.liveRows, opts.targetDateISO)
+}

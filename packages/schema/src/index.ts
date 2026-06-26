@@ -15,8 +15,14 @@ export type {
 
 export { getSchedulePageData } from './queries/schedule'
 export { computeUnallocatedPct } from './utils/schedule'
-export { resolveCostConfiguration, resolveCostConfigurationByCode } from './queries/costConfig'
-export { pickEffectiveCostConfig } from './utils/costConfig'
+export {
+  resolveCostConfiguration,
+  resolveCostConfigurationByCode,
+  resolveAppliedCostConfiguration,
+  resolveAppliedCostConfigurationByCode,
+} from './queries/costConfig'
+export type { AppliedConfigPeriod } from './queries/costConfig'
+export { pickEffectiveCostConfig, pickAppliedCostConfig } from './utils/costConfig'
 export type { EffectiveDatedRow } from './utils/costConfig'
 
 export { getRatesPageData } from './queries/rates'

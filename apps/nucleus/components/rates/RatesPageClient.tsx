@@ -2,24 +2,32 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Pencil, Trash2 } from 'lucide-react'
 import {
   Chart as ChartJS,
-  CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
   Tooltip,
   Legend,
+  type Chart,
+  type TooltipItem,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import type { RatesPageData, RatePlatform, RateHistoryRow, RatePeriod } from '@plato/schema'
 import { Button, FormField, PageToolbarFilterPill } from '@plato/ui/components/rmg'
 import { formatMoneyPence } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
-import { setBlendedRate } from '@/app/actions/rates'
+import { setBlendedRate, updateCostConfiguration, deleteCostConfiguration } from '@/app/actions/rates'
+import { computeDraftRateImpact, type DraftImpact, type RateChange } from '@/lib/rates/draftImpact'
 import { ConfirmDialog } from './ConfirmDialog'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
+// Numeric (timestamp) x-axis — no date adapter needed; we format ticks/tooltips
+// ourselves through Intl with en-GB so dates always read as UK order.
+ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend)
+// App-wide chart number locale (this is the only chart in the app — pre-flight
+// confirmed no other date-aware chart exists).
+ChartJS.defaults.locale = 'en-gb'
 
 /* ── Tokens / constants ─────────────────────────────────────────── */
 
@@ -28,23 +36,23 @@ const GREY1 = 'var(--rmg-color-grey-1)'
 const BODY = 'var(--rmg-color-text-body)'
 const HEADING = '#2A2A2D'
 
-// Distinct line colours, assigned by platform sort order. Solid hex (chart.js
-// can't read CSS custom properties from a canvas context).
 const LINE_COLOURS = ['#DA202A', '#0892CB', '#62A531', '#F3920D', '#6C4FB6', '#2A2A2D']
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function abbr(p: RatePlatform): string {
   return p.platform_abbreviation ?? p.platform_code
 }
-
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
-
-/** The period whose [start, end] range contains the given date, if any. */
 function periodForDate(periods: RatePeriod[], dateISO: string): RatePeriod | null {
-  return (
-    periods.find((p) => p.period_start_date <= dateISO && dateISO <= p.period_end_date) ?? null
-  )
+  return periods.find((p) => p.period_start_date <= dateISO && dateISO <= p.period_end_date) ?? null
+}
+
+// UK date, e.g. "1 Jul 2026".
+const UK_DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+function ukDate(ms: number): string {
+  return UK_DATE.format(new Date(ms))
 }
 
 /* ── Shared card / page styling (matches Platform Schedule) ──────── */
@@ -66,12 +74,10 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
   const { platforms, history, periods } = data
   const router = useRouter()
 
-  // Filter: every platform selected by default ("All platforms").
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(platforms.map((p) => p.platform_id)),
   )
   const allOn = selected.size === platforms.length
-  // History table focus — defaults to the first platform.
   const [focusId, setFocusId] = useState<string>(platforms[0]?.platform_id ?? '')
 
   function togglePlatform(id: string) {
@@ -104,69 +110,133 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     return map
   }, [history])
 
-  // Chart datasets — one line per selected platform that has at least one rate.
   const selectedPlatforms = platforms.filter((p) => selected.has(p.platform_id))
   const platformsWithData = selectedPlatforms.filter(
     (p) => (historyByPlatform.get(p.platform_id) ?? []).some((r) => r.blended_day_rate_override !== null),
   )
   const emptySelected = selectedPlatforms.filter((p) => !platformsWithData.includes(p))
 
-  const labels = useMemo(() => {
-    const dates = new Set<string>()
-    for (const p of platformsWithData) {
-      for (const r of historyByPlatform.get(p.platform_id) ?? []) {
-        if (r.blended_day_rate_override !== null) dates.add(r.effective_from)
-      }
-    }
-    return Array.from(dates).sort()
-  }, [platformsWithData, historyByPlatform])
+  // Quarter boundary marks — REAL periods only, never fabricated.
+  const quarterMarks = useMemo(
+    () =>
+      periods
+        .map((p) => ({ ms: Date.parse(p.period_start_date), label: p.period_name }))
+        .sort((a, b) => a.ms - b.ms),
+    [periods],
+  )
 
-  const chartData = {
-    labels,
-    datasets: platformsWithData.map((p) => {
-      const rows = (historyByPlatform.get(p.platform_id) ?? []).filter(
-        (r) => r.blended_day_rate_override !== null,
-      )
-      const byDate = new Map(rows.map((r) => [r.effective_from, r.blended_day_rate_override! / 100]))
-      const colour = colourFor.get(p.platform_id)!
-      return {
-        label: abbr(p),
-        data: labels.map((d) => byDate.get(d) ?? null),
-        borderColor: colour,
-        backgroundColor: colour,
-        spanGaps: true,
-        tension: 0,
-        pointRadius: 4,
-      }
+  // Default window: trailing 12 months anchored to the latest entered rate
+  // (drafts included), not strictly today. A little padding each side so the
+  // anchor point isn't clipped against the frame.
+  const window = useMemo(() => {
+    const rateDates = history
+      .filter((r) => r.blended_day_rate_override !== null)
+      .map((r) => Date.parse(r.effective_from))
+    const latest = rateDates.length ? Math.max(...rateDates) : Date.parse(todayISO())
+    const minD = new Date(latest)
+    minD.setMonth(minD.getMonth() - 12)
+    return { min: minD.getTime() - 10 * DAY_MS, max: latest + 18 * DAY_MS }
+  }, [history])
+
+  const chartData = useMemo(
+    () => ({
+      datasets: platformsWithData.map((p) => {
+        const colour = colourFor.get(p.platform_id)!
+        const points = (historyByPlatform.get(p.platform_id) ?? [])
+          .filter((r) => r.blended_day_rate_override !== null)
+          .map((r) => ({ x: Date.parse(r.effective_from), y: r.blended_day_rate_override! / 100 }))
+          .sort((a, b) => a.x - b.x)
+        return {
+          label: abbr(p),
+          data: points,
+          borderColor: colour,
+          backgroundColor: colour,
+          tension: 0, // plain linear interpolation (diagonal) — never stepped
+          pointRadius: 4,
+          pointHoverRadius: 5,
+        }
+      }),
     }),
-  }
+    [platformsWithData, historyByPlatform, colourFor],
+  )
 
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'nearest' as const, intersect: false },
-    plugins: {
-      legend: { position: 'bottom' as const, labels: { font: { family: 'var(--rmg-font-body)' } } },
-      tooltip: {
-        callbacks: {
-          label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
-            `${ctx.dataset.label}: ${ctx.parsed.y == null ? '—' : `£${ctx.parsed.y.toLocaleString('en-GB', { maximumFractionDigits: 2 })}/day`}`,
+  const chartOptions = useMemo(
+    () =>
+      ({
+        responsive: true,
+        maintainAspectRatio: false,
+        locale: 'en-gb',
+        // Show EVERY platform's value at the hovered date, not just the top line.
+        interaction: { mode: 'index' as const, intersect: false },
+        plugins: {
+          legend: { position: 'bottom' as const, labels: { font: { family: 'var(--rmg-font-body)' } } },
+          tooltip: {
+            callbacks: {
+              title: (items: TooltipItem<'line'>[]) =>
+                items.length ? ukDate(Number(items[0].parsed.x)) : '',
+              label: (ctx: TooltipItem<'line'>) =>
+                `${ctx.dataset.label}: ${ctx.parsed.y == null ? '—' : `£${ctx.parsed.y.toLocaleString('en-GB', { maximumFractionDigits: 2 })}/day`}`,
+            },
+          },
         },
-      },
-    },
-    scales: {
-      y: {
-        ticks: {
-          callback: (v: string | number) => `£${Number(v).toLocaleString('en-GB')}`,
+        scales: {
+          x: {
+            type: 'linear' as const,
+            min: window.min,
+            max: window.max,
+            // Ticks land on real quarter boundaries within the window.
+            afterBuildTicks: (axis: { min: number; max: number; ticks: { value: number }[] }) => {
+              const marks = quarterMarks
+                .filter((m) => m.ms >= axis.min && m.ms <= axis.max)
+                .map((m) => ({ value: m.ms }))
+              axis.ticks = marks.length ? marks : [{ value: axis.min }, { value: axis.max }]
+            },
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (v: string | number) => ukDate(Number(v)),
+              font: { family: 'var(--rmg-font-body)' },
+            },
+            grid: { display: false },
+          },
+          y: {
+            ticks: { callback: (v: string | number) => `£${Number(v).toLocaleString('en-GB')}` },
+          },
         },
-      },
-    },
-  }
+      }),
+    [window, quarterMarks],
+  )
 
-  const focusPlatform = platforms.find((p) => p.platform_id === focusId) ?? null
-  const focusHistory = (historyByPlatform.get(focusId) ?? [])
-    .slice()
-    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
+  // Vertical dashed quarter-boundary lines with labels, drawn from real periods.
+  const quarterLinesPlugin = useMemo(
+    () => ({
+      id: 'quarterLines',
+      afterDraw(chart: Chart) {
+        const x = chart.scales.x
+        if (!x) return
+        const { ctx, chartArea } = chart
+        for (const mark of quarterMarks) {
+          if (mark.ms < x.min || mark.ms > x.max) continue
+          const px = x.getPixelForValue(mark.ms)
+          ctx.save()
+          ctx.beginPath()
+          ctx.setLineDash([4, 4])
+          ctx.moveTo(px, chartArea.top)
+          ctx.lineTo(px, chartArea.bottom)
+          ctx.lineWidth = 1
+          ctx.strokeStyle = 'rgba(42,42,45,0.28)'
+          ctx.stroke()
+          ctx.setLineDash([])
+          ctx.font = '10px var(--rmg-font-body), sans-serif'
+          ctx.fillStyle = 'rgba(42,42,45,0.55)'
+          ctx.textBaseline = 'top'
+          ctx.fillText(mark.label, px + 4, chartArea.top + 2)
+          ctx.restore()
+        }
+      },
+    }),
+    [quarterMarks],
+  )
 
   const page: React.CSSProperties = {
     background: '#ffffff',
@@ -186,8 +256,6 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         Set and review effective-dated blended day rates per platform. Cost-impact analysis lives on the Platform Schedule.
       </p>
 
-      {/* Platform filter pills — multi-select, "All platforms" uses the same
-          solid-dark select-all treatment as "All suppliers" on the Schedule. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
         <PageToolbarFilterPill label="All platforms" active={allOn} colour="--all" onClick={toggleAll} />
         {platforms.map((p) => (
@@ -203,7 +271,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
 
       {/* Trend chart */}
       <div style={cardStyle}>
-        <div style={sectionLabel}>Rate trend</div>
+        <div style={sectionLabel}>Rate trend · trailing 12 months</div>
         {platformsWithData.length === 0 ? (
           <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
             {selectedPlatforms.length === 0
@@ -212,7 +280,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
           </p>
         ) : (
           <div style={{ height: 320 }}>
-            <Line data={chartData} options={chartOptions} />
+            <Line data={chartData} options={chartOptions} plugins={[quarterLinesPlugin]} />
           </div>
         )}
         {emptySelected.length > 0 && platformsWithData.length > 0 && (
@@ -226,60 +294,272 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         )}
       </div>
 
-      {/* History table */}
-      <div style={cardStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-          <div style={{ ...sectionLabel, marginBottom: 0 }}>Rate history</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: GREY1, marginRight: 2 }}>Showing</span>
-            {platforms.map((p) => (
-              <PageToolbarFilterPill
-                key={p.platform_id}
-                label={abbr(p)}
-                active={focusId === p.platform_id}
-                colour={colourFor.get(p.platform_id) ?? '#8F9495'}
-                onClick={() => setFocusId(p.platform_id)}
-              />
-            ))}
-          </div>
-        </div>
-        {focusHistory.length === 0 ? (
-          <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
-            No historic data yet for {focusPlatform ? abbr(focusPlatform) : 'this platform'}.
-          </p>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: GREY1, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                <th style={thStyle}>Effective from</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Blended rate</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>VAT uplift</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>On-costs uplift</th>
-              </tr>
-            </thead>
-            <tbody>
-              {focusHistory.map((r) => (
-                <tr key={r.cost_configuration_id} style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
-                  <td style={tdStyle}>{r.effective_from}</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
-                    {r.blended_day_rate_override === null ? '—' : `${formatMoneyPence(r.blended_day_rate_override, { decimals: 2 })}/day`}
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>{r.vat_uplift_percent}%</td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>{r.on_costs_uplift_percent}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Set a new rate */}
-      <SetRateForm
+      {/* History table with row-level edit/delete */}
+      <RateHistoryCard
         platforms={platforms}
+        history={history}
         periods={periods}
         colourFor={colourFor}
-        onSaved={() => router.refresh()}
+        focusId={focusId}
+        onFocus={setFocusId}
+        onChanged={() => router.refresh()}
       />
+
+      {/* Set a new rate */}
+      <SetRateForm platforms={platforms} periods={periods} colourFor={colourFor} onSaved={() => router.refresh()} />
+    </div>
+  )
+}
+
+/* ── Rate history (with edit + delete, gated by draft-impact) ────── */
+
+interface EditDraft {
+  effectiveFrom: string
+  rate: string
+  vat: string
+  onCosts: string
+}
+
+function RateHistoryCard({
+  platforms,
+  history,
+  periods,
+  colourFor,
+  focusId,
+  onFocus,
+  onChanged,
+}: {
+  platforms: RatePlatform[]
+  history: RateHistoryRow[]
+  periods: RatePeriod[]
+  colourFor: Map<string, string>
+  focusId: string
+  onFocus: (id: string) => void
+  onChanged: () => void
+}) {
+  const focusPlatform = platforms.find((p) => p.platform_id === focusId) ?? null
+  const focusHistory = (history.filter((r) => r.platform_id === focusId))
+    .slice()
+    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<EditDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Pending action awaiting confirm (impact list shown), holds the committer.
+  const [pending, setPending] = useState<{ title: string; impacts: DraftImpact[]; run: () => Promise<void> } | null>(null)
+
+  function startEdit(r: RateHistoryRow) {
+    setError(null)
+    setEditingId(r.cost_configuration_id)
+    setDraft({
+      effectiveFrom: r.effective_from,
+      rate: r.blended_day_rate_override === null ? '' : String(r.blended_day_rate_override / 100),
+      vat: String(r.vat_uplift_percent),
+      onCosts: String(r.on_costs_uplift_percent),
+    })
+  }
+  function cancelEdit() {
+    setEditingId(null)
+    setDraft(null)
+    setError(null)
+  }
+
+  // Runs the change; if any draft period is impacted, defers to a confirm step.
+  async function commitGated(change: RateChange, title: string, run: () => Promise<void>) {
+    const impacts = computeDraftRateImpact(history, periods, change)
+    if (impacts.length > 0) {
+      setPending({ title, impacts, run })
+      return
+    }
+    await run()
+  }
+
+  async function saveEdit(r: RateHistoryRow) {
+    if (!draft) return
+    setError(null)
+    if (!draft.effectiveFrom) { setError('Pick an effective-from date.'); return }
+    const ratePence = draft.rate.trim() === '' ? null : Math.round(parseFloat(draft.rate) * 100)
+    if (ratePence !== null && (!Number.isFinite(ratePence) || ratePence < 0)) { setError('Enter a valid rate.'); return }
+
+    const run = async () => {
+      setBusy(true)
+      const res = await updateCostConfiguration(r.cost_configuration_id, {
+        effectiveFrom: draft.effectiveFrom,
+        blendedRatePence: ratePence,
+        vatUpliftPercent: parseFloat(draft.vat) || 0,
+        onCostsUpliftPercent: parseFloat(draft.onCosts) || 0,
+      })
+      setBusy(false)
+      if (!res.success) { setError(res.error ?? 'Could not save the change.'); return }
+      setPending(null)
+      cancelEdit()
+      onChanged()
+    }
+
+    await commitGated(
+      { kind: 'edit', row: r, nextEffectiveFrom: draft.effectiveFrom, nextRatePence: ratePence },
+      'Confirm rate edit',
+      run,
+    )
+  }
+
+  async function deleteRow(r: RateHistoryRow) {
+    setError(null)
+    const run = async () => {
+      setBusy(true)
+      const res = await deleteCostConfiguration(r.cost_configuration_id)
+      setBusy(false)
+      if (!res.success) { setError(res.error ?? 'Could not delete the row.'); return }
+      setPending(null)
+      onChanged()
+    }
+    // Delete always confirms; the impact list (if any) enriches that confirm.
+    const impacts = computeDraftRateImpact(history, periods, { kind: 'delete', row: r })
+    setPending({
+      title: `Delete the rate effective ${r.effective_from}?`,
+      impacts,
+      run,
+    })
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ ...sectionLabel, marginBottom: 0 }}>Rate history</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: GREY1, marginRight: 2 }}>Showing</span>
+          {platforms.map((p) => (
+            <PageToolbarFilterPill
+              key={p.platform_id}
+              label={abbr(p)}
+              active={focusId === p.platform_id}
+              colour={colourFor.get(p.platform_id) ?? '#8F9495'}
+              onClick={() => { cancelEdit(); onFocus(p.platform_id) }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {error && <p style={{ fontSize: 12, color: RED, margin: '0 0 10px' }}>{error}</p>}
+
+      {focusHistory.length === 0 ? (
+        <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
+          No historic data yet for {focusPlatform ? abbr(focusPlatform) : 'this platform'}.
+        </p>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: GREY1, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <th style={thStyle}>Effective from</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>Blended rate</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>VAT uplift</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}>On-costs uplift</th>
+              <th style={{ ...thStyle, textAlign: 'right', width: 84 }} aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {focusHistory.map((r) => {
+              const isEditing = editingId === r.cost_configuration_id && draft
+              return (
+                <tr key={r.cost_configuration_id} style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
+                  {isEditing ? (
+                    <>
+                      <td style={tdStyle}>
+                        <input type="date" value={draft!.effectiveFrom} onChange={(e) => setDraft({ ...draft!, effectiveFrom: e.target.value })} style={cellInput} />
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <input inputMode="decimal" value={draft!.rate} onChange={(e) => setDraft({ ...draft!, rate: e.target.value.replace(/[^0-9.]/g, '') })} style={{ ...cellInput, textAlign: 'right' }} placeholder="£/day" />
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <input inputMode="decimal" value={draft!.vat} onChange={(e) => setDraft({ ...draft!, vat: e.target.value.replace(/[^0-9.]/g, '') })} style={{ ...cellInput, textAlign: 'right', width: 70 }} />
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        <input inputMode="decimal" value={draft!.onCosts} onChange={(e) => setDraft({ ...draft!, onCosts: e.target.value.replace(/[^0-9.]/g, '') })} style={{ ...cellInput, textAlign: 'right', width: 70 }} />
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button type="button" disabled={busy} onClick={() => saveEdit(r)} title="Save" aria-label="Save" style={iconBtn(RED)}>Save</button>
+                        <button type="button" onClick={cancelEdit} title="Cancel" aria-label="Cancel" style={{ ...iconBtn(GREY1), marginLeft: 4 }}>Cancel</button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td style={tdStyle}>{r.effective_from}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>
+                        {r.blended_day_rate_override === null ? '—' : `${formatMoneyPence(r.blended_day_rate_override, { decimals: 2 })}/day`}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{r.vat_uplift_percent}%</td>
+                      <td style={{ ...tdStyle, textAlign: 'right' }}>{r.on_costs_uplift_percent}%</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button type="button" onClick={() => startEdit(r)} title="Edit rate" aria-label="Edit rate" style={iconBtn('#0892CB')}><Pencil size={14} /></button>
+                        <button type="button" onClick={() => deleteRow(r)} title="Delete rate" aria-label="Delete rate" style={{ ...iconBtn(RED), marginLeft: 6 }}><Trash2 size={14} /></button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+
+      {pending && (
+        <ImpactConfirm
+          title={pending.title}
+          impacts={pending.impacts}
+          busy={busy}
+          onConfirm={() => void pending.run()}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Impact confirm modal ───────────────────────────────────────── */
+
+function ImpactConfirm({
+  title,
+  impacts,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  title: string
+  impacts: DraftImpact[]
+  busy: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const fmt = (pence: number | null) => (pence === null ? 'no rate' : `${formatMoneyPence(pence, { decimals: 2 })}/day`)
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(42,42,45,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--rmg-color-white)', borderRadius: 12, padding: 22, width: 460, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 8px 40px rgba(0,0,0,0.22)', fontFamily: 'var(--rmg-font-body)' }}>
+        <p style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, color: HEADING }}>{title}</p>
+        {impacts.length === 0 ? (
+          <p style={{ margin: '0 0 18px', fontSize: 13, color: BODY, lineHeight: 1.5 }}>
+            No draft period’s Applied Blended Rate changes as a result. Locked periods are unaffected.
+          </p>
+        ) : (
+          <>
+            <p style={{ margin: '0 0 8px', fontSize: 13, color: BODY }}>
+              This changes the Applied Blended Rate for {impacts.length} draft period{impacts.length !== 1 ? 's' : ''}:
+            </p>
+            <ul style={{ margin: '0 0 16px', padding: '0 0 0 2px', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {impacts.map((i) => (
+                <li key={i.period.period_id} style={{ fontSize: 13, color: HEADING, display: 'flex', justifyContent: 'space-between', gap: 12, borderLeft: '3px solid var(--rmg-color-orange)', paddingLeft: 8 }}>
+                  <span>{i.period.period_name}</span>
+                  <span style={{ color: BODY }}>{fmt(i.fromPence)} → <strong>{fmt(i.toPence)}</strong></span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <Button variant="outline" size="small" onClick={onCancel}>Cancel</Button>
+          <Button variant="solid" size="small" disabled={busy} onClick={onConfirm}>{busy ? 'Saving…' : 'Confirm'}</Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -304,7 +584,6 @@ function SetRateForm({
   const [error, setError] = useState<string | null>(null)
   const [pendingWarn, setPendingWarn] = useState<string | null>(null)
 
-  // Quick-pick: upcoming draft periods' start dates.
   const quickPicks = useMemo(
     () =>
       periods
@@ -349,7 +628,6 @@ function SetRateForm({
     <div style={{ ...cardStyle, marginBottom: 0 }}>
       <div style={sectionLabel}>Set a new rate</div>
 
-      {/* Platform — single-select pill row (FormField has no option list). */}
       <div style={{ marginBottom: 14 }}>
         <label style={fieldLabel}>Platform</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -367,37 +645,18 @@ function SetRateForm({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField
-            size="small"
-            type="date"
-            label="Effective from"
-            value={effectiveFrom}
-            onChange={(e) => setEffectiveFrom(e.target.value)}
-          />
+          <FormField size="small" type="date" label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
           {quickPicks.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
               {quickPicks.map((q) => (
-                <PageToolbarFilterPill
-                  key={q.date}
-                  label={`${q.label} · ${q.date}`}
-                  active={effectiveFrom === q.date}
-                  colour="--all"
-                  onClick={() => setEffectiveFrom(q.date)}
-                />
+                <PageToolbarFilterPill key={q.date} label={`${q.label} · ${q.date}`} active={effectiveFrom === q.date} colour="--all" onClick={() => setEffectiveFrom(q.date)} />
               ))}
             </div>
           )}
         </div>
 
         <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField
-            size="small"
-            type="text"
-            label="New rate (£/day)"
-            placeholder="e.g. 575"
-            value={rate}
-            onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))}
-          />
+          <FormField size="small" type="text" label="New rate (£/day)" placeholder="e.g. 575" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} />
         </div>
       </div>
 
@@ -414,12 +673,7 @@ function SetRateForm({
       {error && <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>{error}</p>}
 
       <div style={{ marginTop: 16 }}>
-        <Button
-          variant="solid"
-          size="small"
-          disabled={saving || blocked}
-          onClick={handleSaveClick}
-        >
+        <Button variant="solid" size="small" disabled={saving || blocked} onClick={handleSaveClick}>
           {saving ? 'Saving…' : 'Save rate'}
         </Button>
       </div>
@@ -427,10 +681,7 @@ function SetRateForm({
       {pendingWarn && (
         <ConfirmDialog
           message={pendingWarn}
-          onConfirm={() => {
-            setPendingWarn(null)
-            void doSave()
-          }}
+          onConfirm={() => { setPendingWarn(null); void doSave() }}
           onCancel={() => setPendingWarn(null)}
         />
       )}
@@ -449,3 +700,13 @@ const fieldLabel: React.CSSProperties = {
 }
 const thStyle: React.CSSProperties = { padding: '6px 8px', fontWeight: 700 }
 const tdStyle: React.CSSProperties = { padding: '8px', color: BODY }
+const cellInput: React.CSSProperties = {
+  width: '100%', maxWidth: 150, fontFamily: 'var(--rmg-font-body)', fontSize: 13, padding: '5px 8px',
+  border: '1px solid var(--rmg-color-grey-2)', borderRadius: 6, outline: 'none', boxSizing: 'border-box', color: HEADING,
+}
+function iconBtn(colour: string): React.CSSProperties {
+  return {
+    background: 'transparent', border: 'none', cursor: 'pointer', color: colour, padding: '2px 4px',
+    fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center',
+  }
+}

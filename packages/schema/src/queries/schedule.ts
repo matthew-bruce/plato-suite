@@ -3,7 +3,7 @@
 
 import { getSupabaseServerClient } from '../server'
 import { computeUnallocatedPct } from '../utils/schedule'
-import { resolveCostConfigurationByCode } from './costConfig'
+import { resolveAppliedCostConfigurationByCode } from './costConfig'
 import type {
   SchedulePageData,
   ScheduleAllocation,
@@ -117,10 +117,13 @@ export async function getSchedulePageData(
     locked: periodData.locked as boolean,
   }
 
-  // Effective-dated cost config for the Web platform, via the shared resolver.
-  const costConfig: CostConfiguration | null = await resolveCostConfigurationByCode(
+  // Applied cost config for the Web platform: a locked period reads its frozen
+  // snapshot; a draft reads the live effective-dated lookup. Same shape either
+  // way, so everything derived from it (Applied Blended Rate, Total Platform
+  // Cost, Recovery Variance) is automatically snapshot-correct once locked.
+  const costConfig: CostConfiguration | null = await resolveAppliedCostConfigurationByCode(
     WEB_PLATFORM_CODE,
-    period.period_start_date,
+    { period_id: period.period_id, locked: period.locked, period_start_date: period.period_start_date },
   )
 
   const [allocsResult, costItemsResult] = await Promise.all([

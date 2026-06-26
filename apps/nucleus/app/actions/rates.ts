@@ -65,3 +65,77 @@ export async function setBlendedRate(
   // The RPC returns the new cost_configuration_id (uuid) as its scalar result.
   return { success: true, costConfigurationId: (data as string | null) ?? undefined }
 }
+
+export interface MutateRateResult {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Correct an existing rate-history row in place. Routed through the
+ * update_cost_configuration SECURITY DEFINER RPC (cost_configurations is
+ * RLS-locked). Changing effective_from to a date already held by another live
+ * row for the same platform raises 23505, surfaced as a clear message.
+ *
+ * The caller (Rates page) runs the draft-impact check before calling this.
+ */
+export async function updateCostConfiguration(
+  costConfigurationId: string,
+  updates: {
+    effectiveFrom: string
+    blendedRatePence: number | null
+    vatUpliftPercent: number
+    onCostsUpliftPercent: number
+  },
+): Promise<MutateRateResult> {
+  if (!costConfigurationId) return { success: false, error: 'Missing rate row.' }
+  if (!updates.effectiveFrom) return { success: false, error: 'Pick an effective-from date.' }
+  if (
+    updates.blendedRatePence !== null &&
+    (!Number.isFinite(updates.blendedRatePence) || updates.blendedRatePence < 0)
+  ) {
+    return { success: false, error: 'Enter a valid rate.' }
+  }
+
+  const supabase = getSupabaseServerClient()
+  const { error } = await supabase.rpc('update_cost_configuration', {
+    p_cost_configuration_id: costConfigurationId,
+    p_effective_from: updates.effectiveFrom,
+    p_blended_rate_pence: updates.blendedRatePence === null ? null : Math.round(updates.blendedRatePence),
+    p_vat_uplift: updates.vatUpliftPercent,
+    p_on_costs_uplift: updates.onCostsUpliftPercent,
+  })
+
+  if (error) {
+    if (error.code === '23505') {
+      return {
+        success: false,
+        error: `Another rate already exists for this platform effective ${updates.effectiveFrom}. Choose a different date.`,
+      }
+    }
+    return { success: false, error: error.message }
+  }
+  return { success: true }
+}
+
+/**
+ * Soft-delete a rate-history row (sets deleted_at). Routed through the
+ * soft_delete_cost_configuration SECURITY DEFINER RPC. Deleting the last
+ * remaining row for a platform is a supported outcome — the effective-dated
+ * lookup already treats "no rows" as "no rate configured".
+ *
+ * The caller runs the draft-impact check before calling this.
+ */
+export async function deleteCostConfiguration(
+  costConfigurationId: string,
+): Promise<MutateRateResult> {
+  if (!costConfigurationId) return { success: false, error: 'Missing rate row.' }
+
+  const supabase = getSupabaseServerClient()
+  const { error } = await supabase.rpc('soft_delete_cost_configuration', {
+    p_cost_configuration_id: costConfigurationId,
+  })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
+}
