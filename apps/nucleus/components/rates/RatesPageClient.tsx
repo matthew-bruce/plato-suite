@@ -17,10 +17,30 @@ import { Line } from 'react-chartjs-2'
 import type { RatesPageData, RatePlatform, RateHistoryRow, RatePeriod } from '@plato/schema'
 import { Button, FormField, PageToolbarFilterPill } from '@plato/ui/components/rmg'
 import { formatMoneyPence } from '@/lib/schedule/format'
-import { getRateEditability } from '@/lib/rates/editability'
 import { setBlendedRate, updateCostConfiguration, deleteCostConfiguration } from '@/app/actions/rates'
-import { computeDraftRateImpact, type DraftImpact, type RateChange } from '@/lib/rates/draftImpact'
-import { ConfirmDialog } from './ConfirmDialog'
+import {
+  computeRateEditImpact,
+  type PeriodRateImpact,
+  type ConsideredStatus,
+} from '@/lib/rates/rateImpact'
+
+// The add path warns only for already-committed periods; drafts update silently.
+const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
+// Edit/delete warn for every unlocked period whose resolved rate would move.
+const EDIT_WARN_STATUSES: ConsideredStatus[] = ['draft', 'active', 'historic']
+
+/** "A" · "A and B" · "A, B and C" */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  if (names.length === 2) return `${names[0]} and ${names[1]}`
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** Reassurance message for a change that moves no figures, or null if nothing to say. */
+function matchesMessage(unchanged: { period_name: string }[]): string | null {
+  if (unchanged.length === 0) return null
+  return `Matches what's already applied to ${joinNames(unchanged.map((p) => p.period_name))} — no schedule figures will change.`
+}
 
 // Numeric (timestamp) x-axis — no date adapter needed; we format ticks/tooltips
 // ourselves through Intl with en-GB so dates always read as UK order.
@@ -44,9 +64,6 @@ function abbr(p: RatePlatform): string {
 }
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
-}
-function periodForDate(periods: RatePeriod[], dateISO: string): RatePeriod | null {
-  return periods.find((p) => p.period_start_date <= dateISO && dateISO <= p.period_end_date) ?? null
 }
 
 // UK date, e.g. "1 Jul 2026".
@@ -306,7 +323,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
       />
 
       {/* Set a new rate */}
-      <SetRateForm platforms={platforms} periods={periods} colourFor={colourFor} onSaved={() => router.refresh()} />
+      <SetRateForm platforms={platforms} periods={periods} history={history} colourFor={colourFor} onSaved={() => router.refresh()} />
     </div>
   )
 }
@@ -346,8 +363,9 @@ function RateHistoryCard({
   const [draft, setDraft] = useState<EditDraft | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   // Pending action awaiting confirm (impact list shown), holds the committer.
-  const [pending, setPending] = useState<{ title: string; impacts: DraftImpact[]; run: () => Promise<void> } | null>(null)
+  const [pending, setPending] = useState<{ title: string; impacts: PeriodRateImpact[]; run: () => Promise<void> } | null>(null)
 
   function startEdit(r: RateHistoryRow) {
     setError(null)
@@ -365,22 +383,17 @@ function RateHistoryCard({
     setError(null)
   }
 
-  // Runs the change; if any draft period is impacted, defers to a confirm step.
-  async function commitGated(change: RateChange, title: string, run: () => Promise<void>) {
-    const impacts = computeDraftRateImpact(history, periods, change)
-    if (impacts.length > 0) {
-      setPending({ title, impacts, run })
-      return
-    }
-    await run()
-  }
-
   async function saveEdit(r: RateHistoryRow) {
     if (!draft) return
-    setError(null)
+    setError(null); setNotice(null)
     if (!draft.effectiveFrom) { setError('Pick an effective-from date.'); return }
     const ratePence = draft.rate.trim() === '' ? null : Math.round(parseFloat(draft.rate) * 100)
     if (ratePence !== null && (!Number.isFinite(ratePence) || ratePence < 0)) { setError('Enter a valid rate.'); return }
+
+    const impact = computeRateEditImpact(history, periods, {
+      kind: 'edit', platformId: r.platform_id, targetRow: r,
+      nextEffectiveFrom: draft.effectiveFrom, nextRatePence: ratePence,
+    }, { warnStatuses: EDIT_WARN_STATUSES })
 
     const run = async () => {
       setBusy(true)
@@ -394,18 +407,21 @@ function RateHistoryCard({
       if (!res.success) { setError(res.error ?? 'Could not save the change.'); return }
       setPending(null)
       cancelEdit()
+      setNotice(matchesMessage(impact.unchanged))
       onChanged()
     }
 
-    await commitGated(
-      { kind: 'edit', row: r, nextEffectiveFrom: draft.effectiveFrom, nextRatePence: ratePence },
-      'Confirm rate edit',
-      run,
-    )
+    // Warn only when an unlocked period's resolved rate actually moves; otherwise
+    // save immediately (locked periods can never appear here).
+    if (impact.warnings.length > 0) {
+      setPending({ title: 'Confirm rate edit', impacts: impact.warnings, run })
+    } else {
+      await run()
+    }
   }
 
   async function deleteRow(r: RateHistoryRow) {
-    setError(null)
+    setError(null); setNotice(null)
     const run = async () => {
       setBusy(true)
       const res = await deleteCostConfiguration(r.cost_configuration_id)
@@ -414,13 +430,11 @@ function RateHistoryCard({
       setPending(null)
       onChanged()
     }
-    // Delete always confirms; the impact list (if any) enriches that confirm.
-    const impacts = computeDraftRateImpact(history, periods, { kind: 'delete', row: r })
-    setPending({
-      title: `Delete the rate effective ${r.effective_from}?`,
-      impacts,
-      run,
-    })
+    // Delete always confirms; the impact list (unlocked periods that change) enriches it.
+    const impact = computeRateEditImpact(history, periods, {
+      kind: 'delete', platformId: r.platform_id, targetRow: r,
+    }, { warnStatuses: EDIT_WARN_STATUSES })
+    setPending({ title: `Delete the rate effective ${r.effective_from}?`, impacts: impact.warnings, run })
   }
 
   return (
@@ -442,6 +456,7 @@ function RateHistoryCard({
       </div>
 
       {error && <p style={{ fontSize: 12, color: RED, margin: '0 0 10px' }}>{error}</p>}
+      {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '0 0 10px' }}>{notice}</p>}
 
       {focusHistory.length === 0 ? (
         <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
@@ -526,7 +541,7 @@ function ImpactConfirm({
   onCancel,
 }: {
   title: string
-  impacts: DraftImpact[]
+  impacts: PeriodRateImpact[]
   busy: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -538,12 +553,12 @@ function ImpactConfirm({
         <p style={{ margin: '0 0 12px', fontSize: 15, fontWeight: 600, color: HEADING }}>{title}</p>
         {impacts.length === 0 ? (
           <p style={{ margin: '0 0 18px', fontSize: 13, color: BODY, lineHeight: 1.5 }}>
-            No draft period’s Applied Blended Rate changes as a result. Locked periods are unaffected.
+            No period’s Applied Blended Rate changes as a result. Locked periods are unaffected.
           </p>
         ) : (
           <>
             <p style={{ margin: '0 0 8px', fontSize: 13, color: BODY }}>
-              This changes the Applied Blended Rate for {impacts.length} draft period{impacts.length !== 1 ? 's' : ''}:
+              This changes the Applied Blended Rate for {impacts.length} period{impacts.length !== 1 ? 's' : ''}:
             </p>
             <ul style={{ margin: '0 0 16px', padding: '0 0 0 2px', listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {impacts.map((i) => (
@@ -569,11 +584,13 @@ function ImpactConfirm({
 function SetRateForm({
   platforms,
   periods,
+  history,
   colourFor,
   onSaved,
 }: {
   platforms: RatePlatform[]
   periods: RatePeriod[]
+  history: RateHistoryRow[]
   colourFor: Map<string, string>
   onSaved: () => void
 }) {
@@ -582,7 +599,8 @@ function SetRateForm({
   const [rate, setRate] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pendingWarn, setPendingWarn] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [pending, setPending] = useState<{ impacts: PeriodRateImpact[]; run: () => Promise<void> } | null>(null)
 
   const quickPicks = useMemo(
     () =>
@@ -592,11 +610,7 @@ function SetRateForm({
     [periods],
   )
 
-  const targetPeriod = effectiveFrom ? periodForDate(periods, effectiveFrom) : null
-  const editState = getRateEditability(targetPeriod)
-  const blocked = editState.kind === 'locked'
-
-  async function doSave() {
+  async function doSave(reassurance: string | null) {
     setSaving(true)
     setError(null)
     const pence = Math.round((parseFloat(rate) || 0) * 100)
@@ -608,20 +622,30 @@ function SetRateForm({
     }
     setRate('')
     setEffectiveFrom('')
+    setPending(null)
+    setNotice(reassurance)
     onSaved()
   }
 
   function handleSaveClick() {
-    setError(null)
+    setError(null); setNotice(null)
     if (!platformId || !effectiveFrom || rate.trim() === '') {
       setError('Pick a platform, an effective-from date and a rate.')
       return
     }
-    if (editState.kind === 'warn') {
-      setPendingWarn(editState.message)
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+    // Locked periods can never be touched here; warn only when an unlocked
+    // active/historic period's resolved rate would genuinely move.
+    const impact = computeRateEditImpact(history, periods, {
+      kind: 'add', platformId, nextEffectiveFrom: effectiveFrom, nextRatePence: pence,
+    }, { warnStatuses: ADD_WARN_STATUSES })
+
+    if (impact.warnings.length > 0) {
+      setPending({ impacts: impact.warnings, run: () => doSave(null) })
       return
     }
-    void doSave()
+    // Zero actual impact → save immediately, naming any matched periods.
+    void doSave(matchesMessage(impact.unchanged))
   }
 
   return (
@@ -660,29 +684,22 @@ function SetRateForm({
         </div>
       </div>
 
-      {blocked && (
-        <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>
-          🔒 The period covering this date is locked — rate changes are blocked.
-        </p>
-      )}
-      {editState.kind === 'warn' && !blocked && (
-        <p style={{ fontSize: 12, color: 'var(--rmg-color-orange)', margin: '12px 0 0' }}>
-          This date falls in a period that is no longer in draft — you’ll be asked to confirm.
-        </p>
-      )}
       {error && <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>{error}</p>}
+      {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '12px 0 0' }}>{notice}</p>}
 
       <div style={{ marginTop: 16 }}>
-        <Button variant="solid" size="small" disabled={saving || blocked} onClick={handleSaveClick}>
+        <Button variant="solid" size="small" disabled={saving} onClick={handleSaveClick}>
           {saving ? 'Saving…' : 'Save rate'}
         </Button>
       </div>
 
-      {pendingWarn && (
-        <ConfirmDialog
-          message={pendingWarn}
-          onConfirm={() => { setPendingWarn(null); void doSave() }}
-          onCancel={() => setPendingWarn(null)}
+      {pending && (
+        <ImpactConfirm
+          title="Confirm new rate"
+          impacts={pending.impacts}
+          busy={saving}
+          onConfirm={() => void pending.run()}
+          onCancel={() => setPending(null)}
         />
       )}
     </div>
