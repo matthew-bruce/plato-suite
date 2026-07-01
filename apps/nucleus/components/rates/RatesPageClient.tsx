@@ -23,6 +23,7 @@ import {
   type PeriodRateImpact,
   type ConsideredStatus,
 } from '@/lib/rates/rateImpact'
+import { buildPlatformChartPoints } from '@/lib/rates/chartPoints'
 
 // The add path warns only for already-committed periods; drafts update silently.
 const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
@@ -159,10 +160,10 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     () => ({
       datasets: platformsWithData.map((p) => {
         const colour = colourFor.get(p.platform_id)!
-        const points = (historyByPlatform.get(p.platform_id) ?? [])
-          .filter((r) => r.blended_day_rate_override !== null)
-          .map((r) => ({ x: Date.parse(r.effective_from), y: r.blended_day_rate_override! / 100 }))
-          .sort((a, b) => a.x - b.x)
+        // Carry-forward: a synthesised entry point at the window's left edge
+        // when the platform's rate at that instant resolves from an
+        // off-screen earlier row, so the line enters the frame flat.
+        const points = buildPlatformChartPoints(historyByPlatform.get(p.platform_id) ?? [], window.min)
         return {
           label: abbr(p),
           data: points,
@@ -217,6 +218,9 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
             grid: { display: false },
           },
           y: {
+            // Explicit floor at 0 — auto-scaling made small movements read as
+            // a cliff. Max stays auto.
+            min: 0,
             ticks: { callback: (v: string | number) => `£${Number(v).toLocaleString('en-GB')}` },
           },
         },
