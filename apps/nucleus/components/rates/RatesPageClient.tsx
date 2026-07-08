@@ -24,6 +24,7 @@ import {
   type ConsideredStatus,
 } from '@/lib/rates/rateImpact'
 import { buildPlatformChartPoints } from '@/lib/rates/chartPoints'
+import { computeChartWindow, CHART_RANGE_OPTIONS, type ChartRange } from '@/lib/rates/chartWindow'
 
 // The add path warns only for already-committed periods; drafts update silently.
 const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
@@ -58,7 +59,6 @@ const BODY = 'var(--rmg-color-text-body)'
 const HEADING = '#2A2A2D'
 
 const LINE_COLOURS = ['#DA202A', '#0892CB', '#62A531', '#F3920D', '#6C4FB6', '#2A2A2D']
-const DAY_MS = 24 * 60 * 60 * 1000
 
 function abbr(p: RatePlatform): string {
   return p.platform_abbreviation ?? p.platform_code
@@ -97,6 +97,9 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
   )
   const allOn = selected.size === platforms.length
   const [focusId, setFocusId] = useState<string>(platforms[0]?.platform_id ?? '')
+  // Chart time range — deliberately independent of platform selection, so
+  // toggling platforms on/off never resets it.
+  const [range, setRange] = useState<ChartRange>('5y')
 
   function togglePlatform(id: string) {
     setSelected((prev) => {
@@ -143,18 +146,18 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     [periods],
   )
 
-  // Default window: trailing 12 months anchored to the latest entered rate
-  // (drafts included), not strictly today. A little padding each side so the
-  // anchor point isn't clipped against the frame.
+  // Window driven by the range control (1Y/3Y/5Y/All time) — 1Y/3Y/5Y anchor
+  // to today; "All time" starts at the earliest effective_from across
+  // whatever platforms are currently visible (selected AND have data), never
+  // a hardcoded year.
   const window = useMemo(() => {
-    const rateDates = history
-      .filter((r) => r.blended_day_rate_override !== null)
-      .map((r) => Date.parse(r.effective_from))
-    const latest = rateDates.length ? Math.max(...rateDates) : Date.parse(todayISO())
-    const minD = new Date(latest)
-    minD.setMonth(minD.getMonth() - 12)
-    return { min: minD.getTime() - 10 * DAY_MS, max: latest + 18 * DAY_MS }
-  }, [history])
+    const dates = platformsWithData.flatMap((p) =>
+      (historyByPlatform.get(p.platform_id) ?? [])
+        .filter((r) => r.blended_day_rate_override !== null)
+        .map((r) => r.effective_from),
+    )
+    return computeChartWindow(dates, range, todayISO())
+  }, [platformsWithData, historyByPlatform, range])
 
   const chartData = useMemo(
     () => ({
@@ -292,7 +295,20 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
 
       {/* Trend chart */}
       <div style={cardStyle}>
-        <div style={sectionLabel}>Rate trend · trailing 12 months</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ ...sectionLabel, marginBottom: 0 }}>Rate trend</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {CHART_RANGE_OPTIONS.map((opt) => (
+              <PageToolbarFilterPill
+                key={opt.value}
+                label={opt.label}
+                active={range === opt.value}
+                colour="--all"
+                onClick={() => setRange(opt.value)}
+              />
+            ))}
+          </div>
+        </div>
         {platformsWithData.length === 0 ? (
           <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
             {selectedPlatforms.length === 0
