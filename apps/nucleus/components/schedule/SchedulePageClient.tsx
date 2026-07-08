@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle, Pencil } from 'lucide-react'
+import { EyeOff, AlertTriangle, Pencil, Copy } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -49,6 +49,8 @@ import { AddResourceWizard } from './AddResourceWizard'
 import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
 import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
+import { ExportCurrentViewModal } from './ExportCurrentViewModal'
+import type { ExportRow } from '@/lib/schedule/exportView'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
 import { setBlendedRate, updateCostConfiguration } from '@/app/actions/rates'
@@ -145,6 +147,7 @@ export function SchedulePageClient({ data }: Props) {
     supplierColour: string
   } | null>(null)
   const [assignWizardTarget, setAssignWizardTarget] = useState<AssignModeConfig | null>(null)
+  const [exportViewOpen, setExportViewOpen] = useState(false)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
@@ -269,6 +272,26 @@ export function SchedulePageClient({ data }: Props) {
         return (a.name ?? '').localeCompare(b.name ?? '')
       })
   }, [filtered, sort])
+
+  // Flattened, on-screen order (supplier grouping + persisted display_order +
+  // any active column sort already applied) — the "current filtered view" the
+  // export modal snapshots. Read-only: sorting inside the modal never writes
+  // back here.
+  const exportRows = useMemo<ExportRow[]>(
+    () =>
+      groupedBySupplier.flatMap((g) =>
+        g.rows.map((r) => ({
+          allocation_id: r.allocation_id,
+          resource_name: r.resource_name,
+          role_title: r.role_title,
+          resource_location: r.resource_location,
+          capacity_days: r.capacity_days,
+          base_total_pence: r.base_total_pence,
+          teams: (r.teams as unknown as TeamAssignment[] | undefined) ?? [],
+        })),
+      ),
+    [groupedBySupplier],
+  )
 
   const totals = useMemo(() => {
     const allocsBase = localAllocations.reduce(
@@ -739,6 +762,21 @@ export function SchedulePageClient({ data }: Props) {
                   expanded={allExpanded}
                   onToggle={toggleAll}
                 />
+                <button
+                  type="button"
+                  onClick={() => setExportViewOpen(true)}
+                  title="Export current view — copy a table of what's currently filtered"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    border: '1.5px solid var(--rmg-color-grey-2)', borderRadius: 'var(--rmg-radius-s)',
+                    background: 'var(--rmg-color-surface-white)', color: 'var(--rmg-color-text-body)',
+                    fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 400,
+                    padding: '5px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Copy size={12} />
+                  Copy view
+                </button>
                 {!isLocked && (
                   <button
                     type="button"
@@ -850,6 +888,14 @@ export function SchedulePageClient({ data }: Props) {
         onClose={() => setEditTeamsTarget(null)}
       />
     )}
+    <ExportCurrentViewModal
+      open={exportViewOpen}
+      onClose={() => setExportViewOpen(false)}
+      rows={exportRows}
+      activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
+      periodName={period.period_name}
+      workingDays={workingDays}
+    />
     </>
   )
 }
