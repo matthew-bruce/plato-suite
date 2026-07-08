@@ -70,3 +70,58 @@ describe('computeChartWindow', () => {
     expect(windowAll.max).toBeGreaterThan(Date.parse(future))
   })
 })
+
+describe('"All time" multi-platform left/right edges (the reported 2018 scenario)', () => {
+  // Real-shaped data: earliest across all platforms is EPS/PDA at 2018-10-01;
+  // WEB does not start until 2020-01-01.
+  const WEB = [
+    row('2020-01-01', 55000),
+    row('2023-10-01', 62000),
+    row('2026-07-01', 55000),
+  ].map((r, i) => ({ ...r, platform_id: 'web', cost_configuration_id: `web-${i}` }))
+  const EPS = [
+    row('2018-10-01', 57200),
+    row('2024-04-01', 65000),
+  ].map((r, i) => ({ ...r, platform_id: 'eps', cost_configuration_id: `eps-${i}` }))
+
+  const allDates = [...WEB, ...EPS].map((r) => r.effective_from)
+  const win = computeChartWindow(allDates, 'all', TODAY)
+
+  it('window starts at the earliest effective_from across ALL platforms (2018-10-01)', () => {
+    expect(win.min).toBe(Date.parse('2018-10-01'))
+  })
+
+  it('EPS (earliest platform) enters exactly at its real 2018 point — no left-edge synthesis, no ghost point before it', () => {
+    const points = buildPlatformChartPoints(EPS, win.min, win.max)
+    expect(points[0].x).toBe(Date.parse('2018-10-01'))
+    expect(points[0].y).toBe(572)
+    // Nothing is drawn to the left of the first real point.
+    expect(points.every((p) => p.x >= win.min)).toBe(true)
+  })
+
+  it('WEB starts at its first real point (2020), NOT at the 2018 window edge — the left-edge bug fix', () => {
+    const points = buildPlatformChartPoints(WEB, win.min, win.max)
+    // No synthesised point at 2018 carrying a rate WEB never had.
+    expect(points[0].x).toBe(Date.parse('2020-01-01'))
+    expect(points[0].y).toBe(550)
+    expect(points.some((p) => p.x < Date.parse('2020-01-01'))).toBe(false)
+  })
+
+  it('both platforms carry their last known rate forward to the right edge', () => {
+    const web = buildPlatformChartPoints(WEB, win.min, win.max)
+    const eps = buildPlatformChartPoints(EPS, win.min, win.max)
+    expect(web[web.length - 1]).toEqual({ x: win.max, y: 550 })
+    expect(eps[eps.length - 1]).toEqual({ x: win.max, y: 650 })
+  })
+
+  it('the same WEB left-edge behaviour holds on 1Y/3Y/5Y (window strictly after 2020 → carry-forward from the then-active rate)', () => {
+    for (const range of ['1y', '3y', '5y'] as const) {
+      const w = computeChartWindow(allDates, range, TODAY)
+      const points = buildPlatformChartPoints(WEB, w.min, w.max)
+      // First point sits exactly on the window's left edge (synthesised entry),
+      // carrying whatever WEB rate was active then — never off-screen.
+      expect(points[0].x).toBe(w.min)
+      expect(points[points.length - 1].x).toBe(w.max)
+    }
+  })
+})

@@ -32,6 +32,9 @@ const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
 // Edit/delete warn for every unlocked period whose resolved rate would move.
 const EDIT_WARN_STATUSES: ConsideredStatus[] = ['draft', 'active', 'historic']
 
+// Sentinel for the global selector's "All platforms" option.
+const ALL = 'all'
+
 /** "A" · "A and B" · "A, B and C" */
 function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? ''
@@ -93,28 +96,12 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
   const { platforms, history, periods } = data
   const router = useRouter()
 
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(platforms.map((p) => p.platform_id)),
-  )
-  const allOn = selected.size === platforms.length
-  const [focusId, setFocusId] = useState<string>(platforms[0]?.platform_id ?? '')
-  // Chart time range — deliberately independent of platform selection, so
-  // toggling platforms on/off never resets it.
+  // ONE global selector drives every section below: chart, history, add-rate.
+  // `focus` is either the ALL sentinel or a specific platform_id.
+  const [focus, setFocus] = useState<string>(ALL)
+  // Chart time range — independent of platform selection, so switching the
+  // global selector never resets it.
   const [range, setRange] = useState<ChartRange>('5y')
-
-  function togglePlatform(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-  function toggleAll() {
-    setSelected((prev) =>
-      prev.size === platforms.length ? new Set() : new Set(platforms.map((p) => p.platform_id)),
-    )
-  }
 
   const colourFor = useMemo(() => {
     const map = new Map<string, string>()
@@ -132,16 +119,16 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     return map
   }, [history])
 
-  const selectedPlatforms = platforms.filter((p) => selected.has(p.platform_id))
-  const platformsWithData = selectedPlatforms.filter(
+  // The chart always shows every platform that has data (selection only
+  // changes emphasis, per the layout spec); empties get the message below.
+  const platformsWithData = platforms.filter(
     (p) => (historyByPlatform.get(p.platform_id) ?? []).some((r) => r.blended_day_rate_override !== null),
   )
-  const emptySelected = selectedPlatforms.filter((p) => !platformsWithData.includes(p))
+  const emptyPlatforms = platforms.filter((p) => !platformsWithData.includes(p))
 
   // Window driven by the range control (1Y/3Y/5Y/All time) — 1Y/3Y/5Y anchor
-  // to today; "All time" starts at the earliest effective_from across
-  // whatever platforms are currently visible (selected AND have data), never
-  // a hardcoded year.
+  // to today; "All time" starts at the earliest effective_from across every
+  // platform with data, never a hardcoded year.
   const window = useMemo(() => {
     const dates = platformsWithData.flatMap((p) =>
       (historyByPlatform.get(p.platform_id) ?? [])
@@ -153,36 +140,35 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
 
   // Quarter boundary marks — generated mathematically from the RMG financial
   // quarter rule (1 Jan/Apr/Jul/Oct) for whatever window is visible, not read
-  // from the periods table — works for any range with no dependency on which
-  // periods happen to exist in the database.
-  const quarterMarks = useMemo(
-    () => generateQuarterMarks(window.min, window.max),
-    [window],
-  )
+  // from the periods table.
+  const quarterMarks = useMemo(() => generateQuarterMarks(window.min, window.max), [window])
 
   const chartData = useMemo(
     () => ({
       datasets: platformsWithData.map((p) => {
         const colour = colourFor.get(p.platform_id)!
-        // Carry-forward: a synthesised entry point at the window's left edge
-        // when the platform's rate at that instant resolves from an
-        // off-screen earlier row, so the line enters the frame flat — and a
-        // synthesised exit point at the right edge carrying the last known
-        // rate forward, so an active platform's line always reaches the
-        // chart's right boundary rather than stopping dead at its last row.
+        // Carry-forward at both edges: a synthesised entry point at the
+        // window's left edge (so the line enters the frame flat at the
+        // then-active rate) and a synthesised exit point at the right edge
+        // (so an active platform's line always reaches the right boundary).
         const points = buildPlatformChartPoints(historyByPlatform.get(p.platform_id) ?? [], window.min, window.max)
+        // When a specific platform is selected, emphasise it and fade the
+        // rest — reusing the assigned line colours (alpha only), no new colours.
+        const isFocused = focus !== ALL && p.platform_id === focus
+        const isFaded = focus !== ALL && p.platform_id !== focus
         return {
           label: abbr(p),
           data: points,
-          borderColor: colour,
-          backgroundColor: colour,
+          borderColor: isFaded ? `${colour}40` : colour,
+          backgroundColor: isFaded ? `${colour}40` : colour,
+          borderWidth: isFocused ? 3 : isFaded ? 1.5 : 2,
           tension: 0, // plain linear interpolation (diagonal) — never stepped
-          pointRadius: 4,
+          pointRadius: isFaded ? 2 : 4,
           pointHoverRadius: 5,
         }
       }),
     }),
-    [platformsWithData, historyByPlatform, colourFor],
+    [platformsWithData, historyByPlatform, colourFor, window, focus],
   )
 
   const chartOptions = useMemo(
@@ -209,7 +195,8 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
             type: 'linear' as const,
             min: window.min,
             max: window.max,
-            // Ticks land on real quarter boundaries within the window.
+            // Ticks land on the same mathematically-generated quarter
+            // boundaries as the reference lines — quarterly granularity.
             afterBuildTicks: (axis: { min: number; max: number; ticks: { value: number }[] }) => {
               const marks = quarterMarks
                 .filter((m) => m.ms >= axis.min && m.ms <= axis.max)
@@ -235,7 +222,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     [window, quarterMarks],
   )
 
-  // Vertical dashed quarter-boundary lines with labels, drawn from real periods.
+  // Vertical dashed quarter-boundary lines with labels, generated mathematically.
   const quarterLinesPlugin = useMemo(
     () => ({
       id: 'quarterLines',
@@ -284,15 +271,16 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         Set and review effective-dated blended day rates per platform. Cost-impact analysis lives on the Platform Schedule.
       </p>
 
+      {/* ONE global platform selector — drives chart, history and add-rate. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-        <PageToolbarFilterPill label="All platforms" active={allOn} colour="--all" onClick={toggleAll} />
+        <PageToolbarFilterPill label="All platforms" active={focus === ALL} colour="--all" onClick={() => setFocus(ALL)} />
         {platforms.map((p) => (
           <PageToolbarFilterPill
             key={p.platform_id}
             label={abbr(p)}
-            active={selected.has(p.platform_id)}
+            active={focus === p.platform_id}
             colour={colourFor.get(p.platform_id) ?? '#8F9495'}
-            onClick={() => togglePlatform(p.platform_id)}
+            onClick={() => setFocus(p.platform_id)}
           />
         ))}
       </div>
@@ -314,19 +302,15 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
           </div>
         </div>
         {platformsWithData.length === 0 ? (
-          <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
-            {selectedPlatforms.length === 0
-              ? 'Select a platform to see its rate trend.'
-              : 'No historic rate data yet for the selected platforms.'}
-          </p>
+          <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>No historic rate data yet.</p>
         ) : (
           <div style={{ height: 320 }}>
             <Line data={chartData} options={chartOptions} plugins={[quarterLinesPlugin]} />
           </div>
         )}
-        {emptySelected.length > 0 && platformsWithData.length > 0 && (
+        {emptyPlatforms.length > 0 && platformsWithData.length > 0 && (
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {emptySelected.map((p) => (
+            {emptyPlatforms.map((p) => (
               <p key={p.platform_id} style={{ fontSize: 12, color: GREY1, margin: 0 }}>
                 No historic data yet for {abbr(p)}.
               </p>
@@ -335,24 +319,20 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         )}
       </div>
 
-      {/* History table with row-level edit/delete */}
+      {/* History (with inline add-rate) — driven by the same global selector */}
       <RateHistoryCard
         platforms={platforms}
         history={history}
         periods={periods}
         colourFor={colourFor}
-        focusId={focusId}
-        onFocus={setFocusId}
+        focus={focus}
         onChanged={() => router.refresh()}
       />
-
-      {/* Set a new rate */}
-      <SetRateForm platforms={platforms} periods={periods} history={history} colourFor={colourFor} onSaved={() => router.refresh()} />
     </div>
   )
 }
 
-/* ── Rate history (with edit + delete, gated by draft-impact) ────── */
+/* ── Rate history (with inline add + row edit/delete) ────────────── */
 
 interface EditDraft {
   effectiveFrom: string
@@ -361,30 +341,48 @@ interface EditDraft {
   onCosts: string
 }
 
+function PlatformBadge({ label, colour }: { label: string; colour: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block', borderRadius: 100, padding: '2px 8px', marginRight: 8,
+        fontSize: 10, fontWeight: 600, color: '#fff', background: colour, verticalAlign: 'middle',
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
 function RateHistoryCard({
   platforms,
   history,
   periods,
   colourFor,
-  focusId,
-  onFocus,
+  focus,
   onChanged,
 }: {
   platforms: RatePlatform[]
   history: RateHistoryRow[]
   periods: RatePeriod[]
   colourFor: Map<string, string>
-  focusId: string
-  onFocus: (id: string) => void
+  focus: string
   onChanged: () => void
 }) {
-  const focusPlatform = platforms.find((p) => p.platform_id === focusId) ?? null
-  const focusHistory = (history.filter((r) => r.platform_id === focusId))
-    .slice()
-    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
+  const isAll = focus === ALL
+  const platformById = useMemo(() => new Map(platforms.map((p) => [p.platform_id, p])), [platforms])
+  const focusPlatform = platformById.get(focus) ?? null
+
+  // All-platforms view: every row, newest first, badged. Single platform:
+  // just that platform's rows, newest first.
+  const rows = useMemo(() => {
+    const list = isAll ? history : history.filter((r) => r.platform_id === focus)
+    return list.slice().sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))
+  }, [history, focus, isAll])
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<EditDraft | null>(null)
+  const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -462,34 +460,41 @@ function RateHistoryCard({
   }
 
   return (
-    <div style={cardStyle}>
+    <div style={{ ...cardStyle, marginBottom: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ ...sectionLabel, marginBottom: 0 }}>Rate history</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: GREY1, marginRight: 2 }}>Showing</span>
-          {platforms.map((p) => (
-            <PageToolbarFilterPill
-              key={p.platform_id}
-              label={abbr(p)}
-              active={focusId === p.platform_id}
-              colour={colourFor.get(p.platform_id) ?? '#8F9495'}
-              onClick={() => { cancelEdit(); onFocus(p.platform_id) }}
-            />
-          ))}
-        </div>
+        {/* Add rate — only when a specific platform is selected (can't add
+            without a platform). Hidden while the inline form is open. */}
+        {!isAll && !adding && (
+          <Button variant="outline" size="small" onClick={() => { setError(null); setNotice(null); setAdding(true) }}>
+            Add rate
+          </Button>
+        )}
       </div>
 
       {error && <p style={{ fontSize: 12, color: RED, margin: '0 0 10px' }}>{error}</p>}
       {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '0 0 10px' }}>{notice}</p>}
 
-      {focusHistory.length === 0 ? (
+      {/* Inline add-rate form — platform is the globally-selected one. */}
+      {!isAll && adding && focusPlatform && (
+        <AddRateInline
+          platform={focusPlatform}
+          history={history}
+          periods={periods}
+          onCancel={() => setAdding(false)}
+          onSaved={() => { setAdding(false); onChanged() }}
+        />
+      )}
+
+      {rows.length === 0 ? (
         <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
-          No historic data yet for {focusPlatform ? abbr(focusPlatform) : 'this platform'}.
+          No historic data yet{focusPlatform ? ` for ${abbr(focusPlatform)}` : ''}.
         </p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: GREY1, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {isAll && <th style={thStyle}>Platform</th>}
               <th style={thStyle}>Effective from</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>Blended rate</th>
               <th style={{ ...thStyle, textAlign: 'right' }}>VAT uplift</th>
@@ -498,12 +503,18 @@ function RateHistoryCard({
             </tr>
           </thead>
           <tbody>
-            {focusHistory.map((r) => {
+            {rows.map((r) => {
               const isEditing = editingId === r.cost_configuration_id && draft
+              const rowPlatform = platformById.get(r.platform_id)
               return (
                 <tr key={r.cost_configuration_id} style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
                   {isEditing ? (
                     <>
+                      {isAll && (
+                        <td style={tdStyle}>
+                          {rowPlatform && <PlatformBadge label={abbr(rowPlatform)} colour={colourFor.get(r.platform_id) ?? '#8F9495'} />}
+                        </td>
+                      )}
                       <td style={tdStyle}>
                         <input type="date" value={draft!.effectiveFrom} onChange={(e) => setDraft({ ...draft!, effectiveFrom: e.target.value })} style={cellInput} />
                       </td>
@@ -523,6 +534,11 @@ function RateHistoryCard({
                     </>
                   ) : (
                     <>
+                      {isAll && (
+                        <td style={tdStyle}>
+                          {rowPlatform && <PlatformBadge label={abbr(rowPlatform)} colour={colourFor.get(r.platform_id) ?? '#8F9495'} />}
+                        </td>
+                      )}
                       <td style={tdStyle}>{r.effective_from}</td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>
                         {r.blended_day_rate_override === null ? '—' : `${formatMoneyPence(r.blended_day_rate_override, { decimals: 2 })}/day`}
@@ -547,6 +563,98 @@ function RateHistoryCard({
           title={pending.title}
           impacts={pending.impacts}
           busy={busy}
+          onConfirm={() => void pending.run()}
+          onCancel={() => setPending(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Inline add-rate form (platform fixed to the global selection) ── */
+
+function AddRateInline({
+  platform,
+  history,
+  periods,
+  onCancel,
+  onSaved,
+}: {
+  platform: RatePlatform
+  history: RateHistoryRow[]
+  periods: RatePeriod[]
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const [effectiveFrom, setEffectiveFrom] = useState<string>('')
+  const [rate, setRate] = useState<string>('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [pending, setPending] = useState<{ impacts: PeriodRateImpact[]; run: () => Promise<void> } | null>(null)
+
+  async function doSave(reassurance: string | null) {
+    setSaving(true)
+    setError(null)
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+    const result = await setBlendedRate(platform.platform_id, effectiveFrom, pence)
+    setSaving(false)
+    if (!result.success) {
+      setError(result.error ?? 'Something went wrong.')
+      return
+    }
+    setPending(null)
+    setNotice(reassurance)
+    onSaved()
+  }
+
+  function handleSaveClick() {
+    setError(null); setNotice(null)
+    if (!effectiveFrom || rate.trim() === '') {
+      setError('Pick an effective-from date and a rate.')
+      return
+    }
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+    // Locked periods can never be touched here; warn only when an unlocked
+    // active/historic period's resolved rate would genuinely move.
+    const impact = computeRateEditImpact(history, periods, {
+      kind: 'add', platformId: platform.platform_id, nextEffectiveFrom: effectiveFrom, nextRatePence: pence,
+    }, { warnStatuses: ADD_WARN_STATUSES })
+
+    if (impact.warnings.length > 0) {
+      setPending({ impacts: impact.warnings, run: () => doSave(null) })
+      return
+    }
+    void doSave(matchesMessage(impact.unchanged))
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--rmg-color-grey-3)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+      <div style={sectionLabel}>Add rate — {abbr(platform)}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <FormField size="small" type="date" label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <FormField size="small" type="text" label="New rate (£/day)" placeholder="e.g. 575" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} />
+        </div>
+      </div>
+
+      {error && <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>{error}</p>}
+      {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '12px 0 0' }}>{notice}</p>}
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+        <Button variant="solid" size="small" disabled={saving} onClick={handleSaveClick}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+        <Button variant="outline" size="small" onClick={onCancel}>Cancel</Button>
+      </div>
+
+      {pending && (
+        <ImpactConfirm
+          title="Confirm new rate"
+          impacts={pending.impacts}
+          busy={saving}
           onConfirm={() => void pending.run()}
           onCancel={() => setPending(null)}
         />
@@ -603,142 +711,8 @@ function ImpactConfirm({
   )
 }
 
-/* ── Set-new-rate form ──────────────────────────────────────────── */
-
-function SetRateForm({
-  platforms,
-  periods,
-  history,
-  colourFor,
-  onSaved,
-}: {
-  platforms: RatePlatform[]
-  periods: RatePeriod[]
-  history: RateHistoryRow[]
-  colourFor: Map<string, string>
-  onSaved: () => void
-}) {
-  const [platformId, setPlatformId] = useState<string>(platforms[0]?.platform_id ?? '')
-  const [effectiveFrom, setEffectiveFrom] = useState<string>('')
-  const [rate, setRate] = useState<string>('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [pending, setPending] = useState<{ impacts: PeriodRateImpact[]; run: () => Promise<void> } | null>(null)
-
-  const quickPicks = useMemo(
-    () =>
-      periods
-        .filter((p) => p.period_status === 'draft' && p.period_start_date >= todayISO())
-        .map((p) => ({ date: p.period_start_date, label: `${p.period_name}` })),
-    [periods],
-  )
-
-  async function doSave(reassurance: string | null) {
-    setSaving(true)
-    setError(null)
-    const pence = Math.round((parseFloat(rate) || 0) * 100)
-    const result = await setBlendedRate(platformId, effectiveFrom, pence)
-    setSaving(false)
-    if (!result.success) {
-      setError(result.error ?? 'Something went wrong.')
-      return
-    }
-    setRate('')
-    setEffectiveFrom('')
-    setPending(null)
-    setNotice(reassurance)
-    onSaved()
-  }
-
-  function handleSaveClick() {
-    setError(null); setNotice(null)
-    if (!platformId || !effectiveFrom || rate.trim() === '') {
-      setError('Pick a platform, an effective-from date and a rate.')
-      return
-    }
-    const pence = Math.round((parseFloat(rate) || 0) * 100)
-    // Locked periods can never be touched here; warn only when an unlocked
-    // active/historic period's resolved rate would genuinely move.
-    const impact = computeRateEditImpact(history, periods, {
-      kind: 'add', platformId, nextEffectiveFrom: effectiveFrom, nextRatePence: pence,
-    }, { warnStatuses: ADD_WARN_STATUSES })
-
-    if (impact.warnings.length > 0) {
-      setPending({ impacts: impact.warnings, run: () => doSave(null) })
-      return
-    }
-    // Zero actual impact → save immediately, naming any matched periods.
-    void doSave(matchesMessage(impact.unchanged))
-  }
-
-  return (
-    <div style={{ ...cardStyle, marginBottom: 0 }}>
-      <div style={sectionLabel}>Set a new rate</div>
-
-      <div style={{ marginBottom: 14 }}>
-        <label style={fieldLabel}>Platform</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {platforms.map((p) => (
-            <PageToolbarFilterPill
-              key={p.platform_id}
-              label={p.platform_abbreviation ?? p.platform_code}
-              active={platformId === p.platform_id}
-              colour={colourFor.get(p.platform_id) ?? '#8F9495'}
-              onClick={() => setPlatformId(p.platform_id)}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField size="small" type="date" label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-          {quickPicks.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {quickPicks.map((q) => (
-                <PageToolbarFilterPill key={q.date} label={`${q.label} · ${q.date}`} active={effectiveFrom === q.date} colour="--all" onClick={() => setEffectiveFrom(q.date)} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField size="small" type="text" label="New rate (£/day)" placeholder="e.g. 575" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} />
-        </div>
-      </div>
-
-      {error && <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>{error}</p>}
-      {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '12px 0 0' }}>{notice}</p>}
-
-      <div style={{ marginTop: 16 }}>
-        <Button variant="solid" size="small" disabled={saving} onClick={handleSaveClick}>
-          {saving ? 'Saving…' : 'Save rate'}
-        </Button>
-      </div>
-
-      {pending && (
-        <ImpactConfirm
-          title="Confirm new rate"
-          impacts={pending.impacts}
-          busy={saving}
-          onConfirm={() => void pending.run()}
-          onCancel={() => setPending(null)}
-        />
-      )}
-    </div>
-  )
-}
-
 /* ── Shared bits ────────────────────────────────────────────────── */
 
-const fieldLabel: React.CSSProperties = {
-  fontFamily: 'var(--rmg-font-body)',
-  fontSize: 'var(--rmg-text-c1)',
-  color: 'var(--rmg-color-text-body)',
-  display: 'block',
-  marginBottom: 6,
-}
 const thStyle: React.CSSProperties = { padding: '6px 8px', fontWeight: 700 }
 const tdStyle: React.CSSProperties = { padding: '8px', color: BODY }
 const cellInput: React.CSSProperties = {
