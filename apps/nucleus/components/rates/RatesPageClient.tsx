@@ -25,7 +25,7 @@ import {
 } from '@/lib/rates/rateImpact'
 import { buildPlatformChartPoints } from '@/lib/rates/chartPoints'
 import { computeChartWindow, CHART_RANGE_OPTIONS, type ChartRange } from '@/lib/rates/chartWindow'
-import { generateQuarterMarks } from '@/lib/rates/quarterMarks'
+import { generateQuarterMarks, shouldShowQuarterLabel } from '@/lib/rates/quarterMarks'
 
 // The add path warns only for already-committed periods; drafts update silently.
 const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
@@ -234,6 +234,8 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
           if (mark.ms < x.min || mark.ms > x.max) continue
           const px = x.getPixelForValue(mark.ms)
           ctx.save()
+          // The dashed line is always drawn for every quarter, regardless of
+          // range — only the text label below is thinned on long windows.
           ctx.beginPath()
           ctx.setLineDash([4, 4])
           ctx.moveTo(px, chartArea.top)
@@ -242,10 +244,12 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
           ctx.strokeStyle = 'rgba(42,42,45,0.28)'
           ctx.stroke()
           ctx.setLineDash([])
-          ctx.font = '10px var(--rmg-font-body), sans-serif'
-          ctx.fillStyle = 'rgba(42,42,45,0.55)'
-          ctx.textBaseline = 'top'
-          ctx.fillText(mark.label, px + 4, chartArea.top + 2)
+          if (shouldShowQuarterLabel(mark, quarterMarks.length)) {
+            ctx.font = '10px var(--rmg-font-body), sans-serif'
+            ctx.fillStyle = 'rgba(42,42,45,0.55)'
+            ctx.textBaseline = 'top'
+            ctx.fillText(mark.label, px + 4, chartArea.top + 2)
+          }
           ctx.restore()
         }
       },
