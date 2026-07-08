@@ -51,3 +51,41 @@ describe('buildPlatformChartPoints — carry-forward synthesis', () => {
     expect(points).toEqual([{ x: WINDOW_START, y: 600 }])
   })
 })
+
+describe('buildPlatformChartPoints — right-edge carry-forward', () => {
+  it('last data point at 2025-07-01 (£400), window end = today: synthesises a right-edge point at today carrying £400, extending the line flat to the boundary', () => {
+    const today = Date.parse('2026-07-08')
+    const points = buildPlatformChartPoints([row('2025-07-01', 40000)], WINDOW_START, today)
+    expect(points).toEqual([
+      { x: Date.parse('2025-07-01'), y: 400 },
+      { x: today, y: 400 },
+    ])
+  })
+
+  it('does not append a right-edge point when the last real point already sits on or beyond the window end', () => {
+    const windowEnd = Date.parse('2025-12-01')
+    const points = buildPlatformChartPoints([row('2025-07-01', 40000), row('2025-12-01', 45000)], WINDOW_START, windowEnd)
+    expect(points).toEqual([
+      { x: Date.parse('2025-07-01'), y: 400 },
+      { x: windowEnd, y: 450 },
+    ])
+  })
+
+  it('right-edge synthesis is skipped entirely when windowEndMs is omitted (unchanged prior behaviour)', () => {
+    const points = buildPlatformChartPoints([row('2025-07-01', 40000)], WINDOW_START)
+    expect(points).toEqual([{ x: Date.parse('2025-07-01'), y: 400 }])
+  })
+
+  it('composes with left-edge carry-forward: a single pre-window row produces both a synthesised entry AND a synthesised exit point', () => {
+    const today = Date.parse('2026-07-08')
+    const points = buildPlatformChartPoints([row('2025-01-01', 55000)], WINDOW_START, today)
+    expect(points).toEqual([
+      { x: WINDOW_START, y: 550 },
+      { x: today, y: 550 },
+    ])
+  })
+
+  it('an empty dataset still yields no points even when windowEndMs is supplied', () => {
+    expect(buildPlatformChartPoints([], WINDOW_START, Date.parse('2026-07-08'))).toEqual([])
+  })
+})

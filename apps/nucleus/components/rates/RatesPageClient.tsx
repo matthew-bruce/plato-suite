@@ -166,8 +166,11 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         const colour = colourFor.get(p.platform_id)!
         // Carry-forward: a synthesised entry point at the window's left edge
         // when the platform's rate at that instant resolves from an
-        // off-screen earlier row, so the line enters the frame flat.
-        const points = buildPlatformChartPoints(historyByPlatform.get(p.platform_id) ?? [], window.min)
+        // off-screen earlier row, so the line enters the frame flat — and a
+        // synthesised exit point at the right edge carrying the last known
+        // rate forward, so an active platform's line always reaches the
+        // chart's right boundary rather than stopping dead at its last row.
+        const points = buildPlatformChartPoints(historyByPlatform.get(p.platform_id) ?? [], window.min, window.max)
         return {
           label: abbr(p),
           data: points,
