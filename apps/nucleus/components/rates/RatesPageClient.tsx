@@ -25,6 +25,7 @@ import {
 } from '@/lib/rates/rateImpact'
 import { buildPlatformChartPoints } from '@/lib/rates/chartPoints'
 import { computeChartWindow, CHART_RANGE_OPTIONS, type ChartRange } from '@/lib/rates/chartWindow'
+import { generateQuarterMarks } from '@/lib/rates/quarterMarks'
 
 // The add path warns only for already-committed periods; drafts update silently.
 const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
@@ -137,15 +138,6 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
   )
   const emptySelected = selectedPlatforms.filter((p) => !platformsWithData.includes(p))
 
-  // Quarter boundary marks — REAL periods only, never fabricated.
-  const quarterMarks = useMemo(
-    () =>
-      periods
-        .map((p) => ({ ms: Date.parse(p.period_start_date), label: p.period_name }))
-        .sort((a, b) => a.ms - b.ms),
-    [periods],
-  )
-
   // Window driven by the range control (1Y/3Y/5Y/All time) — 1Y/3Y/5Y anchor
   // to today; "All time" starts at the earliest effective_from across
   // whatever platforms are currently visible (selected AND have data), never
@@ -158,6 +150,15 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
     )
     return computeChartWindow(dates, range, todayISO())
   }, [platformsWithData, historyByPlatform, range])
+
+  // Quarter boundary marks — generated mathematically from the RMG financial
+  // quarter rule (1 Jan/Apr/Jul/Oct) for whatever window is visible, not read
+  // from the periods table — works for any range with no dependency on which
+  // periods happen to exist in the database.
+  const quarterMarks = useMemo(
+    () => generateQuarterMarks(window.min, window.max),
+    [window],
+  )
 
   const chartData = useMemo(
     () => ({
