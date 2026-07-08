@@ -51,7 +51,8 @@ import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
-import { setBlendedRate } from '@/app/actions/rates'
+import { setBlendedRate, updateCostConfiguration } from '@/app/actions/rates'
+import { decideRateUpsert, type ExistingCostConfigRow } from '@/lib/rates/upsertDecision'
 import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
@@ -84,6 +85,14 @@ const PLATO_SHELL_HEADER_HEIGHT = 40
 const COL_PADDING = '0 16px 0 12px'
 
 const RMG_SUPPLIER_NAME = 'Royal Mail Group'
+
+// UK date, e.g. "1 Jul 2026" — used in the Applied Blended Rate update-confirm copy.
+// timeZone pinned to UTC so a date-only ISO string (e.g. period_start_date)
+// never shifts a day depending on the viewer's local timezone.
+const UK_DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+function formatUkDate(iso: string): string {
+  return UK_DATE.format(new Date(iso))
+}
 
 type Allocation = ScheduleAllocation & { teams?: string[] }
 
@@ -961,7 +970,6 @@ function KpiStrip({
         currentRate={currentRate}
         advisedRate={advisedRate}
         totalPRDays={totalPRDays}
-        impliedExEtp={formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}
         onRateSaved={onRateSaved}
         isPrivate={isPrivate}
       />
@@ -1008,7 +1016,6 @@ function AppliedBlendedRateCard({
   currentRate,
   advisedRate,
   totalPRDays,
-  impliedExEtp,
   onRateSaved,
   isPrivate,
 }: {
@@ -1020,7 +1027,6 @@ function AppliedBlendedRateCard({
   currentRate: number
   advisedRate: number
   totalPRDays: number
-  impliedExEtp: string
   onRateSaved: (newRatePence: number) => void
   isPrivate: boolean
 }) {
@@ -1034,6 +1040,17 @@ function AppliedBlendedRateCard({
   const [rate, setRate] = useState(String(currentRate || ''))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Set once Save finds a live row already at this exact platform +
+  // effective_from — the editor shows an inline correction confirm instead
+  // of saving immediately. Cleared by its own Cancel (back to the input) or
+  // by a successful update.
+  const [pendingUpdate, setPendingUpdate] = useState<{
+    costConfigurationId: string
+    oldRatePence: number | null
+    vatUpliftPercent: number
+    onCostsUpliftPercent: number
+    newRatePence: number
+  } | null>(null)
 
   function openEditor() {
     // Defence in depth: a locked period can never open the editor, even if a
@@ -1041,6 +1058,7 @@ function AppliedBlendedRateCard({
     if (editState.kind === 'locked') return
     setRate(String(currentRate || ''))
     setError(null)
+    setPendingUpdate(null)
     if (editState.kind === 'warn') {
       setWarnOpen(true)
     } else {
@@ -1048,14 +1066,13 @@ function AppliedBlendedRateCard({
     }
   }
 
-  async function doSave() {
+  async function doInsert(pence: number) {
     if (!platformId) {
       setError('No cost configuration for this platform.')
       return
     }
     setSaving(true)
     setError(null)
-    const pence = Math.round((parseFloat(rate) || 0) * 100)
     const result = await setBlendedRate(platformId, period.period_start_date, pence)
     setSaving(false)
     if (!result.success) {
@@ -1064,6 +1081,71 @@ function AppliedBlendedRateCard({
     }
     setEditing(false)
     onRateSaved(pence)
+  }
+
+  async function doUpdate() {
+    if (!pendingUpdate) return
+    setSaving(true)
+    setError(null)
+    const result = await updateCostConfiguration(pendingUpdate.costConfigurationId, {
+      effectiveFrom: period.period_start_date,
+      blendedRatePence: pendingUpdate.newRatePence,
+      vatUpliftPercent: pendingUpdate.vatUpliftPercent,
+      onCostsUpliftPercent: pendingUpdate.onCostsUpliftPercent,
+    })
+    setSaving(false)
+    if (!result.success) {
+      setError(result.error ?? 'Something went wrong.')
+      return
+    }
+    setEditing(false)
+    setPendingUpdate(null)
+    onRateSaved(pendingUpdate.newRatePence)
+  }
+
+  // Save click: check whether a live row already exists at this exact
+  // platform + effective_from before deciding insert vs update.
+  // set_blended_rate is INSERT-only and would otherwise collide on the
+  // (platform_id, effective_from) unique index — re-saving a period that
+  // already has a rate is a normal correction, not an error.
+  async function handleSaveClick() {
+    if (!platformId) {
+      setError('No cost configuration for this platform.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+
+    const supabase = getSupabaseBrowserClient()
+    const { data: existing, error: lookupErr } = await supabase
+      .from('cost_configurations')
+      .select('cost_configuration_id, blended_day_rate_override, vat_uplift_percent, on_costs_uplift_percent')
+      .eq('platform_id', platformId)
+      .eq('effective_from', period.period_start_date)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (lookupErr) {
+      setSaving(false)
+      setError(lookupErr.message)
+      return
+    }
+
+    const decision = decideRateUpsert(existing as ExistingCostConfigRow | null)
+    if (decision.kind === 'insert') {
+      // No change to existing behaviour: save immediately.
+      await doInsert(pence)
+      return
+    }
+    setSaving(false)
+    setPendingUpdate({
+      costConfigurationId: decision.costConfigurationId,
+      oldRatePence: decision.oldRatePence,
+      vatUpliftPercent: decision.vatUpliftPercent,
+      onCostsUpliftPercent: decision.onCostsUpliftPercent,
+      newRatePence: pence,
+    })
   }
 
   // Live variance preview against the advised-rate formula (recovery variance):
@@ -1111,21 +1193,51 @@ function AppliedBlendedRateCard({
       </div>
 
       {!editing ? (
-        <>
-          <div
-            style={{
-              fontFamily: 'var(--rmg-font-display)', fontSize: 21, fontWeight: 700, color: '#DA202A',
-              letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6,
-              filter: isPrivate ? 'blur(6px)' : undefined,
-            }}
-          >
-            {displayValue}
-            <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495', letterSpacing: 0 }}>/day</span>
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-display)', fontSize: 21, fontWeight: 700, color: '#DA202A',
+            letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6,
+            filter: isPrivate ? 'blur(6px)' : undefined,
+          }}
+        >
+          {displayValue}
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495', letterSpacing: 0 }}>/day</span>
+        </div>
+      ) : pendingUpdate ? (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#2A2A2D', lineHeight: 1.5 }}>
+            A rate of{' '}
+            <strong>
+              {pendingUpdate.oldRatePence === null ? 'no rate' : `${formatMoney(pendingUpdate.oldRatePence, { decimals: 2 })}/day`}
+            </strong>{' '}
+            was already set for {period.period_name} ({formatUkDate(period.period_start_date)}). This will update it
+            to <strong>{formatMoney(pendingUpdate.newRatePence, { decimals: 2 })}/day</strong> — are you sure?
+          </p>
+          {error && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#C8102E' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={doUpdate}
+              disabled={saving}
+              style={{
+                background: saving ? '#C0C0C0' : '#DA202A', color: '#fff', border: 'none', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingUpdate(null); setError(null) }}
+              style={{
+                background: 'transparent', color: '#404044', border: '1px solid #C0C0C0', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              Cancel
+            </button>
           </div>
-          <div style={{ fontSize: 11, color: '#8F9495', marginTop: 4 }}>
-            {overrideSet ? `Applied to this period · implied ex. ETP & SS: ${impliedExEtp}/day` : `Implied — no rate set · ${impliedExEtp}/day ex. ETP & SS`}
-          </div>
-        </>
+        </div>
       ) : (
         <div style={{ marginTop: 8 }}>
           <input
@@ -1150,7 +1262,7 @@ function AppliedBlendedRateCard({
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button
               type="button"
-              onClick={doSave}
+              onClick={handleSaveClick}
               disabled={saving}
               style={{
                 background: saving ? '#C0C0C0' : '#DA202A', color: '#fff', border: 'none', borderRadius: 6,
