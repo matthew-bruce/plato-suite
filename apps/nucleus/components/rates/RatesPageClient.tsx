@@ -235,20 +235,25 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         // tick labels already date the boundaries, and a label per dashed
         // line crowded badly on long windows (e.g. "All time"). No gating,
         // no thinning — the label is simply never drawn.
+        //
+        // save()/restore() wrap the ENTIRE loop (not per-line): this isolates
+        // the whole block from whatever canvas state Chart.js's own dataset
+        // rendering (bezier curves, dataset stroke colour/width, tension) left
+        // active before afterDraw ran, so it can never bleed into these lines.
+        ctx.save()
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+        ctx.lineWidth = 1
+        ctx.setLineDash([4, 4])
         for (const mark of quarterMarks) {
           if (mark.ms < x.min || mark.ms > x.max) continue
           const px = x.getPixelForValue(mark.ms)
-          ctx.save()
           ctx.beginPath()
-          ctx.setLineDash([4, 4])
           ctx.moveTo(px, chartArea.top)
           ctx.lineTo(px, chartArea.bottom)
-          ctx.lineWidth = 1
-          ctx.strokeStyle = 'rgba(42,42,45,0.28)'
           ctx.stroke()
-          ctx.setLineDash([])
-          ctx.restore()
         }
+        ctx.setLineDash([])
+        ctx.restore()
       },
     }),
     [quarterMarks],
