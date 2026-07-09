@@ -236,23 +236,27 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         // line crowded badly on long windows (e.g. "All time"). No gating,
         // no thinning — the label is simply never drawn.
         //
-        // save()/restore() wrap the ENTIRE loop (not per-line): this isolates
-        // the whole block from whatever canvas state Chart.js's own dataset
-        // rendering (bezier curves, dataset stroke colour/width, tension) left
-        // active before afterDraw ran, so it can never bleed into these lines.
+        // ctx.save() is the very first call, before the loop; ctx.restore()
+        // is the very last, after the loop — this isolates the whole block
+        // from whatever canvas state Chart.js's own dataset rendering
+        // (bezier curves, dataset stroke colour/width, tension) left active
+        // before afterDraw ran. Every drawing property (beginPath,
+        // lineWidth, strokeStyle, setLineDash) is set explicitly INSIDE the
+        // loop on every iteration — never hoisted above it — so no single
+        // line's state can depend on, or leak into, any other line's.
         ctx.save()
-        ctx.strokeStyle = 'rgba(0,0,0,0.12)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([4, 4])
         for (const mark of quarterMarks) {
           if (mark.ms < x.min || mark.ms > x.max) continue
           const px = x.getPixelForValue(mark.ms)
           ctx.beginPath()
+          ctx.lineWidth = 1
+          ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+          ctx.setLineDash([4, 4])
           ctx.moveTo(px, chartArea.top)
           ctx.lineTo(px, chartArea.bottom)
           ctx.stroke()
+          ctx.setLineDash([])
         }
-        ctx.setLineDash([])
         ctx.restore()
       },
     }),
