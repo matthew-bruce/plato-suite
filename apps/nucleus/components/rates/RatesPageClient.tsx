@@ -62,7 +62,19 @@ const GREY1 = 'var(--rmg-color-grey-1)'
 const BODY = 'var(--rmg-color-text-body)'
 const HEADING = '#2A2A2D'
 
+// Fallback palette for any platform without an explicit brand colour below,
+// cycled by array position. Hex literals mirror packages/config/tokens/rmg.css
+// rather than var() refs because faded-state rendering below appends a hex
+// alpha suffix (`${colour}40`), which only works on a literal hex string.
 const LINE_COLOURS = ['#DA202A', '#0892CB', '#62A531', '#F3920D', '#6C4FB6', '#2A2A2D']
+
+// Fixed brand colours for platforms with an established visual identity,
+// keyed on the stable platform_code (not array position).
+const PLATFORM_COLOURS: Record<string, string> = {
+  WEB: '#0892CB', // --rmg-color-blue
+  PDA: '#DA202A', // --rmg-color-red
+  APP: '#2A2A2D', // --rmg-color-black
+}
 
 function abbr(p: RatePlatform): string {
   return p.platform_abbreviation ?? p.platform_code
@@ -105,7 +117,9 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
 
   const colourFor = useMemo(() => {
     const map = new Map<string, string>()
-    platforms.forEach((p, i) => map.set(p.platform_id, LINE_COLOURS[i % LINE_COLOURS.length]))
+    platforms.forEach((p, i) =>
+      map.set(p.platform_id, PLATFORM_COLOURS[p.platform_code] ?? LINE_COLOURS[i % LINE_COLOURS.length]),
+    )
     return map
   }, [platforms])
 
@@ -195,6 +209,12 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
             type: 'linear' as const,
             min: window.min,
             max: window.max,
+            // Chart.js's default `bounds: 'ticks'` can re-derive the scale's
+            // rendered extent from the tick array rather than strictly
+            // honouring the explicit min/max above. Force 'data' so the
+            // axis (and anything reading chart.scales.x.min/max, e.g. the
+            // quarterLinesPlugin below) always matches window.min/max exactly.
+            bounds: 'data' as const,
             // Ticks land on the same mathematically-generated quarter
             // boundaries as the reference lines — quarterly granularity.
             afterBuildTicks: (axis: { min: number; max: number; ticks: { value: number }[] }) => {
