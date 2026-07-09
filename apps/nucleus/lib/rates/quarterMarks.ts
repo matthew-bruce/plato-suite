@@ -13,7 +13,6 @@
 export interface QuarterMark {
   ms: number
   label: string
-  quarter: 1 | 2 | 3 | 4
 }
 
 // [quarter number, FY-start-year offset from the boundary's own calendar year]
@@ -51,25 +50,8 @@ export function generateQuarterMarks(startMs: number, endMs: number): QuarterMar
     for (const monthIndex0 of [0, 3, 6, 9]) {
       const ms = Date.UTC(year, monthIndex0, 1)
       if (ms < startMs || ms > endMs) continue
-      marks.push({ ms, label: fyQuarterLabel(year, monthIndex0), quarter: QUARTER_BY_MONTH[monthIndex0].quarter })
+      marks.push({ ms, label: fyQuarterLabel(year, monthIndex0) })
     }
   }
   return marks.sort((a, b) => a.ms - b.ms)
-}
-
-// A 5-year window has 20 quarters — every one gets a text label. Beyond that
-// (e.g. "All time" spanning many years) the axis gets crowded, so labels thin
-// to one per financial year (the 1 Apr / Q1 boundary only). The dashed
-// reference line itself is unaffected — it is always drawn for every quarter,
-// regardless of range; only which marks carry text changes.
-const LABEL_ALL_THRESHOLD = 20
-
-/**
- * Whether `mark` should carry a text label, given how many quarter marks are
- * currently in view. `totalMarksInView` is the full count for the visible
- * window (i.e. `generateQuarterMarks(...).length`), not a per-mark index.
- */
-export function shouldShowQuarterLabel(mark: Pick<QuarterMark, 'quarter'>, totalMarksInView: number): boolean {
-  if (totalMarksInView <= LABEL_ALL_THRESHOLD) return true
-  return mark.quarter === 1
 }

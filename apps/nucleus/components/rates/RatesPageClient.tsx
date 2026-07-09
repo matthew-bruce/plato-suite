@@ -15,7 +15,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import type { RatesPageData, RatePlatform, RateHistoryRow, RatePeriod } from '@plato/schema'
-import { Button, FormField, PageToolbarFilterPill } from '@plato/ui/components/rmg'
+import { Button, PageToolbarFilterPill } from '@plato/ui/components/rmg'
 import { formatMoneyPence } from '@/lib/schedule/format'
 import { setBlendedRate, updateCostConfiguration, deleteCostConfiguration } from '@/app/actions/rates'
 import {
@@ -25,7 +25,7 @@ import {
 } from '@/lib/rates/rateImpact'
 import { buildPlatformChartPoints } from '@/lib/rates/chartPoints'
 import { computeChartWindow, CHART_RANGE_OPTIONS, type ChartRange } from '@/lib/rates/chartWindow'
-import { generateQuarterMarks, shouldShowQuarterLabel } from '@/lib/rates/quarterMarks'
+import { generateQuarterMarks } from '@/lib/rates/quarterMarks'
 
 // The add path warns only for already-committed periods; drafts update silently.
 const ADD_WARN_STATUSES: ConsideredStatus[] = ['active', 'historic']
@@ -230,12 +230,15 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         const x = chart.scales.x
         if (!x) return
         const { ctx, chartArea } = chart
+        // Dashed vertical line only — every quarter in the visible window
+        // gets one, regardless of range. No floating text label: the x-axis
+        // tick labels already date the boundaries, and a label per dashed
+        // line crowded badly on long windows (e.g. "All time"). No gating,
+        // no thinning — the label is simply never drawn.
         for (const mark of quarterMarks) {
           if (mark.ms < x.min || mark.ms > x.max) continue
           const px = x.getPixelForValue(mark.ms)
           ctx.save()
-          // The dashed line is always drawn for every quarter, regardless of
-          // range — only the text label below is thinned on long windows.
           ctx.beginPath()
           ctx.setLineDash([4, 4])
           ctx.moveTo(px, chartArea.top)
@@ -244,12 +247,6 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
           ctx.strokeStyle = 'rgba(42,42,45,0.28)'
           ctx.stroke()
           ctx.setLineDash([])
-          if (shouldShowQuarterLabel(mark, quarterMarks.length)) {
-            ctx.font = '10px var(--rmg-font-body), sans-serif'
-            ctx.fillStyle = 'rgba(42,42,45,0.55)'
-            ctx.textBaseline = 'top'
-            ctx.fillText(mark.label, px + 4, chartArea.top + 2)
-          }
           ctx.restore()
         }
       },
@@ -479,18 +476,7 @@ function RateHistoryCard({
       {error && <p style={{ fontSize: 12, color: RED, margin: '0 0 10px' }}>{error}</p>}
       {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '0 0 10px' }}>{notice}</p>}
 
-      {/* Inline add-rate form — platform is the globally-selected one. */}
-      {!isAll && adding && focusPlatform && (
-        <AddRateInline
-          platform={focusPlatform}
-          history={history}
-          periods={periods}
-          onCancel={() => setAdding(false)}
-          onSaved={() => { setAdding(false); onChanged() }}
-        />
-      )}
-
-      {rows.length === 0 ? (
+      {rows.length === 0 && !(adding && focusPlatform) ? (
         <p style={{ fontSize: 13, color: GREY1, margin: 0 }}>
           No historic data yet{focusPlatform ? ` for ${abbr(focusPlatform)}` : ''}.
         </p>
@@ -558,6 +544,15 @@ function RateHistoryCard({
                 </tr>
               )
             })}
+            {!isAll && adding && focusPlatform && (
+              <AddRateRow
+                platform={focusPlatform}
+                history={history}
+                periods={periods}
+                onCancel={() => setAdding(false)}
+                onSaved={(reassurance) => { setAdding(false); setNotice(reassurance); onChanged() }}
+              />
+            )}
           </tbody>
         </table>
       )}
@@ -575,9 +570,11 @@ function RateHistoryCard({
   )
 }
 
-/* ── Inline add-rate form (platform fixed to the global selection) ── */
+/* ── Inline add-rate row (platform fixed to the global selection) ──
+   Compact table row appended to Rate History, aligned to its existing
+   columns, instead of an expanded standalone section. ── */
 
-function AddRateInline({
+function AddRateRow({
   platform,
   history,
   periods,
@@ -588,14 +585,27 @@ function AddRateInline({
   history: RateHistoryRow[]
   periods: RatePeriod[]
   onCancel: () => void
-  onSaved: () => void
+  onSaved: (reassurance: string | null) => void
 }) {
   const [effectiveFrom, setEffectiveFrom] = useState<string>('')
   const [rate, setRate] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<{ impacts: PeriodRateImpact[]; run: () => Promise<void> } | null>(null)
+
+  // VAT / on-costs are read-only here — the RPC carries them forward from the
+  // platform's most recent live row automatically. Mirror that for display,
+  // falling back to the platform-wide defaults for a brand-new platform.
+  const latestForPlatform = history
+    .filter((r) => r.platform_id === platform.platform_id)
+    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))[0]
+  const defaultVat = latestForPlatform?.vat_uplift_percent ?? 7.082
+  const defaultOnCosts = latestForPlatform?.on_costs_uplift_percent ?? 0
+
+  // Quick-pick chips for upcoming draft periods, same as the old standalone form.
+  const quickPicks = periods
+    .filter((p) => p.period_status === 'draft' && p.period_start_date >= todayISO())
+    .map((p) => ({ date: p.period_start_date, label: p.period_name }))
 
   async function doSave(reassurance: string | null) {
     setSaving(true)
@@ -608,14 +618,13 @@ function AddRateInline({
       return
     }
     setPending(null)
-    setNotice(reassurance)
-    onSaved()
+    onSaved(reassurance)
   }
 
   function handleSaveClick() {
-    setError(null); setNotice(null)
+    setError(null)
     if (!effectiveFrom || rate.trim() === '') {
-      setError('Pick an effective-from date and a rate.')
+      setError('Pick a date and a rate.')
       return
     }
     const pence = Math.round((parseFloat(rate) || 0) * 100)
@@ -633,37 +642,45 @@ function AddRateInline({
   }
 
   return (
-    <div style={{ border: '1px solid var(--rmg-color-grey-3)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-      <div style={sectionLabel}>Add rate — {abbr(platform)}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField size="small" type="date" label="Effective from" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-        </div>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <FormField size="small" type="text" label="New rate (£/day)" placeholder="e.g. 575" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} />
-        </div>
-      </div>
-
-      {error && <p style={{ fontSize: 12, color: RED, margin: '12px 0 0' }}>{error}</p>}
-      {notice && <p style={{ fontSize: 12, color: 'var(--rmg-color-green)', margin: '12px 0 0' }}>{notice}</p>}
-
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-        <Button variant="solid" size="small" disabled={saving} onClick={handleSaveClick}>
+    <tr style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
+      <td style={tdStyle}>
+        <input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} style={cellInput} />
+        {quickPicks.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+            {quickPicks.map((q) => (
+              <PageToolbarFilterPill
+                key={q.date}
+                label={`${q.label} · ${ukDate(Date.parse(q.date))}`}
+                active={effectiveFrom === q.date}
+                colour="--all"
+                onClick={() => setEffectiveFrom(q.date)}
+              />
+            ))}
+          </div>
+        )}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} style={{ ...cellInput, textAlign: 'right' }} placeholder="£/day" />
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right', color: GREY1 }}>{defaultVat}%</td>
+      <td style={{ ...tdStyle, textAlign: 'right', color: GREY1 }}>{defaultOnCosts}%</td>
+      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+        {error && <div style={{ fontSize: 11, color: RED, marginBottom: 4 }}>{error}</div>}
+        <button type="button" disabled={saving} onClick={handleSaveClick} title="Save" aria-label="Save" style={iconBtn(RED)}>
           {saving ? 'Saving…' : 'Save'}
-        </Button>
-        <Button variant="outline" size="small" onClick={onCancel}>Cancel</Button>
-      </div>
-
-      {pending && (
-        <ImpactConfirm
-          title="Confirm new rate"
-          impacts={pending.impacts}
-          busy={saving}
-          onConfirm={() => void pending.run()}
-          onCancel={() => setPending(null)}
-        />
-      )}
-    </div>
+        </button>
+        <button type="button" onClick={onCancel} title="Cancel" aria-label="Cancel" style={{ ...iconBtn(GREY1), marginLeft: 4 }}>Cancel</button>
+        {pending && (
+          <ImpactConfirm
+            title="Confirm new rate"
+            impacts={pending.impacts}
+            busy={saving}
+            onConfirm={() => void pending.run()}
+            onCancel={() => setPending(null)}
+          />
+        )}
+      </td>
+    </tr>
   )
 }
 
