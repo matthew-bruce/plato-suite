@@ -14,7 +14,8 @@ export type {
 } from './types/schedule'
 
 export { getSchedulePageData } from './queries/schedule'
-export { computeUnallocatedPct } from './utils/schedule'
+export { computeUnallocatedPct, selectDefaultPeriod } from './utils/schedule'
+export type { DefaultPeriodCandidate } from './utils/schedule'
 export {
   resolveCostConfiguration,
   resolveCostConfigurationByCode,

@@ -2,7 +2,7 @@
 // All Supabase access goes through the @plato/schema server client (ADR-027).
 
 import { getSupabaseServerClient } from '../server'
-import { computeUnallocatedPct } from '../utils/schedule'
+import { computeUnallocatedPct, selectDefaultPeriod } from '../utils/schedule'
 import { resolveAppliedCostConfigurationByCode } from './costConfig'
 import type {
   SchedulePageData,
@@ -89,12 +89,13 @@ export async function getSchedulePageData(
     period_end_date: p.period_end_date as string,
   }))
 
+  // Default to the latest period by end date (see selectDefaultPeriod) rather
+  // than the one flagged period_status = 'active' — status lags reality, so a
+  // stale 'active' flag on an earlier quarter used to load instead of the
+  // genuinely-current one. An explicit ?period= override always wins.
   let activePeriodId = periodId
   if (!activePeriodId) {
-    const active = allPeriodsData?.find((p) => p.period_status === 'active')
-    activePeriodId =
-      (active?.period_id as string | undefined) ??
-      (allPeriodsData?.[0]?.period_id as string | undefined)
+    activePeriodId = selectDefaultPeriod(allPeriods)?.period_id
   }
   if (!activePeriodId) return null
 
