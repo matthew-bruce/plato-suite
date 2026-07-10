@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useId, useState } from 'react'
+import React, { useId, useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { CalendarPanel } from './CalendarPanel'
 import { formatDisplay } from '../../utils/calendarGrid'
 
@@ -80,8 +81,32 @@ export function FormField({
   const isDisabled = variant === 'disabled'
   const [focused, setFocused] = useState(false)
   const [internalValue, setInternalValue] = useState(defaultValue ?? '')
-  // Date variant: the calendar popup replaces the native date picker.
+  // Date variant: the calendar popup replaces the native date picker. It is
+  // rendered through a portal (positioned against the field) so it can never be
+  // clipped by an overflow:hidden/auto ancestor — e.g. a modal body such as the
+  // Create New Period wizard.
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [panelRect, setPanelRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const fieldRef = useRef<HTMLDivElement>(null)
+
+  const positionPanel = useCallback(() => {
+    const el = fieldRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPanelRect({ top: r.bottom + 6, left: r.left, width: r.width })
+  }, [])
+
+  // Keep the portalled panel anchored to the field while open.
+  useEffect(() => {
+    if (!calendarOpen) return
+    positionPanel()
+    window.addEventListener('scroll', positionPanel, true)
+    window.addEventListener('resize', positionPanel)
+    return () => {
+      window.removeEventListener('scroll', positionPanel, true)
+      window.removeEventListener('resize', positionPanel)
+    }
+  }, [calendarOpen, positionPanel])
 
   const controlled = value !== undefined
   const currentValue = controlled ? value : internalValue
@@ -169,7 +194,7 @@ export function FormField({
         )}
       </label>
 
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <div ref={fieldRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         {type === 'dropdown' ? (
           <select
             id={id}
@@ -213,18 +238,30 @@ export function FormField({
                 <span style={{ color: 'var(--rmg-color-grey-1)' }}>{placeholder ?? ''}</span>
               )}
             </button>
-            {calendarOpen && !isDisabled && (
-              <CalendarPanel
-                value={currentValue}
-                minDate={minDate}
-                maxDate={maxDate}
-                onDone={(iso) => {
-                  commitDate(iso)
-                  setCalendarOpen(false)
-                }}
-                onCancel={() => setCalendarOpen(false)}
-              />
-            )}
+            {calendarOpen && !isDisabled && panelRect && typeof document !== 'undefined' &&
+              createPortal(
+                <div
+                  style={{
+                    position: 'fixed',
+                    top: panelRect.top,
+                    left: panelRect.left,
+                    width: panelRect.width,
+                    zIndex: 10001,
+                  }}
+                >
+                  <CalendarPanel
+                    value={currentValue}
+                    minDate={minDate}
+                    maxDate={maxDate}
+                    onDone={(iso) => {
+                      commitDate(iso)
+                      setCalendarOpen(false)
+                    }}
+                    onCancel={() => setCalendarOpen(false)}
+                  />
+                </div>,
+                document.body,
+              )}
           </>
         ) : (
           <input

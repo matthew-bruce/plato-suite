@@ -161,11 +161,10 @@ export function CalendarPanel({ value, minDate, maxDate, onDone, onCancel }: Cal
 
   const grid = buildMonthGrid(view.year, view.month0)
 
+  // Positioning is owned by the caller (FormField renders this in a fixed-
+  // position portal so it escapes overflow-clipping ancestors); this is just
+  // the panel box.
   const panelStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 'calc(100% + 6px)',
-    left: 0,
-    zIndex: 1000,
     background: 'var(--rmg-color-white)',
     border: '1px solid var(--rmg-color-grey-2)',
     borderRadius: 'var(--rmg-radius-s)',
