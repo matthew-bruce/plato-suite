@@ -218,8 +218,19 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
               axis.ticks = marks.length ? marks : [{ value: axis.min }, { value: axis.max }]
             },
             ticks: {
-              autoSkip: false,
-              maxRotation: 0,
+              // Every quarter still gets a tick (afterBuildTicks above), but
+              // on narrow viewports there isn't room for all of their labels.
+              // autoSkip lets Chart.js drop labels based on measured width
+              // vs. available space (quarterly -> every other -> yearly as
+              // it narrows); minRotation/maxRotation let it angle the
+              // remaining labels only as much as needed to fit, rather than
+              // forcing full vertical text at every width. The dashed
+              // gridlines (quarterLinesPlugin below) read quarterMarksRef
+              // directly, not this tick array, so every quarter's line still
+              // renders regardless of how many labels are shown.
+              autoSkip: true,
+              minRotation: 0,
+              maxRotation: 90,
               callback: (v: string | number) => ukDate(Number(v)),
               font: { family: 'var(--rmg-font-body)' },
             },
