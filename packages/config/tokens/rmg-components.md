@@ -274,6 +274,49 @@ The spec example uses a 5-step flow: "Select options → Provide details → Sen
 
 ---
 
+## 4. Calendar Date Picker
+
+**Status:** BUILT (`CalendarDatePicker`, `CalendarPanel` in `packages/ui/components/rmg/`).
+
+**Description:** A popup calendar that replaces the native browser date picker on FormField's `date` variant. The whole field is a trigger; clicking it opens a panel below with month navigation, a Mon–Sun day grid, and a Cancel / Done footer. Also usable standalone as `CalendarDatePicker` (controlled, ISO-string `value`/`onChange`, optional `minDate`/`maxDate`). Selection is pending until **Done** — Cancel, Escape, and outside-click all discard.
+
+### 4.1 Anatomy
+
+| Element | Value | Token |
+|---------|-------|-------|
+| Panel background | `#FFFFFF` | `--rmg-color-white` |
+| Panel border | 1px `#D5D5D5` | `--rmg-color-grey-2` |
+| Panel radius / shadow | `--rmg-radius-s`, card shadow | `--rmg-radius-s`, `--rmg-shadow-card` |
+| Month header label | 14px, `#2A2A2D` | `--rmg-text-c1`, `--rmg-color-black` |
+| Nav chevrons | 16px, `#404044`, hover bg `#F5F5F5` | `--rmg-color-dark-grey`, `--rmg-color-grey-4` |
+| Weekday letters (M–S) | 12px, `#8F9495` | `--rmg-text-c2`, `--rmg-color-grey-1` |
+| Day cell | 14px, 28px tall | `--rmg-text-c1` |
+| Footer divider | 1px `#EEEEEE` | `--rmg-color-grey-3` |
+| Footer buttons | reuse `Button` (`outline` / `solid`, size `small`) | — |
+
+### 4.2 Day states
+
+| State | Fill | Text | Border | Token refs |
+|-------|------|------|--------|------------|
+| Default | transparent | `#2A2A2D` | none | `--rmg-color-black` |
+| Hover | `#F5F5F5` | `#2A2A2D` | none | `--rmg-color-grey-4` |
+| **Selected** | `#DA202A` | `#FFFFFF` | none | `--rmg-color-red`, `--rmg-color-white` |
+| **Today** (not selected) | transparent | `#DA202A` bold | 1px `#DA202A` | `--rmg-color-red` |
+| Disabled (out of min/max) | transparent | `#D5D5D5` | none | `--rmg-color-grey-2` |
+| Keyboard-focused | — | — | 2px blue outline | `--rmg-color-blue` |
+
+> **Today vs Selected:** "today" uses a red *outline* + bold red text, never a fill; "selected" uses a solid red *fill* + white text. This keeps today clearly recognisable but visually subordinate to the active selection, staying within the system's red-accent restraint (no new colour introduced).
+
+### 4.3 Behaviour notes
+
+- Trigger uses FormField's field chrome, so it inherits every field state (default / focus / disabled / error). The blue focus border (`--rmg-color-blue`) shows while the popup is open.
+- Closes on **Done** (commits), **Cancel** / **Escape** / **outside-click** (all discard the pending selection).
+- Keyboard: arrow keys move the focused day (wrapping across weeks/months, clamped to min/max), **Enter** commits the focused day, **Escape** closes.
+- Displayed date format is `DD/MM/YYYY`; the value exchanged with callers is a `YYYY-MM-DD` ISO string (matching every other date field in Plato).
+- Day-grid maths (leading-blank alignment, month length, min/max disabling, day-state precedence) are pure functions in `packages/ui/utils/calendarGrid.ts`, unit-tested in `calendarGrid.test.ts`.
+
+---
+
 ## Token cross-reference
 
 | Token | Hex | Used in |

@@ -30,6 +30,7 @@ See `docs/decisions/023-component-library-styling-approach.md` for full rational
 |-----------|--------|-------|
 | `ChevronButton` | active, disabled, hover | large (64px), small (48px) |
 | `FormField` | default, error, validated, disabled | large (56px), small (40px) |
+| `CalendarDatePicker` | default, focus, disabled; day: default/selected/today/disabled | large (56px), small (40px) |
 | `Checkbox` | default, error, success | large, small |
 
 ## Adding a new component

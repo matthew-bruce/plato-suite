@@ -1,8 +1,30 @@
 'use client'
 
 import { useState } from 'react'
-import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, Icon, NavBar, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
+import { Breadcrumb, Button, Checkbox, ChevronButton, FormField, CalendarDatePicker, Icon, NavBar, Notification, Radio, Stepper, Tabs } from '@plato/ui/components/rmg'
 import type { IconName } from '@plato/ui/components/rmg'
+
+function CalendarDatePickerDemo({
+  initial = '',
+  minDate,
+  maxDate,
+}: {
+  initial?: string
+  minDate?: string
+  maxDate?: string
+}) {
+  const [value, setValue] = useState(initial)
+  return (
+    <CalendarDatePicker
+      label="Start date"
+      value={value}
+      onChange={setValue}
+      minDate={minDate}
+      maxDate={maxDate}
+      placeholder="Select a date"
+    />
+  )
+}
 
 function TabsDesktopDemo() {
   const [active, setActive] = useState('tracked')
@@ -678,6 +700,19 @@ export default function DesignSystemPage() {
           </FieldShowcase>
           <FieldShowcase label="date">
             <FormField size="small" label="Delivery date" type="date" />
+          </FieldShowcase>
+        </div>
+
+        <ComponentSubheading>CalendarDatePicker — popup calendar</ComponentSubheading>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 'var(--rmg-spacing-07)' }}>
+          <FieldShowcase label="controlled · empty">
+            <CalendarDatePickerDemo />
+          </FieldShowcase>
+          <FieldShowcase label="with min/max range">
+            <CalendarDatePickerDemo initial="2026-10-06" minDate="2026-10-01" maxDate="2026-10-20" />
+          </FieldShowcase>
+          <FieldShowcase label="disabled">
+            <CalendarDatePicker label="Start date" value="2026-10-06" onChange={() => {}} disabled />
           </FieldShowcase>
         </div>
 
