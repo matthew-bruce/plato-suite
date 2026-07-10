@@ -39,6 +39,13 @@ describe('workingDaysBetween', () => {
     expect(n).toBeLessThanOrEqual(65)
   })
 
+  it('excludes the two UK bank holidays in Q3 FY26/27 (Oct–Dec 2026)', () => {
+    // The next-quarter the Create New Period wizard pre-fills. Oct–Dec 2026 has
+    // 66 weekdays; Christmas Day (Fri 2026-12-25) and the Boxing Day substitute
+    // (Mon 2026-12-28) both fall on weekdays, so working days = 64.
+    expect(workingDaysBetween('2026-10-01', '2026-12-31')).toBe(64)
+  })
+
   it('returns 0 for invalid ranges', () => {
     expect(workingDaysBetween('2025-03-31', '2025-01-01')).toBe(0)
   })
