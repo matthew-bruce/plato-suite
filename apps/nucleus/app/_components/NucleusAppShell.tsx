@@ -19,14 +19,6 @@ import { PlatoShell } from '@plato/ui'
 import type { NavSection, ConfigItem } from '@plato/ui'
 import { usePrivacyMode } from '@/context/PrivacyModeContext'
 
-const APP_URLS = {
-  nucleus:   'https://plato-nucleus.vercel.app',
-  tessera:   'https://plato-tessera.vercel.app',
-  despatch:  '#',
-  chronicle: '#',
-  cursus:    '#',
-}
-
 const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Overview',
@@ -73,7 +65,6 @@ export function NucleusAppShell({ children }: { children: ReactNode }) {
       appSubtitle="eBusiness Platform"
       navSections={NAV_SECTIONS}
       configItems={CONFIG_ITEMS}
-      appUrls={APP_URLS}
     >
       {children}
     </PlatoShell>

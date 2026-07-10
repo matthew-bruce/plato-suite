@@ -25,7 +25,7 @@ import type {
   PlatformCostItem,
   ResourceLocation,
 } from '@plato/schema'
-import { getSupabaseBrowserClient, computeUnallocatedPct } from '@plato/schema'
+import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -46,6 +46,7 @@ import {
 } from '@/app/actions/schedule'
 import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
+import { CreatePeriodWizard } from './CreatePeriodWizard'
 import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
 import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
@@ -148,6 +149,12 @@ export function SchedulePageClient({ data }: Props) {
   } | null>(null)
   const [assignWizardTarget, setAssignWizardTarget] = useState<AssignModeConfig | null>(null)
   const [exportViewOpen, setExportViewOpen] = useState(false)
+  const [createPeriodOpen, setCreatePeriodOpen] = useState(false)
+
+  // The most recent existing period drives the Create-New-Period pre-fill and
+  // is the copy-forward source. Derived from the full period list (latest by
+  // end date) so it's correct even when viewing an older period.
+  const latestPeriod = useMemo(() => selectDefaultPeriod(allPeriods) ?? null, [allPeriods])
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
@@ -649,7 +656,7 @@ export function SchedulePageClient({ data }: Props) {
         boxSizing: 'border-box',
       }}
     >
-      <PageHeader onCreateNewPeriod={() => console.log('Create New Period: coming soon')} />
+      <PageHeader onCreateNewPeriod={() => setCreatePeriodOpen(true)} />
 
       {reorderError && (
         <div style={{ marginBottom: 12 }}>
@@ -895,6 +902,21 @@ export function SchedulePageClient({ data }: Props) {
       activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
       periodName={period.period_name}
       workingDays={workingDays}
+    />
+    <CreatePeriodWizard
+      open={createPeriodOpen}
+      latestPeriod={latestPeriod}
+      // Initial figure: the currently-viewed period's row count. The wizard
+      // refines it against the actual latest period when it opens.
+      sourceAllocationCount={localAllocations.length}
+      onClose={() => setCreatePeriodOpen(false)}
+      onCreated={(newPeriodId, periodName) => {
+        setCreatePeriodOpen(false)
+        setLoading('Loading schedule', periodName)
+        const params = new URLSearchParams(searchParams.toString())
+        params.set('period', newPeriodId)
+        router.push(`/schedule?${params.toString()}`)
+      }}
     />
     </>
   )
