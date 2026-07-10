@@ -13,6 +13,12 @@ export type { ChevronButtonProps } from './ChevronButton'
 export { FormField } from './FormField'
 export type { FormFieldProps } from './FormField'
 
+export { CalendarDatePicker } from './CalendarDatePicker'
+export type { CalendarDatePickerProps } from './CalendarDatePicker'
+
+export { CalendarPanel } from './CalendarPanel'
+export type { CalendarPanelProps } from './CalendarPanel'
+
 export { NavBar } from './NavBar'
 export type { NavBarProps, NavItem } from './NavBar'
 

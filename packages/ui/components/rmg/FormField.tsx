@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useId, useState } from 'react'
+import { CalendarPanel } from './CalendarPanel'
+import { formatDisplay } from '../../utils/calendarGrid'
 
 export interface FormFieldProps {
   variant?: 'default' | 'error' | 'validated' | 'disabled'
@@ -14,6 +16,10 @@ export interface FormFieldProps {
   defaultValue?: string
   placeholder?: string
   onChange?: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement>
+  /** Date variant only: inclusive bounds (YYYY-MM-DD). Days outside are
+   *  disabled in the calendar popup. */
+  minDate?: string
+  maxDate?: string
 }
 
 function ChevronDownIcon() {
@@ -66,16 +72,34 @@ export function FormField({
   defaultValue,
   placeholder,
   onChange,
+  minDate,
+  maxDate,
 }: FormFieldProps) {
   const id = useId()
   const errorId = `${id}-error`
   const isDisabled = variant === 'disabled'
   const [focused, setFocused] = useState(false)
   const [internalValue, setInternalValue] = useState(defaultValue ?? '')
+  // Date variant: the calendar popup replaces the native date picker.
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   const controlled = value !== undefined
   const currentValue = controlled ? value : internalValue
   const hasValue = currentValue.length > 0
+
+  // Commit a date from the calendar popup. Mirrors handleChange for the parent:
+  // updates uncontrolled state and notifies onChange with the ISO value. The
+  // consumer reads e.target.value exactly as it would for a native input.
+  function commitDate(iso: string) {
+    if (!controlled) setInternalValue(iso)
+    if (onChange) {
+      const synthetic = {
+        target: { value: iso, name: name ?? '', type: 'date' },
+        currentTarget: { value: iso },
+      } as unknown as React.ChangeEvent<HTMLInputElement>
+      onChange(synthetic)
+    }
+  }
 
   const inputHeight = size === 'large' ? '56px' : '40px'
   const fontSize = size === 'large' ? 'var(--rmg-text-b2)' : 'var(--rmg-text-b3)'
@@ -95,7 +119,7 @@ export function FormField({
     height: inputHeight,
     padding: '0 12px',
     paddingRight: hasTrailing ? '40px' : '12px',
-    border: resolveBorder(variant, focused, hasValue),
+    border: resolveBorder(variant, focused || calendarOpen, hasValue),
     borderRadius: 'var(--rmg-radius-s)',
     backgroundColor: isDisabled ? 'var(--rmg-color-grey-3)' : 'var(--rmg-color-surface-white)',
     fontFamily: 'var(--rmg-font-body)',
@@ -161,11 +185,52 @@ export function FormField({
           >
             {placeholder && <option value="" disabled>{placeholder}</option>}
           </select>
+        ) : type === 'date' ? (
+          <>
+            {/* The whole field is a trigger that opens the calendar popup,
+                replacing the native date picker. A hidden input carries the
+                value for native form submission. */}
+            <input type="hidden" name={name} value={currentValue} readOnly />
+            <button
+              id={id}
+              type="button"
+              disabled={isDisabled}
+              aria-haspopup="dialog"
+              aria-expanded={calendarOpen}
+              aria-invalid={variant === 'error'}
+              aria-describedby={variant === 'error' && errorMessage ? errorId : undefined}
+              onClick={() => {
+                if (isDisabled) return
+                setCalendarOpen((o) => !o)
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              style={{ ...sharedInputStyle, textAlign: 'left', cursor: isDisabled ? 'not-allowed' : 'pointer' }}
+            >
+              {hasValue ? (
+                formatDisplay(currentValue)
+              ) : (
+                <span style={{ color: 'var(--rmg-color-grey-1)' }}>{placeholder ?? ''}</span>
+              )}
+            </button>
+            {calendarOpen && !isDisabled && (
+              <CalendarPanel
+                value={currentValue}
+                minDate={minDate}
+                maxDate={maxDate}
+                onDone={(iso) => {
+                  commitDate(iso)
+                  setCalendarOpen(false)
+                }}
+                onCancel={() => setCalendarOpen(false)}
+              />
+            )}
+          </>
         ) : (
           <input
             id={id}
             name={name}
-            type={type === 'date' ? 'date' : 'text'}
+            type="text"
             disabled={isDisabled}
             value={controlled ? value : internalValue}
             placeholder={placeholder}
