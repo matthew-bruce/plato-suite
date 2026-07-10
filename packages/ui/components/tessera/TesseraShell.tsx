@@ -57,7 +57,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
 
 const PLATO_APPS = [
   { id: 'nucleus',   label: 'Nucleus',   url: 'https://plato-nucleus.vercel.app', enabled: true  },
-  { id: 'tessera',   label: 'Tessera',   url: 'https://plato-tessera.vercel.app', enabled: true  },
+  { id: 'tessera',   label: 'Tessera',   url: 'https://plato-suite-tessera.vercel.app', enabled: true  },
   { id: 'dispatch',  label: 'Dispatch',  url: '#',                                 enabled: false },
   { id: 'chronicle', label: 'Chronicle', url: '#',                                 enabled: false },
   { id: 'roadmap',   label: 'Roadmap',   url: '#',                                 enabled: false },
