@@ -60,8 +60,8 @@ const PLATO_APPS: Array<{ id: AppKey; label: string }> = [
 ]
 
 const DEFAULT_APP_URLS: Record<AppKey, string> = {
-  nucleus:   '#',
-  tessera:   '#',
+  nucleus:   'https://plato-nucleus.vercel.app',
+  tessera:   'https://plato-suite-tessera.vercel.app',
   despatch:  '#',
   chronicle: '#',
   cursus:    '#',
