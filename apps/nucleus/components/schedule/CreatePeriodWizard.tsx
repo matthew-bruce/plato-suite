@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { CalendarDatePicker } from '@plato/ui/components/rmg'
 import { createPeriod, getPeriodAllocationCount } from '@/app/actions/schedule-period'
 import { deriveNextQuarterPeriod } from '@/lib/schedule/periodQuarters'
 import { workingDaysBetween } from '@/lib/schedule/format'
@@ -270,14 +271,23 @@ export function CreatePeriodWizard({
                 <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
               </div>
 
-              <div style={{ display: 'flex', gap: 12 }}>
-                <div style={{ ...fieldWrap, flex: 1 }}>
-                  <label style={labelStyle}>Start date</label>
-                  <input type="date" style={inputStyle} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1 }}>
+                  <CalendarDatePicker
+                    size="small"
+                    label="Start date"
+                    value={startDate}
+                    onChange={setStartDate}
+                  />
                 </div>
-                <div style={{ ...fieldWrap, flex: 1 }}>
-                  <label style={labelStyle}>End date</label>
-                  <input type="date" style={inputStyle} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                <div style={{ flex: 1 }}>
+                  <CalendarDatePicker
+                    size="small"
+                    label="End date"
+                    value={endDate}
+                    onChange={setEndDate}
+                    minDate={startDate || undefined}
+                  />
                 </div>
               </div>
 
