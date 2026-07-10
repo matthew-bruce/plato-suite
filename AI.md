@@ -368,3 +368,77 @@ These repos contain patterns worth referencing. Do not port directly — migrate
 - `matthew-bruce/vibe-engineering-chronicle` → Chronicle
 - `matthew-bruce/platform-org-structure` → Nucleus (was Org Chart)
 - `matthew-bruce/platform-roadmap-poc` → Roadmap
+
+---
+
+## Nucleus — Current State (Platform Schedule & Blended Rates)
+
+Snapshot of what exists in `apps/nucleus/` as of the effective-dated
+blended-rates work — not a changelog, update in place as things change.
+
+**Blended Rates page (`/rates`)** — standalone top-level LHS nav item under
+the Finance section (same mechanism as Platform Schedule/Dashboard, not
+nested). One global platform selector (pill row) at the top drives every
+section on the page: the trend chart, the Rate History table, and the inline
+add-rate form — there is only one selector, not one per section. Rate
+history is effective-dated per platform (`cost_configurations`, versioned by
+`effective_from`, see SCHEMA_DESIGN.md 1.13/021–022). A period's cost figures
+are frozen the instant it locks via `period_cost_snapshots` — see "Rate-at-
+lock snapshot" below.
+
+**Applied Blended Rate KPI card** — on the Platform Schedule page, replaces
+the old "Current Blended Rate" card. Shows the rate that applies to the
+*specific period being viewed* — a locked period reads its permanent
+snapshot, a draft period reads the live effective-dated lookup — so a
+historic and a draft period can legitimately show different rates even
+"today." Inline-editable; save is an upsert, not a blind insert: if no
+`cost_configurations` row exists yet for this platform + this period's
+`effective_from`, it inserts (via the `SECURITY DEFINER` `set_blended_rate`
+RPC); if one already exists, it updates that row in place instead of
+colliding on the unique index.
+
+**Rate-at-lock snapshot mechanism** — `period_cost_snapshots` freezes the
+resolved rate/VAT/on-costs per `(period_id, platform_id)` at the moment a
+period transitions `locked: false → true` (via `set_period_locked`). Once
+locked, every cost-figure consumer in the app reads *only* the snapshot,
+never live `cost_configurations` — editing or deleting a rate afterward
+cannot move a locked period's numbers. See SCHEMA_DESIGN.md 1.13/022 for the
+schema and 4a for the "Chart.js `afterDraw` canvas state bleed" gotcha hit
+while building this page's trend chart.
+
+**Add Role/Resource wizard** — the old `ForkPanel`/`checkResourceInPeriod`
+same-period duplicate-detection mechanism has been retired entirely. The
+conflict dialog now fires at Step 1 (Search), the moment an existing
+resource is picked — not after the whole form is filled in. "Connect and
+keep existing details" / "Connect and use vacant seat details" are each a
+single atomic `SECURITY DEFINER` RPC (`connect_resource_keep_existing`,
+`connect_resource_use_vacant` — SCHEMA_DESIGN.md 1.13/019), not client-side
+multi-step writes. Layout adapts to how many existing rows are found: exactly
+one existing row (plus the vacant seat) renders as side-by-side comparison
+cards; two or more existing rows renders as a list.
+
+**Export current view (`ExportCurrentViewModal`)** — toolbar button "Export
+current view" on the Schedule page. Renders a table of Resource / Role /
+Team(s) / Location / Days / Run rate cost (the platform's blended rate only —
+never supplier-level day rates, which stay out of any export a wider
+audience might see). Columns are click-sortable; the Team(s) column
+de-emphasises non-matching assignments when a team filter is active
+(secondary assignments render smaller/muted with a "+" prefix). Copy-to-
+clipboard writes rich HTML (a real table, not tab-separated text) so pasting
+into email/Teams keeps formatting, with a plain-text fallback.
+
+**Other Schedule page changes this session:** the toolbar is sticky with a
+scroll shadow once it detaches from its resting position; the "Filtered
+Totals" footer row now includes a Days total alongside Base/+VAT.
+
+**Root route** — `/` temporarily redirects to `/schedule` (there is a `//
+TEMP` comment marking this at the redirect site); Dashboard has its own
+`/dashboard` route. Revert when Dashboard is ready to be the real landing
+page again.
+
+**`platform_abbreviation` is canonical.** `platforms.platform_abbreviation`
+(migration 020 — WEB/APP/BIG/EPS/ETP/PDA seeded) is the short label used
+everywhere in Nucleus's UI now (nav, chart legends, badges, pills). Never
+hardcode a platform abbreviation string — read this column. See
+SCHEMA_DESIGN.md 2.7 for the pending Despatch-side audit once that app joins
+the monorepo.

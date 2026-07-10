@@ -10,6 +10,7 @@ import {
   CalendarRange,
   ReceiptText,
   Layers,
+  LineChart,
   Palette,
   Settings,
   EyeOff,
@@ -46,6 +47,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Finance',
     items: [
       { label: 'Platform Schedule', icon: <CalendarRange size={16} />, href: '/schedule' },
+      { label: 'Blended Rates',      icon: <LineChart size={16} />,     href: '/rates'    },
       { label: 'Rate Cards',         icon: <ReceiptText size={16} />,   href: '#'         },
       { label: 'Periods',            icon: <Layers size={16} />,        href: '#'         },
     ],

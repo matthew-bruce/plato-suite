@@ -232,7 +232,7 @@ Two completely separate concepts. No shared table. No FK between them.
 
 **Dropped.** Cost codes (Planview-style BAU/F_GOV/PR) are not Plato's concern. Planview owns that. No `cost_codes` table.
 
-### 1.13 Migrations 016–018
+### 1.13 Migrations 016–022
 
 **016 — `rta_tbc_unique`/`rta_named_unique` exclude soft-deleted rows.** Both
 partial unique indexes on `resource_team_assignments` now add
@@ -287,6 +287,89 @@ write, open read), `supplier_rate_cards` (superuser-only, no open policy at
 all). These three carry the most commercially/identity-sensitive data in the
 schema and must not get a blanket open-write policy just because the rest of
 the dev-phase tables did.
+
+**019 — `connect_resource_keep_existing` / `connect_resource_use_vacant`
+RPCs.** Atomic conflict-resolution for the Add Role/Resource wizard: when an
+already-recognised resource is connected to an allocation while it already
+holds another active allocation in the same period, one of these two choices
+resolves the collision in a single transaction (mirrors the
+`update_team_assignments`, 1.13/017, one-plpgsql-function-per-choice
+pattern):
+
+```sql
+connect_resource_keep_existing(p_resource_id, p_period_id, p_vacant_allocation_id) RETURNS void
+connect_resource_use_vacant(p_resource_id, p_period_id, p_vacant_allocation_id,
+                             p_superseded_allocation_id, p_resource_location) RETURNS void
+```
+
+`keep_existing` re-keys the vacant seat's TBC team assignments onto the
+resource and soft-deletes the now-superseded vacant allocation row, leaving
+the resource's existing standalone allocation (rate/role/capacity) untouched.
+`use_vacant` does the reverse: the resource is assigned into the vacant seat
+(its role/capacity/rate stand) and the resource's previous standalone
+allocation — plus its team assignments — is soft-deleted. Both clean up the
+partial unique index `(resource_id, team_id, period_id) WHERE deleted_at IS
+NULL` before re-keying, so neither can collide against itself mid-transaction.
+
+**020 — `platforms.platform_abbreviation`.** Nullable `text` column added to
+`platforms`, seeded by `platform_code` for the six live platforms: `WEB`,
+`APP`, `BIG`, `EPS`, `ETP`, `PDA`. This is now the canonical short label for
+a platform anywhere in the UI (nav pills, chart legends, badges) — **never
+hardcode these abbreviation strings**; read `platform_abbreviation` (falling
+back to `platform_code` only if null).
+
+**021 — `set_blended_rate` RPC (SECURITY DEFINER).** `cost_configurations`
+carries `FORCE ROW LEVEL SECURITY` and was deliberately left off the
+migration-018 open-write policy (per 1.13/018 above), so the app's `anon`
+role cannot `INSERT` into it directly. `set_blended_rate(p_platform_id,
+p_effective_from, p_blended_rate_pence) RETURNS uuid` is `SECURITY DEFINER`,
+owned by `postgres` (which carries `BYPASSRLS`), and is the single sanctioned
+write path for a new rate: always `INSERT`s (rate history is immutable and
+versioned by `effective_from`, never `UPDATE`d in place), carries
+`vat_uplift_percent`/`on_costs_uplift_percent` forward unchanged from the
+platform's most recent live row, and lets a same-date collision on the
+`(platform_id, effective_from) WHERE deleted_at IS NULL` unique index surface
+as ordinary Postgres error `23505` for the caller to turn into a clear
+message. The table's RLS policies themselves are untouched — only this
+function's execution context bypasses them, by design, not by accident.
+
+Also added alongside: `update_cost_configuration(p_cost_configuration_id,
+p_effective_from, p_blended_rate_pence, p_vat_uplift, p_on_costs_uplift)
+RETURNS void` and `soft_delete_cost_configuration(p_cost_configuration_id)
+RETURNS void` (migration 022) — both `SECURITY DEFINER` for the same reason,
+covering row-level correction and deletion of an existing rate-history row
+from the Blended Rates page's Rate History table.
+
+Net effect: `cost_configurations` is now a properly effective-dated table
+with a full historic row per platform (multiple rows, one per
+`effective_from`), not the single mutable row it held before this session —
+every write path (insert, update, soft-delete) goes through one of these
+three RPCs, never a direct client write.
+
+**022 — `period_cost_snapshots` table + `set_period_locked` RPC.** A locked
+period's cost figures must never move again, even if `cost_configurations` is
+later edited. `period_cost_snapshots (snapshot_id, period_id, platform_id,
+blended_day_rate_override, vat_uplift_percent, on_costs_uplift_percent,
+source_cost_configuration_id, effective_from, snapshotted_at, ...)` freezes
+the resolved config per `(period_id, platform_id)` (unique index on that
+pair, `WHERE deleted_at IS NULL`) at the moment a period locks.
+`set_period_locked(p_period_id, p_locked) RETURNS boolean` (`SECURITY
+DEFINER`, replaces a plain `UPDATE periods SET locked = ...`) does the
+freeze: on a genuine `false → true` transition it resolves and inserts one
+snapshot row per platform with an effective config as of the period's start
+date, superseding any stale snapshot from a prior lock cycle, *before*
+flipping the flag. Unlocking a period does not delete its snapshot (so
+re-locking without an intervening rate change is idempotent), but reads
+switch straight back to the live table the instant `locked = false`.
+
+**Locked periods now read ONLY from their snapshot, never from live
+`cost_configurations`.** The shared resolver (`resolveAppliedCostConfiguration`
+in `@plato/schema`) branches on `period.locked`: `true` → the frozen
+`period_cost_snapshots` row (or `null` if none was ever taken); `false` →
+the ordinary effective-dated `resolveCostConfiguration` lookup. This is the
+single point every consumer (Schedule page's Applied Blended Rate KPI, the
+homepage) goes through — there is no code path where a locked period can see
+a post-lock edit to `cost_configurations`.
 
 ---
 
@@ -343,6 +426,40 @@ Migration `001` gates *writes* via trigger. Reads are not gated at DB level (Sup
 - Enforcement at the `@plato/schema` client abstraction only
 
 Pick one before exposing the resources list to non-superusers.
+
+---
+
+### 2.6 Versioned `vat_uplift_percent` / `on_costs_uplift_percent`
+
+Migration 021/022 (1.13) gave `cost_configurations.blended_day_rate_override`
+full effective-dated, insert-only history — resolved via the shared
+`pickEffectiveCostConfig`/`resolveCostConfiguration`/
+`resolveAppliedCostConfiguration` path, set via the insert-only
+`setBlendedRate` RPC, corrected via `update_cost_configuration`/
+`soft_delete_cost_configuration`, and gated by the shared three-state
+editability check (`getRateEditability`: locked → hard block, draft →
+editable, active/historic → soft warn). The other two `cost_configurations`
+columns, `vat_uplift_percent` and `on_costs_uplift_percent`, still ride along
+as whatever value the *rate's own row* happens to carry (carried forward
+unchanged by `setBlendedRate` when a new rate is set) rather than having
+independent effective-dated histories of their own. They need the same
+treatment eventually: their own effective-dated set action (insert-only,
+respecting `cost_configurations_unique`), gated by the same three-state
+check, with their own row-level edit/delete RPCs. Not yet built — recorded so
+it isn't lost. (See also Section 5's older note on this same gap — the
+migration number there should now read 021/022, not 019, which is the
+resource-conflict RPCs.)
+
+### 2.7 Hardcoded platform abbreviations — audit once Despatch is in the monorepo
+
+Migration 020 (1.13) added `platforms.platform_abbreviation` as the
+canonical short label (`WEB`/`APP`/`BIG`/`EPS`/`ETP`/`PDA`) — Nucleus now
+reads it everywhere instead of hardcoding these strings. Despatch is not yet
+in this monorepo, so it could not be audited this session. Once it is
+imported, audit the full codebase (Despatch especially — most likely in its
+PI planning code) for hardcoded platform-abbreviation string literals and
+replace them with reads of `platform_abbreviation`, so a future rename or a
+new platform doesn't require a code change scattered across modules.
 
 ---
 
@@ -414,6 +531,24 @@ Accumulated failure modes worth checking before assuming a new bug is novel.
   soft-deleted row permanently blocks re-insertion of the same key. See
   migration 016 (1.13) for the concrete incident this caused.
 
+- **Chart.js `afterDraw` canvas state bleed.** A custom Chart.js plugin's
+  `afterDraw(chart)` hook draws directly on the same `<canvas>` 2D context
+  Chart.js itself just used to render every dataset (bezier curve segments
+  from `tension`, each dataset's own `strokeStyle`/`lineWidth`). `ctx.save()`
+  must be the very first call in `afterDraw` — before the drawing loop,
+  before anything else — and `ctx.restore()` must be the very last, after the
+  loop, with nothing in between. Pairing `save()`/`restore()` *per line
+  inside the loop* is not equivalent: it leaves a gap before the very first
+  `save()` call where Chart.js's own trailing state is still live, so a
+  plugin line drawn in that gap silently inherits Chart.js's dataset colour
+  and curve/tension settings instead of the plugin's own (symptom: straight
+  reference lines rendering as curved and in a dataset's colour instead of a
+  flat grey). Beyond the outer `save()`/`restore()` pair, every drawing
+  property the plugin needs (`beginPath()`, `lineWidth`, `strokeStyle`,
+  `setLineDash()`) must still be set explicitly on every iteration inside the
+  loop — never hoisted above it and assumed to persist — so no single line's
+  appearance can depend on another's.
+
 ---
 
 ## Section 5 — Decisions explicitly deferred (do not resolve in schema sessions)
@@ -426,3 +561,14 @@ Accumulated failure modes worth checking before assuming a new bug is novel.
 - Discipline seed value list (data migration session).
 - `workstream_theme` value list — user-defined, not an enum, no seed needed.
 - Read-gating of `day_rate_override` (see 2.4) — a `002+` concern.
+- **Versioned `vat_uplift_percent` / `on_costs_uplift_percent`.** (See also
+  2.6, which supersedes this entry with the corrected migration numbers.)
+  Migrations 021/022 added effective-dated, insert-only history for
+  `blended_day_rate_override`
+  (resolved via the shared `pickEffectiveCostConfig` / `resolveCostConfiguration`
+  path, set via the insert-only `setBlendedRate` action, gated by the shared
+  three-state editability check `getRateEditability`). The other two
+  `cost_configurations` uplift columns still behave as a single mutable value
+  and need the *same* treatment eventually: their own effective-dated set
+  action (insert-only, respecting `cost_configurations_unique`) gated by the
+  same three-state check. Not built now — recorded so it isn't lost.

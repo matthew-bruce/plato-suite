@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle } from 'lucide-react'
+import { EyeOff, AlertTriangle, Pencil, Copy } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -49,7 +49,13 @@ import { AddResourceWizard } from './AddResourceWizard'
 import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
 import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
+import { ExportCurrentViewModal } from './ExportCurrentViewModal'
+import type { ExportRow } from '@/lib/schedule/exportView'
 import { workingDaysBetween } from '@/lib/schedule/format'
+import { getRateEditability } from '@/lib/rates/editability'
+import { setBlendedRate, updateCostConfiguration } from '@/app/actions/rates'
+import { decideRateUpsert, type ExistingCostConfigRow } from '@/lib/rates/upsertDecision'
+import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
@@ -81,6 +87,14 @@ const PLATO_SHELL_HEADER_HEIGHT = 40
 const COL_PADDING = '0 16px 0 12px'
 
 const RMG_SUPPLIER_NAME = 'Royal Mail Group'
+
+// UK date, e.g. "1 Jul 2026" — used in the Applied Blended Rate update-confirm copy.
+// timeZone pinned to UTC so a date-only ISO string (e.g. period_start_date)
+// never shifts a day depending on the viewer's local timezone.
+const UK_DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+function formatUkDate(iso: string): string {
+  return UK_DATE.format(new Date(iso))
+}
 
 type Allocation = ScheduleAllocation & { teams?: string[] }
 
@@ -117,6 +131,12 @@ export function SchedulePageClient({ data }: Props) {
   const [editingEtpSs, setEditingEtpSs] = useState(false)
   const [localAllocations, setLocalAllocations] = useState<Allocation[]>(() => rawAllocations as Allocation[])
   const [editingSchedule, setEditingSchedule] = useState(false)
+  // Applied blended rate held in local state so a rate edit recomputes the
+  // rate-derived KPIs through the same optimistic-state path as every other
+  // inline edit on this page — not a separate router refetch.
+  const [localBlendedRatePence, setLocalBlendedRatePence] = useState<number | null>(
+    costConfig?.blended_day_rate_override ?? null,
+  )
   // Editability is driven solely by the period's locked flag (not status).
   const [isLocked, setIsLocked] = useState(period.locked)
   const [lockPending, setLockPending] = useState(false)
@@ -127,6 +147,7 @@ export function SchedulePageClient({ data }: Props) {
     supplierColour: string
   } | null>(null)
   const [assignWizardTarget, setAssignWizardTarget] = useState<AssignModeConfig | null>(null)
+  const [exportViewOpen, setExportViewOpen] = useState(false)
   useEffect(() => {
     setLocalAllocations(rawAllocations as Allocation[])
     setLocalCostItems(initialCostItems)
@@ -134,6 +155,7 @@ export function SchedulePageClient({ data }: Props) {
     setEditingAdHoc(false)
     setEditingEtpSs(false)
     setIsLocked(period.locked)
+    setLocalBlendedRatePence(costConfig?.blended_day_rate_override ?? null)
     // New schedule data has arrived for the selected period — dismiss the overlay.
     clearLoading()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,6 +273,26 @@ export function SchedulePageClient({ data }: Props) {
       })
   }, [filtered, sort])
 
+  // Flattened, on-screen order (supplier grouping + persisted display_order +
+  // any active column sort already applied) — the "current filtered view" the
+  // export modal snapshots. Read-only: sorting inside the modal never writes
+  // back here.
+  const exportRows = useMemo<ExportRow[]>(
+    () =>
+      groupedBySupplier.flatMap((g) =>
+        g.rows.map((r) => ({
+          allocation_id: r.allocation_id,
+          resource_name: r.resource_name,
+          role_title: r.role_title,
+          resource_location: r.resource_location,
+          capacity_days: r.capacity_days,
+          base_total_pence: r.base_total_pence,
+          teams: (r.teams as unknown as TeamAssignment[] | undefined) ?? [],
+        })),
+      ),
+    [groupedBySupplier],
+  )
+
   const totals = useMemo(() => {
     const allocsBase = localAllocations.reduce(
       (sum, a) =>
@@ -302,6 +344,13 @@ export function SchedulePageClient({ data }: Props) {
       headcount: localAllocations.length,
     }
   }, [localAllocations, localCostItems, vatPct])
+
+  // costConfig with the locally-edited blended rate folded in, so every reader
+  // (KPI cards, team run-rate) reflects an in-session rate change immediately.
+  const effectiveCostConfig = useMemo(
+    () => (costConfig ? { ...costConfig, blended_day_rate_override: localBlendedRatePence } : costConfig),
+    [costConfig, localBlendedRatePence],
+  )
 
   const isUnfiltered =
     search.trim() === '' &&
@@ -441,8 +490,8 @@ export function SchedulePageClient({ data }: Props) {
     )
   }
 
-  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null): void {
-    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName, resourceLocation })
+  function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }): void {
+    setAssignWizardTarget({ allocationId, roleTitle, supplierId, supplierName, resourceLocation, capacityDays: seat?.capacityDays ?? null, dayRate: seat?.dayRate, teamNames: seat?.teamNames })
   }
 
   async function handleUnassignResource(allocationId: string): Promise<void> {
@@ -640,7 +689,13 @@ export function SchedulePageClient({ data }: Props) {
         onExport={handleExportToExcel}
       />
 
-      <KpiStrip totals={totals} costConfig={costConfig} />
+      <KpiStrip
+        totals={totals}
+        costConfig={effectiveCostConfig}
+        period={period}
+        locked={isLocked}
+        onRateSaved={(pence) => setLocalBlendedRatePence(pence)}
+      />
 
       <div ref={toolbarSentinelRef} />
       <div
@@ -707,6 +762,21 @@ export function SchedulePageClient({ data }: Props) {
                   expanded={allExpanded}
                   onToggle={toggleAll}
                 />
+                <button
+                  type="button"
+                  onClick={() => setExportViewOpen(true)}
+                  title="Export current view — copy a table of what's currently filtered"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    border: '1.5px solid var(--rmg-color-grey-2)', borderRadius: 'var(--rmg-radius-s)',
+                    background: 'var(--rmg-color-surface-white)', color: 'var(--rmg-color-text-body)',
+                    fontFamily: 'var(--rmg-font-body)', fontSize: 12, fontWeight: 400,
+                    padding: '5px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Copy size={12} />
+                  Copy view
+                </button>
                 {!isLocked && (
                   <button
                     type="button"
@@ -786,7 +856,7 @@ export function SchedulePageClient({ data }: Props) {
         onEditTeams={handleOpenEditTeams}
         onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
-        blendedDayRate={(costConfig?.blended_day_rate_override ?? 0) / 100}
+        blendedDayRate={(effectiveCostConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
       />
     </div>
@@ -803,8 +873,10 @@ export function SchedulePageClient({ data }: Props) {
       defaultSupplierColour={wizardSupplier?.supplierColour ?? '#8F9495'}
       activeSupplierFilter={selectedSuppliers}
       activeTeamFilter={teamFilter}
+      periodWorkingDays={workingDays}
       assignMode={assignWizardTarget ?? undefined}
       onAssignSuccess={handleAssignSuccess}
+      onConflictResolved={() => router.refresh()}
       onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
@@ -816,6 +888,14 @@ export function SchedulePageClient({ data }: Props) {
         onClose={() => setEditTeamsTarget(null)}
       />
     )}
+    <ExportCurrentViewModal
+      open={exportViewOpen}
+      onClose={() => setExportViewOpen(false)}
+      rows={exportRows}
+      activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
+      periodName={period.period_name}
+      workingDays={workingDays}
+    />
     </>
   )
 }
@@ -868,6 +948,9 @@ function ClockIcon({ size = 12 }: { size?: number }) {
 function KpiStrip({
   totals,
   costConfig,
+  period,
+  locked,
+  onRateSaved,
 }: {
   totals: {
     totalPlatform: number
@@ -879,6 +962,9 @@ function KpiStrip({
     chargeableDays: number
   }
   costConfig: SchedulePageData['costConfig']
+  period: SchedulePageData['period']
+  locked: boolean
+  onRateSaved: (newRatePence: number) => void
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -921,13 +1007,17 @@ function KpiStrip({
         accent="#DA202A"
         blur={isPrivate}
       />
-      <KpiCard
-        label="Current Blended Rate"
-        value={dayRateValue}
-        valueColor="#DA202A"
-        sub={`Implied rate (ex. ETP & SS): ${formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })}/day`}
-        accent="#DA202A"
-        emphasised={overrideSet}
+      <AppliedBlendedRateCard
+        period={period}
+        locked={locked}
+        platformId={costConfig?.platform_id ?? null}
+        displayValue={dayRateValue}
+        overrideSet={overrideSet}
+        currentRate={currentRate}
+        advisedRate={advisedRate}
+        totalPRDays={totalPRDays}
+        onRateSaved={onRateSaved}
+        isPrivate={isPrivate}
       />
       <KpiCard
         label="Advised Blended Rate"
@@ -957,6 +1047,300 @@ function KpiStrip({
         sub="Allocations · chargeable days"
         accent="#8F9495"
       />
+    </div>
+  )
+}
+
+/* ── Applied Blended Rate card (merged display + inline editor) ─────── */
+
+function AppliedBlendedRateCard({
+  period,
+  locked,
+  platformId,
+  displayValue,
+  overrideSet,
+  currentRate,
+  advisedRate,
+  totalPRDays,
+  onRateSaved,
+  isPrivate,
+}: {
+  period: SchedulePageData['period']
+  locked: boolean
+  platformId: string | null
+  displayValue: string
+  overrideSet: boolean
+  currentRate: number
+  advisedRate: number
+  totalPRDays: number
+  onRateSaved: (newRatePence: number) => void
+  isPrivate: boolean
+}) {
+  // Editability reads the LIVE lock, not the page-load snapshot: fold the
+  // current `locked` flag into the period before the check. locked === true
+  // returns { kind: 'locked' } and hard-blocks editing regardless of status.
+  const editState = getRateEditability({ ...period, locked })
+
+  const [editing, setEditing] = useState(false)
+  const [warnOpen, setWarnOpen] = useState(false)
+  const [rate, setRate] = useState(String(currentRate || ''))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Set once Save finds a live row already at this exact platform +
+  // effective_from — the editor shows an inline correction confirm instead
+  // of saving immediately. Cleared by its own Cancel (back to the input) or
+  // by a successful update.
+  const [pendingUpdate, setPendingUpdate] = useState<{
+    costConfigurationId: string
+    oldRatePence: number | null
+    vatUpliftPercent: number
+    onCostsUpliftPercent: number
+    newRatePence: number
+  } | null>(null)
+
+  function openEditor() {
+    // Defence in depth: a locked period can never open the editor, even if a
+    // stale handler somehow fires.
+    if (editState.kind === 'locked') return
+    setRate(String(currentRate || ''))
+    setError(null)
+    setPendingUpdate(null)
+    if (editState.kind === 'warn') {
+      setWarnOpen(true)
+    } else {
+      setEditing(true)
+    }
+  }
+
+  async function doInsert(pence: number) {
+    if (!platformId) {
+      setError('No cost configuration for this platform.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const result = await setBlendedRate(platformId, period.period_start_date, pence)
+    setSaving(false)
+    if (!result.success) {
+      setError(result.error ?? 'Something went wrong.')
+      return
+    }
+    setEditing(false)
+    onRateSaved(pence)
+  }
+
+  async function doUpdate() {
+    if (!pendingUpdate) return
+    setSaving(true)
+    setError(null)
+    const result = await updateCostConfiguration(pendingUpdate.costConfigurationId, {
+      effectiveFrom: period.period_start_date,
+      blendedRatePence: pendingUpdate.newRatePence,
+      vatUpliftPercent: pendingUpdate.vatUpliftPercent,
+      onCostsUpliftPercent: pendingUpdate.onCostsUpliftPercent,
+    })
+    setSaving(false)
+    if (!result.success) {
+      setError(result.error ?? 'Something went wrong.')
+      return
+    }
+    setEditing(false)
+    setPendingUpdate(null)
+    onRateSaved(pendingUpdate.newRatePence)
+  }
+
+  // Save click: check whether a live row already exists at this exact
+  // platform + effective_from before deciding insert vs update.
+  // set_blended_rate is INSERT-only and would otherwise collide on the
+  // (platform_id, effective_from) unique index — re-saving a period that
+  // already has a rate is a normal correction, not an error.
+  async function handleSaveClick() {
+    if (!platformId) {
+      setError('No cost configuration for this platform.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    const pence = Math.round((parseFloat(rate) || 0) * 100)
+
+    const supabase = getSupabaseBrowserClient()
+    const { data: existing, error: lookupErr } = await supabase
+      .from('cost_configurations')
+      .select('cost_configuration_id, blended_day_rate_override, vat_uplift_percent, on_costs_uplift_percent')
+      .eq('platform_id', platformId)
+      .eq('effective_from', period.period_start_date)
+      .is('deleted_at', null)
+      .maybeSingle()
+
+    if (lookupErr) {
+      setSaving(false)
+      setError(lookupErr.message)
+      return
+    }
+
+    const decision = decideRateUpsert(existing as ExistingCostConfigRow | null)
+    if (decision.kind === 'insert') {
+      // No change to existing behaviour: save immediately.
+      await doInsert(pence)
+      return
+    }
+    setSaving(false)
+    setPendingUpdate({
+      costConfigurationId: decision.costConfigurationId,
+      oldRatePence: decision.oldRatePence,
+      vatUpliftPercent: decision.vatUpliftPercent,
+      onCostsUpliftPercent: decision.onCostsUpliftPercent,
+      newRatePence: pence,
+    })
+  }
+
+  // Live variance preview against the advised-rate formula (recovery variance):
+  // (proposed rate − advised rate) × chargeable PR days.
+  const proposed = parseFloat(rate) || 0
+  const previewVariance = (proposed - advisedRate) * totalPRDays
+  const previewColour = previewVariance < 0 ? '#C8102E' : previewVariance > 0 ? '#3B6D11' : '#2A2A2D'
+  const previewLabel =
+    previewVariance < 0 ? 'shortfall' : previewVariance > 0 ? 'surplus' : 'on target'
+
+  const card: React.CSSProperties = {
+    background: 'white',
+    borderRadius: 10,
+    padding: '14px 16px 13px',
+    border: editing
+      ? '1.5px solid rgba(218,32,42,0.35)'
+      : overrideSet
+      ? '1.5px solid rgba(218,32,42,0.22)'
+      : '1px solid #EEEEEE',
+    position: 'relative',
+    overflow: 'hidden',
+  }
+  const labelRow: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em',
+    color: '#8F9495', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+  }
+
+  return (
+    <div style={card}>
+      <div style={labelRow}>
+        <span>Applied Blended Rate</span>
+        {editState.kind === 'locked' ? (
+          <span title="Period locked — rate changes blocked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
+        ) : !editing ? (
+          <button
+            type="button"
+            onClick={openEditor}
+            aria-label="Edit applied blended rate"
+            title="Edit applied blended rate"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#DA202A', padding: 0, display: 'inline-flex' }}
+          >
+            <Pencil size={13} />
+          </button>
+        ) : null}
+      </div>
+
+      {!editing ? (
+        <div
+          style={{
+            fontFamily: 'var(--rmg-font-display)', fontSize: 21, fontWeight: 700, color: '#DA202A',
+            letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6,
+            filter: isPrivate ? 'blur(6px)' : undefined,
+          }}
+        >
+          {displayValue}
+          <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495', letterSpacing: 0 }}>/day</span>
+        </div>
+      ) : pendingUpdate ? (
+        <div style={{ marginTop: 8 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#2A2A2D', lineHeight: 1.5 }}>
+            A rate of{' '}
+            <strong>
+              {pendingUpdate.oldRatePence === null ? 'no rate' : `${formatMoney(pendingUpdate.oldRatePence, { decimals: 2 })}/day`}
+            </strong>{' '}
+            was already set for {period.period_name} ({formatUkDate(period.period_start_date)}). This will update it
+            to <strong>{formatMoney(pendingUpdate.newRatePence, { decimals: 2 })}/day</strong> — are you sure?
+          </p>
+          {error && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#C8102E' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={doUpdate}
+              disabled={saving}
+              style={{
+                background: saving ? '#C0C0C0' : '#DA202A', color: '#fff', border: 'none', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPendingUpdate(null); setError(null) }}
+              style={{
+                background: 'transparent', color: '#404044', border: '1px solid #C0C0C0', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 8 }}>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={rate}
+            autoFocus
+            onChange={(e) => setRate(e.target.value)}
+            style={{
+              width: '100%', fontFamily: 'var(--rmg-font-body)', fontSize: 14, padding: '6px 10px',
+              border: '1px solid #D0D0D0', borderRadius: 6, outline: 'none', boxSizing: 'border-box', color: '#2A2A2D',
+            }}
+          />
+          <p style={{ margin: '8px 0 0', fontSize: 11, color: '#8F9495' }}>
+            Advised: {formatMoney(Math.round(advisedRate * 100), { decimals: 2 })}/day ·{' '}
+            <span style={{ color: previewColour, fontWeight: 600 }}>
+              {previewVariance < 0 ? '−' : previewVariance > 0 ? '+' : ''}£{Math.abs(Math.round(previewVariance)).toLocaleString('en-GB')} {previewLabel}
+            </span>
+          </p>
+          {error && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#C8102E' }}>{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={handleSaveClick}
+              disabled={saving}
+              style={{
+                background: saving ? '#C0C0C0' : '#DA202A', color: '#fff', border: 'none', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setError(null) }}
+              style={{
+                background: 'transparent', color: '#404044', border: '1px solid #C0C0C0', borderRadius: 6,
+                padding: '5px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom accent bar — matches the sibling KpiCards. */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: '#DA202A' }} />
+
+      {warnOpen && editState.kind === 'warn' && (
+        <ConfirmDialog
+          message={editState.message}
+          onConfirm={() => { setWarnOpen(false); setEditing(true) }}
+          onCancel={() => setWarnOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1104,7 +1488,7 @@ function ScheduleTable({
   editingSchedule: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -1510,7 +1894,7 @@ function SupplierSection({
   locked: boolean
   onUpdateAllocation: (id: string, updates: AllocationUpdates) => Promise<void>
   onDeleteAllocation: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
@@ -2468,7 +2852,7 @@ function AllocationRow({
   editingSchedule: boolean
   onUpdate: (id: string, updates: AllocationUpdates) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null) => void
+  onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   dragHandleSlot?: React.ReactNode
@@ -2570,7 +2954,7 @@ function AllocationRow({
               {tbc ? (
                 <button
                   type="button"
-                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name, row.resource_location)}
+                  onClick={() => onOpenAssignWizard(row.allocation_id, row.role_title ?? '', row.supplier_id, row.supplier_name, row.resource_location, { capacityDays: row.capacity_days, dayRate: row.day_rate, teamNames: (row.teams ?? []).map((t) => t.teamName) })}
                   title="Assign resource"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color: 'var(--rmg-color-grey-1)', background: 'transparent', border: '1px dashed var(--rmg-color-grey-2)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >

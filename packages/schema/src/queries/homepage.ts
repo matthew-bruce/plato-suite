@@ -2,6 +2,7 @@
 // This function never throws — all errors return the empty structure.
 
 import { getSupabaseServerClient } from '../server'
+import { resolveAppliedCostConfiguration } from './costConfig'
 import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepage'
 import type { PeriodStatus } from '../types/schedule'
 
@@ -58,7 +59,7 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
     const [periodResult, platformResult] = await Promise.all([
       supabase
         .from('periods')
-        .select('period_id, period_name, period_start_date, period_end_date, period_status')
+        .select('period_id, period_name, period_start_date, period_end_date, period_status, locked')
         .eq('period_id', activePeriodId)
         .is('deleted_at', null)
         .maybeSingle(),
@@ -73,17 +74,20 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
     if (periodResult.error || !periodResult.data) return { ...EMPTY, periods }
     const periodRow = periodResult.data
 
+    // Snapshot-aware: a locked period's VAT uplift comes from its frozen
+    // snapshot, never the live table, so dashboard cost figures stay fixed once
+    // the period is locked.
     let vatPct = 0
     if (platformResult.data?.platform_id) {
-      const { data: ccData } = await supabase
-        .from('cost_configurations')
-        .select('vat_uplift_percent')
-        .eq('platform_id', platformResult.data.platform_id)
-        .lte('effective_from', periodRow.period_start_date as string)
-        .is('deleted_at', null)
-        .order('effective_from', { ascending: false })
-        .limit(1)
-      if (ccData?.[0]) vatPct = Number(ccData[0].vat_uplift_percent)
+      const cc = await resolveAppliedCostConfiguration(
+        platformResult.data.platform_id as string,
+        {
+          period_id: periodRow.period_id as string,
+          locked: periodRow.locked as boolean,
+          period_start_date: periodRow.period_start_date as string,
+        },
+      )
+      if (cc) vatPct = cc.vat_uplift_percent
     }
 
     const { data: allocsRaw, error: allocsErr } = await supabase

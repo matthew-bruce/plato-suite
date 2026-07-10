@@ -30,18 +30,6 @@ export interface WizardData {
   teams: TeamOption[]
 }
 
-export interface CheckPeriodRow {
-  role_title: string | null
-  planview_code: string | null
-  team_names: string[]
-}
-
-export interface CheckPeriodResult {
-  exists: boolean
-  rows: CheckPeriodRow[]
-  existingTeamAssignments: Array<{ teamId: string; teamName: string; capacitySplit: number }>
-}
-
 type RawResourceRow = {
   resource_id: string
   resource_name: string
@@ -130,57 +118,131 @@ export async function fetchWizardData(): Promise<WizardData> {
   return { suppliers, teams }
 }
 
-export async function checkResourceInPeriod(
+/**
+ * One active allocation a resource already holds in a period, with the detail
+ * the conflict dialog needs to compare it against the row being connected now.
+ */
+export interface ConflictAllocation {
+  allocation_id: string
+  role_title: string | null
+  planview_code: string | null
+  capacity_days: number | null
+  day_rate: number
+  team_names: string[]
+}
+
+/**
+ * Shared same-period conflict check used by both wizard entry points (creating
+ * a new role for an existing resource, and filling a vacant seat with one).
+ *
+ * Returns every OTHER active (deleted_at IS NULL) allocation the resource
+ * already holds in the period, excluding `excludeAllocationId` (the row being
+ * created/filled now). An empty array means no conflict — proceed as normal.
+ */
+export async function findResourcePeriodConflicts(
   resourceId: string,
   periodId: string,
-): Promise<CheckPeriodResult> {
+  excludeAllocationId?: string | null,
+): Promise<ConflictAllocation[]> {
   const supabase = getSupabaseServerClient()
 
-  type RawAllocRow = { allocation_id: string; role_title: string | null; planview_code: string | null }
+  type RawAllocRow = {
+    allocation_id: string
+    role_title: string | null
+    planview_code: string | null
+    capacity_days: number | string | null
+    day_rate: number
+  }
   type RawTeamRow = {
     team_id: string
-    capacity_split: number | null
     teams: { team_name: string } | { team_name: string }[] | null
   }
 
-  const [allocResult, teamResult] = await Promise.all([
-    supabase
-      .from('resource_period_allocations')
-      .select('allocation_id, role_title, planview_code')
-      .eq('resource_id', resourceId)
-      .eq('period_id', periodId)
-      .is('deleted_at', null),
-    supabase
-      .from('resource_team_assignments')
-      .select('team_id, capacity_split, teams:team_id(team_name)')
-      .eq('resource_id', resourceId)
-      .eq('period_id', periodId)
-      .is('deleted_at', null),
-  ])
+  let query = supabase
+    .from('resource_period_allocations')
+    .select('allocation_id, role_title, planview_code, capacity_days, day_rate')
+    .eq('resource_id', resourceId)
+    .eq('period_id', periodId)
+    .is('deleted_at', null)
 
-  const allocRows = (allocResult.data ?? []) as unknown as RawAllocRow[]
-  if (allocRows.length === 0) {
-    return { exists: false, rows: [], existingTeamAssignments: [] }
+  if (excludeAllocationId) {
+    query = query.neq('allocation_id', excludeAllocationId)
   }
 
-  const rawTeams = (teamResult.data ?? []) as unknown as RawTeamRow[]
-  const team_names = rawTeams
+  const { data: allocData, error: allocErr } = await query
+  if (allocErr) throw new Error(`findResourcePeriodConflicts: ${allocErr.message}`)
+
+  const allocRows = (allocData ?? []) as unknown as RawAllocRow[]
+  if (allocRows.length === 0) return []
+
+  // The resource's team assignments are keyed on resource_id (+period); they
+  // describe the resource, not a single allocation, so they apply to every row
+  // returned above. One lookup, shared across rows.
+  const { data: teamData } = await supabase
+    .from('resource_team_assignments')
+    .select('team_id, teams:team_id ( team_name )')
+    .eq('resource_id', resourceId)
+    .eq('period_id', periodId)
+    .is('deleted_at', null)
+
+  const team_names = ((teamData ?? []) as unknown as RawTeamRow[])
     .map((t) => pickOne(t.teams)?.team_name ?? '')
     .filter(Boolean)
 
-  const existingTeamAssignments = rawTeams.map((t) => ({
-    teamId: t.team_id,
-    teamName: pickOne(t.teams)?.team_name ?? '',
-    capacitySplit: Math.round((t.capacity_split ?? 1) * 100),
-  }))
-
-  const rows: CheckPeriodRow[] = allocRows.map((a) => ({
+  return allocRows.map((a) => ({
+    allocation_id: a.allocation_id,
     role_title: a.role_title,
     planview_code: a.planview_code,
+    capacity_days: a.capacity_days === null ? null : Number(a.capacity_days),
+    day_rate: a.day_rate,
     team_names,
   }))
+}
 
-  return { exists: true, rows, existingTeamAssignments }
+/**
+ * "Connect and keep existing details" — atomic. Keeps the resource's existing
+ * standalone allocation untouched, re-keys the vacant seat's team assignment(s)
+ * onto the resource, and soft-deletes the vacant seat's row. Single Postgres
+ * RPC (migration 019) so all writes commit or roll back together.
+ */
+export async function connectKeepExisting(
+  resourceId: string,
+  periodId: string,
+  vacantAllocationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseServerClient()
+  const { error } = await supabase.rpc('connect_resource_keep_existing', {
+    p_resource_id: resourceId,
+    p_period_id: periodId,
+    p_vacant_allocation_id: vacantAllocationId,
+  })
+  if (error) return { success: false, error: error.message }
+  return { success: true }
+}
+
+/**
+ * "Connect and use vacant seat details" — atomic. Fills the vacant seat with
+ * the resource (its role/capacity/rate stand) and soft-deletes the resource's
+ * previous standalone row plus the team assignments tied to it. Single Postgres
+ * RPC (migration 019).
+ */
+export async function connectUseVacant(
+  resourceId: string,
+  periodId: string,
+  vacantAllocationId: string,
+  supersededAllocationId: string,
+  resourceLocation: ResourceLocation | null,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = getSupabaseServerClient()
+  const { error } = await supabase.rpc('connect_resource_use_vacant', {
+    p_resource_id: resourceId,
+    p_period_id: periodId,
+    p_vacant_allocation_id: vacantAllocationId,
+    p_superseded_allocation_id: supersededAllocationId,
+    p_resource_location: resourceLocation,
+  })
+  if (error) return { success: false, error: error.message }
+  return { success: true }
 }
 
 export async function updateTeamAssignments(
@@ -229,6 +291,10 @@ export interface CreateAllocationParams {
   planviewCode: PlanviewCode
   resourceLocation: ResourceLocation
   periodId: string
+  /** Optional starting capacity in days. Omitted/undefined → 0 (edit inline). */
+  capacityDays?: number
+  /** Optional starting day rate in integer pence. Omitted/undefined → 0. */
+  dayRate?: number
 }
 
 export interface CreateAllocationResult {
@@ -294,9 +360,9 @@ export async function createResourceAndAllocation(
       role_title: params.roleTitle,
       planview_code: params.planviewCode,
       resource_location: params.resourceLocation,
-      day_rate: 0,
+      day_rate: params.dayRate ?? 0,
       utilisation_percent: 100,
-      capacity_days: 0,
+      capacity_days: params.capacityDays ?? 0,
       is_chargeable: false,
       vat_applies: true,
       display_order: newDisplayOrder,
