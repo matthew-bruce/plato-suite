@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Pencil, Trash2 } from 'lucide-react'
 import {
@@ -209,12 +209,6 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
             type: 'linear' as const,
             min: window.min,
             max: window.max,
-            // Chart.js's default `bounds: 'ticks'` can re-derive the scale's
-            // rendered extent from the tick array rather than strictly
-            // honouring the explicit min/max above. Force 'data' so the
-            // axis (and anything reading chart.scales.x.min/max, e.g. the
-            // quarterLinesPlugin below) always matches window.min/max exactly.
-            bounds: 'data' as const,
             // Ticks land on the same mathematically-generated quarter
             // boundaries as the reference lines — quarterly granularity.
             afterBuildTicks: (axis: { min: number; max: number; ticks: { value: number }[] }) => {
@@ -243,6 +237,20 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
   )
 
   // Vertical dashed quarter-boundary lines with labels, generated mathematically.
+  // react-chartjs-2's <Line> only consumes the `plugins` prop once, at
+  // initial mount (its reactive update effect re-runs on options/data
+  // changes but never re-registers plugins) — so a plugin object rebuilt on
+  // every render via useMemo([quarterMarks]) gets silently frozen at
+  // whichever quarterMarks existed on first mount and never sees later
+  // range changes, even though data/ticks (driven by the options/data
+  // props, which ARE part of that reactive effect) update correctly. Keep
+  // the plugin object itself stable for the chart's lifetime and have it
+  // read the current marks through a ref that's always kept in sync.
+  const quarterMarksRef = useRef(quarterMarks)
+  useEffect(() => {
+    quarterMarksRef.current = quarterMarks
+  }, [quarterMarks])
+
   const quarterLinesPlugin = useMemo(
     () => ({
       id: 'quarterLines',
@@ -264,7 +272,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         ctx.strokeStyle = 'rgba(0,0,0,0.12)'
         ctx.lineWidth = 1
         ctx.setLineDash([4, 4])
-        for (const mark of quarterMarks) {
+        for (const mark of quarterMarksRef.current) {
           if (mark.ms < x.min || mark.ms > x.max) continue
           const px = x.getPixelForValue(mark.ms)
           ctx.beginPath()
@@ -276,7 +284,7 @@ export function RatesPageClient({ data }: { data: RatesPageData }) {
         ctx.restore()
       },
     }),
-    [quarterMarks],
+    [],
   )
 
   const page: React.CSSProperties = {
