@@ -486,7 +486,7 @@ const DOMAIN_CHIPS: Array<{ label: string; key: string; manualDimension?: 'DOCUM
   { label: 'PEOPLE',    key: 'people'   },
   { label: 'SESSIONS',  key: 'sessions' },
   { label: 'SCHEDULE',  key: 'schedule' },
-  { label: 'KT',        key: 'kt'       },
+  { label: 'OUTCOMES',  key: 'kt'       },
   { label: 'DEMO',      key: 'demo'     },
   { label: 'DOCS',      key: 'docs',     manualDimension: 'DOCUMENTATION' },
   { label: 'SIGN-OFF',  key: 'signoff',  manualDimension: 'SIGN_OFF' },
