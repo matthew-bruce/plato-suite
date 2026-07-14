@@ -11,7 +11,10 @@ const TABLE_MIN_WIDTH = 600
 const GUTTER = 12
 
 const HEADER_CELL: React.CSSProperties = { textAlign: 'left', padding: '0 8px 8px', fontWeight: 400 }
-const BODY_CELL: React.CSSProperties = { fontSize: 11, color: '#666666', lineHeight: 1.4, padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' }
+// 12px matches --rmg-text-c2 (packages/config/tokens/rmg.css) — this app's
+// "caption/explanatory text next to a status pill" size, used for the same
+// pattern on the domain detail page's RAG dimension evidence text.
+const BODY_CELL: React.CSSProperties = { fontSize: 12, color: '#666666', lineHeight: 1.4, padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' }
 
 // Info button + floating panel explaining the 7 Domain Readiness chips.
 // Positioning follows the same portal + getBoundingClientRect + click-outside
@@ -130,8 +133,28 @@ export function ChipLegendInfo() {
             fontFamily: 'var(--rmg-font-body)',
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#2A2A2D', marginBottom: 8 }}>
-            Chip legend
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#2A2A2D' }}>
+              Chip legend
+            </span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close"
+              title="Close"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#8F9495',
+                fontSize: 14,
+                lineHeight: 1,
+                padding: '2px 4px',
+                fontFamily: 'inherit',
+              }}
+            >
+              ✕
+            </button>
           </div>
 
           {/* Table can be wider than the panel itself on narrow viewports —
@@ -144,13 +167,13 @@ export function ChipLegendInfo() {
                 <tr>
                   <th style={HEADER_CELL} scope="col" />
                   <th style={HEADER_CELL} scope="col">
-                    <ChipPill state="none" label="Not started" />
+                    <ChipPill state="none" label="NOT STARTED" />
                   </th>
                   <th style={HEADER_CELL} scope="col">
-                    <ChipPill state="progress" label="In progress" />
+                    <ChipPill state="progress" label="IN PROGRESS" />
                   </th>
                   <th style={HEADER_CELL} scope="col">
-                    <ChipPill state="done" label="Done" />
+                    <ChipPill state="done" label="DONE" />
                   </th>
                 </tr>
               </thead>
@@ -159,7 +182,7 @@ export function ChipLegendInfo() {
                   const desc = CHIP_STATE_DESCRIPTIONS[key]
                   return (
                     <tr key={key} style={{ borderTop: '0.5px solid #EEEEEE' }}>
-                      <td style={{ fontSize: 11, fontWeight: 500, color: '#2A2A2D', padding: '6px 8px 6px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                      <td style={{ fontSize: 12, fontWeight: 500, color: '#2A2A2D', padding: '6px 8px 6px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                         {label}
                       </td>
                       <td style={BODY_CELL}>{desc.none}</td>
