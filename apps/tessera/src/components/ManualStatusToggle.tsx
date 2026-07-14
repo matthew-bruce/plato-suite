@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CHIP_DESCRIPTIONS, type ChipKey } from '@/lib/chipLegend'
 
 export type ManualDimension = 'DOCUMENTATION' | 'SIGN_OFF'
 export type ManualChipState = 'none' | 'progress' | 'done'
@@ -10,6 +11,11 @@ export type ManualChipState = 'none' | 'progress' | 'done'
 const DIMENSION_LABELS: Record<ManualDimension, string> = {
   DOCUMENTATION: 'DOCS',
   SIGN_OFF: 'SIGN-OFF',
+}
+
+const DIMENSION_CHIP_KEY: Record<ManualDimension, ChipKey> = {
+  DOCUMENTATION: 'docs',
+  SIGN_OFF: 'signoff',
 }
 
 const STATE_ORDER: ManualChipState[] = ['none', 'progress', 'done']
@@ -81,7 +87,7 @@ export function ManualStatusToggle({
       type="button"
       onClick={advance}
       disabled={isPending}
-      title={`${DIMENSION_LABELS[dimension]} — ${STATE_TEXT[state]} (click to change)`}
+      title={`${CHIP_DESCRIPTIONS[DIMENSION_CHIP_KEY[dimension]]} Currently: ${STATE_TEXT[state]}. Click to change.`}
       aria-label={`${DIMENSION_LABELS[dimension]}: ${STATE_TEXT[state]}. Click to change.`}
       style={{
         fontFamily: 'inherit',

@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { AppGroupRow } from '@/components/AppGroupRow'
 import { ManualStatusToggle } from '@/components/ManualStatusToggle'
+import { ChipLegendInfo } from '@/components/ChipLegendInfo'
 import { supabase } from '@/lib/supabase'
+import { CHIP_DESCRIPTIONS, type ChipKey } from '@/lib/chipLegend'
 
 export const dynamic = 'force-dynamic'
 
@@ -429,7 +431,10 @@ export default async function Home() {
 
         {/* Domain Readiness heading */}
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 32, marginBottom: 14, paddingBottom: 10, borderBottom: '2px solid #DA202A' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#2A2A2D' }}>Domain Readiness</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#2A2A2D' }}>Domain Readiness</span>
+            <ChipLegendInfo />
+          </div>
           <span style={{ fontSize: 12, fontWeight: 400, color: '#8F9495' }}>{domains.length} domains</span>
         </div>
 
@@ -589,6 +594,7 @@ function DomainCard({
             return (
               <span
                 key={key}
+                title={CHIP_DESCRIPTIONS[key as ChipKey]}
                 style={{
                   fontSize: 9,
                   fontWeight: 700,
