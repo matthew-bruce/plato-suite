@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { AppGroupRow } from '@/components/AppGroupRow'
+import { ManualStatusToggle } from '@/components/ManualStatusToggle'
 import { supabase } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +39,7 @@ type Domain = {
 type RagScore = {
   domain_id: string
   dimension: string
-  score: 'RED' | 'AMBER' | 'GREEN'
+  score: 'RED' | 'AMBER' | 'GREEN' | 'NOT_STARTED' | 'IN_PROGRESS' | 'DONE'
 }
 
 type DomainLink = {
@@ -115,12 +116,27 @@ function getChipStates(
     kt = allQualify ? 'done' : someQualify ? 'progress' : 'none'
   }
 
-  // DEMO — binary: any is_playback COMPLETED session = done
-  const demoSession = linked.find(s => s.is_playback && s.status === 'COMPLETED')
-  const demo: ChipState = demoSession ? 'done' : 'none'
+  // DEMO — all linked playback sessions COMPLETED = done; some = progress; none = none
+  const playbackSessions = linked.filter(s => s.is_playback)
+  let demo: ChipState = 'none'
+  if (playbackSessions.length > 0) {
+    const allDone = playbackSessions.every(s => s.status === 'COMPLETED')
+    const someDone = playbackSessions.some(s => s.status === 'COMPLETED')
+    demo = allDone ? 'done' : someDone ? 'progress' : 'none'
+  }
 
-  // DOCS and SIGN-OFF — manually set (not yet built, always none)
-  return { people, sessions, schedule, kt, demo, docs: 'none', signoff: 'none' }
+  // DOCS and SIGN-OFF — manually set via ManualStatusToggle, read from tessera_rag_scores
+  const docs: ChipState = manualChipState(ragScores, domainId, 'DOCUMENTATION')
+  const signoff: ChipState = manualChipState(ragScores, domainId, 'SIGN_OFF')
+
+  return { people, sessions, schedule, kt, demo, docs, signoff }
+}
+
+function manualChipState(ragScores: RagScore[], domainId: string, dimension: string): ChipState {
+  const score = ragScores.find(r => r.domain_id === domainId && r.dimension === dimension)?.score
+  if (score === 'DONE') return 'done'
+  if (score === 'IN_PROGRESS') return 'progress'
+  return 'none'
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────────
@@ -466,14 +482,14 @@ const CHIP_DONE = { background: '#C1E3C1', color: '#1A6B00' }
 const CHIP_PROG = { background: '#BEE0F5', color: '#005F8A' }
 const CHIP_NONE = { background: '#EEEEEE', color: '#8F9495' }
 
-const DOMAIN_CHIPS: Array<{ label: string; key: string }> = [
+const DOMAIN_CHIPS: Array<{ label: string; key: string; manualDimension?: 'DOCUMENTATION' | 'SIGN_OFF' }> = [
   { label: 'PEOPLE',    key: 'people'   },
   { label: 'SESSIONS',  key: 'sessions' },
   { label: 'SCHEDULE',  key: 'schedule' },
   { label: 'KT',        key: 'kt'       },
   { label: 'DEMO',      key: 'demo'     },
-  { label: 'DOCS',      key: 'docs'     },
-  { label: 'SIGN-OFF',  key: 'signoff'  },
+  { label: 'DOCS',      key: 'docs',     manualDimension: 'DOCUMENTATION' },
+  { label: 'SIGN-OFF',  key: 'signoff',  manualDimension: 'SIGN_OFF' },
 ]
 
 function confidenceColour(score: number | null): string {
@@ -557,8 +573,18 @@ function DomainCard({
 
         {/* Dimension chips */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 8 }}>
-          {DOMAIN_CHIPS.map(({ label, key }) => {
+          {DOMAIN_CHIPS.map(({ label, key, manualDimension }) => {
             const state = chipStates[key] as ChipState
+            if (manualDimension) {
+              return (
+                <ManualStatusToggle
+                  key={key}
+                  domainId={domain.id}
+                  dimension={manualDimension}
+                  initialState={state}
+                />
+              )
+            }
             const cs = state === 'done' ? CHIP_DONE : state === 'progress' ? CHIP_PROG : CHIP_NONE
             return (
               <span
