@@ -196,6 +196,25 @@ export default async function Home() {
       hasCG: supplierFlagsBySession.get(s.id)?.hasCG ?? false,
       hasTCS: supplierFlagsBySession.get(s.id)?.hasTCS ?? false,
     }))
+
+    // TEMP DIAGNOSTIC — PEOPLE chip investigation, remove after use
+    const magentoDomain = domains.find((d) => d.name === 'Magento / eCommerce')
+    if (magentoDomain) {
+      const magentoSessionIds = new Set(
+        domainLinks.filter((l) => l.domain_id === magentoDomain.id).map((l) => l.session_id),
+      )
+      console.log('[PEOPLE diag] sessionResources length:', (sessionResources ?? []).length)
+      console.log('[PEOPLE diag] sessionResources first 3 (raw):', JSON.stringify((sessionResources ?? []).slice(0, 3)))
+      console.log('[PEOPLE diag] supplierFlagsBySession size:', supplierFlagsBySession.size)
+      console.log(
+        '[PEOPLE diag] Magento domainSessions:',
+        JSON.stringify(
+          domainSessions
+            .filter((s) => magentoSessionIds.has(s.id))
+            .map((s) => ({ id: s.id, hasCG: s.hasCG, hasTCS: s.hasTCS })),
+        ),
+      )
+    }
   }
 
   // ── Stat card calculations ──────────────────────────────────────────────────
