@@ -52,6 +52,24 @@ type DomainSession = {
   planned_date: string | null
   outcome_score: number | null
   is_playback: boolean | null
+  hasCG: boolean
+  hasTCS: boolean
+}
+
+type DbDomainSession = {
+  id: string
+  status: string
+  planned_date: string | null
+  outcome_score: number | null
+  is_playback: boolean | null
+}
+
+type DbSessionResourceRow = {
+  session_id: string
+  resources:
+    | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }
+    | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }[]
+    | null
 }
 
 type ChipState = 'done' | 'progress' | 'none'
@@ -67,9 +85,13 @@ function getChipStates(
   const linkedIds = new Set(links.filter(l => l.domain_id === domainId).map(l => l.session_id))
   const linked = domainSessions.filter(s => linkedIds.has(s.id))
 
-  // PEOPLE — from RAG score
-  const peopleRag = ragScores.find(r => r.domain_id === domainId && r.dimension === 'PEOPLE')
-  const people: ChipState = peopleRag?.score === 'GREEN' ? 'done' : peopleRag?.score === 'AMBER' ? 'progress' : 'none'
+  // PEOPLE — ≥1 CG + ≥1 TCS resource identified on every linked session = done; some = progress; none = none
+  let people: ChipState = 'none'
+  if (linked.length > 0) {
+    const allIdentified = linked.every(s => s.hasCG && s.hasTCS)
+    const someIdentified = linked.some(s => s.hasCG && s.hasTCS)
+    people = allIdentified ? 'done' : someIdentified ? 'progress' : 'none'
+  }
 
   // SESSIONS — ≥1 KT + ≥1 playback linked = done; any linked = progress; none = none
   let sessions: ChipState = 'none'
@@ -145,11 +167,35 @@ export default async function Home() {
   const linkedSessionIds = [...new Set(domainLinks.map(l => l.session_id))]
   let domainSessions: DomainSession[] = []
   if (linkedSessionIds.length > 0) {
-    const { data: ds } = await supabase
-      .from('tessera_kt_sessions')
-      .select('id, status, planned_date, outcome_score, is_playback')
-      .in('id', linkedSessionIds)
-    domainSessions = (ds ?? []) as DomainSession[]
+    const [{ data: ds }, { data: sessionResources }] = await Promise.all([
+      supabase
+        .from('tessera_kt_sessions')
+        .select('id, status, planned_date, outcome_score, is_playback')
+        .in('id', linkedSessionIds),
+      supabase
+        .from('tessera_kt_session_resources')
+        .select('session_id, resources(suppliers(supplier_name))')
+        .in('session_id', linkedSessionIds),
+    ])
+
+    // Per-session CG/TCS presence, derived from linked resources' supplier
+    const supplierFlagsBySession = new Map<string, { hasCG: boolean; hasTCS: boolean }>()
+    for (const row of (sessionResources ?? []) as DbSessionResourceRow[]) {
+      const resourceEmbed = Array.isArray(row.resources) ? row.resources[0] : row.resources
+      const supplierEmbed = resourceEmbed?.suppliers
+      const supplierName = Array.isArray(supplierEmbed) ? supplierEmbed[0]?.supplier_name : supplierEmbed?.supplier_name
+      if (!supplierName) continue
+      const flags = supplierFlagsBySession.get(row.session_id) ?? { hasCG: false, hasTCS: false }
+      if (supplierName === 'Capgemini') flags.hasCG = true
+      if (supplierName === 'Tata Consultancy Services') flags.hasTCS = true
+      supplierFlagsBySession.set(row.session_id, flags)
+    }
+
+    domainSessions = ((ds ?? []) as DbDomainSession[]).map((s) => ({
+      ...s,
+      hasCG: supplierFlagsBySession.get(s.id)?.hasCG ?? false,
+      hasTCS: supplierFlagsBySession.get(s.id)?.hasTCS ?? false,
+    }))
   }
 
   // ── Stat card calculations ──────────────────────────────────────────────────
