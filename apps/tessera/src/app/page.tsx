@@ -64,12 +64,10 @@ type DbDomainSession = {
   is_playback: boolean | null
 }
 
-type DbSessionResourceRow = {
+type SessionPeopleRow = {
   session_id: string
-  resources:
-    | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }
-    | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }[]
-    | null
+  has_cg: boolean
+  has_tcs: boolean
 }
 
 type ChipState = 'done' | 'progress' | 'none'
@@ -167,29 +165,25 @@ export default async function Home() {
   const linkedSessionIds = [...new Set(domainLinks.map(l => l.session_id))]
   let domainSessions: DomainSession[] = []
   if (linkedSessionIds.length > 0) {
-    const [{ data: ds }, { data: sessionResources }] = await Promise.all([
+    const [{ data: ds }, { data: sessionPeople }] = await Promise.all([
       supabase
         .from('tessera_kt_sessions')
         .select('id, status, planned_date, outcome_score, is_playback')
         .in('id', linkedSessionIds),
       supabase
-        .from('tessera_kt_session_resources')
-        .select('session_id, resources(suppliers(supplier_name))')
+        .from('tessera_kt_session_people')
+        .select('session_id, has_cg, has_tcs')
         .in('session_id', linkedSessionIds),
     ])
 
-    // Per-session CG/TCS presence, derived from linked resources' supplier
-    const supplierFlagsBySession = new Map<string, { hasCG: boolean; hasTCS: boolean }>()
-    for (const row of (sessionResources ?? []) as DbSessionResourceRow[]) {
-      const resourceEmbed = Array.isArray(row.resources) ? row.resources[0] : row.resources
-      const supplierEmbed = resourceEmbed?.suppliers
-      const supplierName = Array.isArray(supplierEmbed) ? supplierEmbed[0]?.supplier_name : supplierEmbed?.supplier_name
-      if (!supplierName) continue
-      const flags = supplierFlagsBySession.get(row.session_id) ?? { hasCG: false, hasTCS: false }
-      if (supplierName === 'Capgemini') flags.hasCG = true
-      if (supplierName === 'Tata Consultancy Services') flags.hasTCS = true
-      supplierFlagsBySession.set(row.session_id, flags)
-    }
+    // Pre-aggregated in tessera_kt_session_people (one row per session), so
+    // this is a direct 1:1 map rather than an accumulation across rows.
+    const supplierFlagsBySession = new Map<string, { hasCG: boolean; hasTCS: boolean }>(
+      ((sessionPeople ?? []) as SessionPeopleRow[]).map((row) => [
+        row.session_id,
+        { hasCG: row.has_cg, hasTCS: row.has_tcs },
+      ]),
+    )
 
     domainSessions = ((ds ?? []) as DbDomainSession[]).map((s) => ({
       ...s,
