@@ -3,10 +3,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Info } from 'lucide-react'
-import { CHIP_LEGEND } from '@/lib/chipLegend'
+import { CHIP_LEGEND, CHIP_STATE_DESCRIPTIONS } from '@/lib/chipLegend'
+import { ChipPill } from '@/components/ChipPill'
 
-const PANEL_WIDTH = 300
+const PANEL_WIDTH = 640
+const TABLE_MIN_WIDTH = 600
 const GUTTER = 12
+
+const HEADER_CELL: React.CSSProperties = { textAlign: 'left', padding: '0 8px 8px', fontWeight: 400 }
+const BODY_CELL: React.CSSProperties = { fontSize: 11, color: '#666666', lineHeight: 1.4, padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' }
 
 // Info button + floating panel explaining the 7 Domain Readiness chips.
 // Positioning follows the same portal + getBoundingClientRect + click-outside
@@ -128,13 +133,43 @@ export function ChipLegendInfo() {
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#2A2A2D', marginBottom: 8 }}>
             Chip legend
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {CHIP_LEGEND.map(({ key, label, description }) => (
-              <div key={key}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#2A2A2D' }}>{label}</div>
-                <div style={{ fontSize: 11, color: '#666666', lineHeight: 1.4, marginTop: 1 }}>{description}</div>
-              </div>
-            ))}
+
+          {/* Table can be wider than the panel itself on narrow viewports —
+              scrolls horizontally inside its own container rather than
+              restacking, which would force repeating each chip's
+              name/colour per row (the exact thing this table replaces). */}
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ borderCollapse: 'collapse', minWidth: TABLE_MIN_WIDTH, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={HEADER_CELL} scope="col" />
+                  <th style={HEADER_CELL} scope="col">
+                    <ChipPill state="none" label="Not started" />
+                  </th>
+                  <th style={HEADER_CELL} scope="col">
+                    <ChipPill state="progress" label="In progress" />
+                  </th>
+                  <th style={HEADER_CELL} scope="col">
+                    <ChipPill state="done" label="Done" />
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {CHIP_LEGEND.map(({ key, label }) => {
+                  const desc = CHIP_STATE_DESCRIPTIONS[key]
+                  return (
+                    <tr key={key} style={{ borderTop: '0.5px solid #EEEEEE' }}>
+                      <td style={{ fontSize: 11, fontWeight: 500, color: '#2A2A2D', padding: '6px 8px 6px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                        {label}
+                      </td>
+                      <td style={BODY_CELL}>{desc.none}</td>
+                      <td style={BODY_CELL}>{desc.progress}</td>
+                      <td style={BODY_CELL}>{desc.done}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>,
         document.body,

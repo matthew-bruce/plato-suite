@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { AppGroupRow } from '@/components/AppGroupRow'
 import { ManualStatusToggle } from '@/components/ManualStatusToggle'
 import { ChipLegendInfo } from '@/components/ChipLegendInfo'
+import { ChipPill } from '@/components/ChipPill'
 import { supabase } from '@/lib/supabase'
 import { CHIP_DESCRIPTIONS, type ChipKey } from '@/lib/chipLegend'
 
@@ -483,10 +484,6 @@ export default async function Home() {
 
 // ── Domain card — chips + confidence badge ─────────────────────────────────────
 
-const CHIP_DONE = { background: '#C1E3C1', color: '#1A6B00' }
-const CHIP_PROG = { background: '#BEE0F5', color: '#005F8A' }
-const CHIP_NONE = { background: '#EEEEEE', color: '#8F9495' }
-
 const DOMAIN_CHIPS: Array<{ label: string; key: string; manualDimension?: 'DOCUMENTATION' | 'SIGN_OFF' }> = [
   { label: 'PEOPLE',    key: 'people'   },
   { label: 'SESSIONS',  key: 'sessions' },
@@ -590,24 +587,13 @@ function DomainCard({
                 />
               )
             }
-            const cs = state === 'done' ? CHIP_DONE : state === 'progress' ? CHIP_PROG : CHIP_NONE
             return (
-              <span
+              <ChipPill
                 key={key}
+                state={state}
+                label={label}
                 title={CHIP_DESCRIPTIONS[key as ChipKey]}
-                style={{
-                  fontSize: 9,
-                  fontWeight: 700,
-                  padding: '2px 5px',
-                  borderRadius: 3,
-                  background: cs.background,
-                  color: cs.color,
-                  letterSpacing: '0.02em',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </span>
+              />
             )
           })}
         </div>
