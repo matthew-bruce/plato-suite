@@ -15,7 +15,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import type { RatesPageData, RatePlatform, RateHistoryRow, RatePeriod } from '@plato/schema'
-import { Button, PageToolbarFilterPill } from '@plato/ui/components/rmg'
+import { Button, PageToolbarFilterPill, CalendarDatePicker } from '@plato/ui/components/rmg'
 import { formatMoneyPence } from '@/lib/schedule/format'
 import { setBlendedRate, updateCostConfiguration, deleteCostConfiguration } from '@/app/actions/rates'
 import {
@@ -550,7 +550,11 @@ function RateHistoryCard({
                         </td>
                       )}
                       <td style={tdStyle}>
-                        <input type="date" value={draft!.effectiveFrom} onChange={(e) => setDraft({ ...draft!, effectiveFrom: e.target.value })} style={cellInput} />
+                        <CalendarDatePicker
+                          value={draft!.effectiveFrom}
+                          onChange={(iso) => setDraft({ ...draft!, effectiveFrom: iso })}
+                          triggerStyle={cellDateTrigger}
+                        />
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'right' }}>
                         <input inputMode="decimal" value={draft!.rate} onChange={(e) => setDraft({ ...draft!, rate: e.target.value.replace(/[^0-9.]/g, '') })} style={{ ...cellInput, textAlign: 'right' }} placeholder="£/day" />
@@ -688,7 +692,11 @@ function AddRateRow({
   return (
     <tr style={{ borderTop: '1px solid var(--rmg-color-grey-3)' }}>
       <td style={tdStyle}>
-        <input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} style={cellInput} />
+        <CalendarDatePicker
+          value={effectiveFrom}
+          onChange={setEffectiveFrom}
+          triggerStyle={cellDateTrigger}
+        />
         {quickPicks.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
             {quickPicks.map((q) => (
@@ -784,6 +792,15 @@ const cellInput: React.CSSProperties = {
   width: '100%', maxWidth: 150, fontFamily: 'var(--rmg-font-body)', fontSize: 13, padding: '5px 8px',
   border: '1px solid var(--rmg-color-grey-2)', borderRadius: 6, outline: 'none', boxSizing: 'border-box', color: HEADING,
 }
+// CalendarDatePicker's trigger has an explicit default height (56px/40px)
+// unrelated to cellInput's — override it to 'auto' so the date cell's
+// height derives from cellInput's own padding/font-size, matching its
+// Blended Rate / VAT Uplift / On-costs Uplift row neighbours' border/
+// padding/font-size/radius exactly. Right padding is widened (cellInput's
+// other cells don't need it) to leave room for the trailing calendar icon,
+// which stays showIcon's default (shown) — same icon, position, and size
+// as the wizard's date field, per the reference style.
+const cellDateTrigger: React.CSSProperties = { ...cellInput, height: 'auto', padding: '5px 40px 5px 8px' }
 function iconBtn(colour: string): React.CSSProperties {
   return {
     background: 'transparent', border: 'none', cursor: 'pointer', color: colour, padding: '2px 4px',
