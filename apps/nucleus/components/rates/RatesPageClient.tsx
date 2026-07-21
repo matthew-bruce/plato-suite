@@ -553,7 +553,6 @@ function RateHistoryCard({
                         <CalendarDatePicker
                           value={draft!.effectiveFrom}
                           onChange={(iso) => setDraft({ ...draft!, effectiveFrom: iso })}
-                          showIcon={false}
                           triggerStyle={cellDateTrigger}
                         />
                       </td>
@@ -696,7 +695,6 @@ function AddRateRow({
         <CalendarDatePicker
           value={effectiveFrom}
           onChange={setEffectiveFrom}
-          showIcon={false}
           triggerStyle={cellDateTrigger}
         />
         {quickPicks.length > 0 && (
@@ -797,8 +795,12 @@ const cellInput: React.CSSProperties = {
 // CalendarDatePicker's trigger has an explicit default height (56px/40px)
 // unrelated to cellInput's — override it to 'auto' so the date cell's
 // height derives from cellInput's own padding/font-size, matching its
-// Blended Rate / VAT Uplift / On-costs Uplift row neighbours exactly.
-const cellDateTrigger: React.CSSProperties = { ...cellInput, height: 'auto' }
+// Blended Rate / VAT Uplift / On-costs Uplift row neighbours' border/
+// padding/font-size/radius exactly. Right padding is widened (cellInput's
+// other cells don't need it) to leave room for the trailing calendar icon,
+// which stays showIcon's default (shown) — same icon, position, and size
+// as the wizard's date field, per the reference style.
+const cellDateTrigger: React.CSSProperties = { ...cellInput, height: 'auto', padding: '5px 40px 5px 8px' }
 function iconBtn(colour: string): React.CSSProperties {
   return {
     background: 'transparent', border: 'none', cursor: 'pointer', color: colour, padding: '2px 4px',
