@@ -1,4 +1,4 @@
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 
 export type PlatformRow = {
   platform_id: string
@@ -10,7 +10,7 @@ export type PlatformRow = {
 }
 
 export async function getPlatforms(): Promise<PlatformRow[]> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase
     .from('platforms')
     .select(

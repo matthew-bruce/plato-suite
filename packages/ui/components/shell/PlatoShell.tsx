@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { getCurrentUser, signOut, onAuthStateChange } from '@plato/auth'
 
 // Adding a new app to the suite: add its key to the activeApp union type below
 // and add an entry to the PLATO_APPS array in this file.
@@ -177,7 +178,7 @@ export function PlatoShell({
               isActive={app.id === activeApp}
             />
           ))}
-          <Avatar initials={userInitials ?? '?'} />
+          <AccountMenu userInitials={userInitials} />
         </div>
       </header>
 
@@ -511,27 +512,151 @@ function AppSwitcherLink({
 
 // ── User avatar ───────────────────────────────────────────────────────────────
 
-function Avatar({ initials }: { initials: string }) {
+function deriveInitials(email: string | null): string {
+  if (!email) return '?'
+  const local = email.split('@')[0]
+  const parts = local.split(/[.\-_]+/).filter(Boolean)
+  const chars = parts.length >= 2 ? parts[0][0] + parts[1][0] : local.slice(0, 2)
+  return chars.toUpperCase() || '?'
+}
+
+// Avatar-triggered account menu. Self-contained in the shared shell (ADR-032):
+// reads the signed-in user and signs out via @plato/auth directly, so no app
+// wires this up per-app. Only ever rendered for authenticated users — the app
+// shells bypass PlatoShell on the public auth routes.
+function AccountMenu({ userInitials }: { userInitials?: string }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [email, setEmail] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let active = true
+    getCurrentUser().then((u) => {
+      if (active) setEmail(u?.email ?? null)
+    })
+    const unsubscribe = onAuthStateChange((u) => setEmail(u?.email ?? null))
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+
+  async function handleSignOut() {
+    setSigningOut(true)
+    await signOut()
+    // Full-session clear happened client-side; navigate to /login and refresh
+    // so middleware re-evaluates with the cleared cookies.
+    router.replace('/login')
+    router.refresh()
+  }
+
+  const initials = userInitials ?? deriveInitials(email)
+
   return (
-    <div
-      style={{
-        width: 26,
-        height: 26,
-        borderRadius: '50%',
-        backgroundColor: '#DA202A',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#ffffff',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 11,
-        fontWeight: 700,
-        flexShrink: 0,
-        marginLeft: 8,
-        userSelect: 'none',
-      }}
-    >
-      {initials}
+    <div ref={wrapRef} style={{ position: 'relative', marginLeft: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Account menu"
+        title={email ?? 'Account'}
+        style={{
+          width: 26,
+          height: 26,
+          borderRadius: '50%',
+          backgroundColor: '#DA202A',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#ffffff',
+          fontFamily: 'var(--rmg-font-body)',
+          fontSize: 11,
+          fontWeight: 700,
+          flexShrink: 0,
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {initials}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 34,
+            right: 0,
+            minWidth: 210,
+            background: '#FFFFFF',
+            border: '1px solid var(--rmg-color-grey-3)',
+            borderRadius: 8,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            zIndex: 1000,
+            overflow: 'hidden',
+            fontFamily: 'var(--rmg-font-body)',
+          }}
+        >
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--rmg-color-grey-3)' }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: 'var(--rmg-color-grey-1)',
+              }}
+            >
+              Signed in as
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--rmg-color-text-heading)', marginTop: 2, wordBreak: 'break-all' }}>
+              {email ?? '—'}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleSignOut}
+            disabled={signingOut}
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              padding: '10px 14px',
+              border: 'none',
+              background: 'transparent',
+              cursor: signingOut ? 'wait' : 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--rmg-color-red)',
+              fontFamily: 'var(--rmg-font-body)',
+            }}
+          >
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

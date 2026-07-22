@@ -1,3 +1,9 @@
+// Client-safe barrel. The server-only data-fetch functions (which pull in the
+// cookie-aware SSR client → next/headers) live at @plato/schema/server so this
+// index can be imported from client components without dragging next/headers
+// into the client bundle. Type-only re-exports below are erased at emit, so
+// they stay here for ergonomics.
+
 export { getSupabaseServerClient } from './server'
 export { getSupabaseBrowserClient } from './client'
 
@@ -13,20 +19,13 @@ export type {
   PlatformCostItem,
 } from './types/schedule'
 
-export { getSchedulePageData } from './queries/schedule'
 export { computeUnallocatedPct, selectDefaultPeriod } from './utils/schedule'
 export type { DefaultPeriodCandidate } from './utils/schedule'
-export {
-  resolveCostConfiguration,
-  resolveCostConfigurationByCode,
-  resolveAppliedCostConfiguration,
-  resolveAppliedCostConfigurationByCode,
-} from './queries/costConfig'
+
 export type { AppliedConfigPeriod } from './queries/costConfig'
 export { pickEffectiveCostConfig, pickAppliedCostConfig } from './utils/costConfig'
 export type { EffectiveDatedRow } from './utils/costConfig'
 
-export { getRatesPageData } from './queries/rates'
 export type {
   RatesPageData,
   RatePlatform,
@@ -35,4 +34,3 @@ export type {
 } from './queries/rates'
 
 export type { PeriodSummary, AttentionItem, HomepageData } from './types/homepage'
-export { getHomepageData } from './queries/homepage'

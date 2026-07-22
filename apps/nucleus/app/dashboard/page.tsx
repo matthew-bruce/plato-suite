@@ -1,4 +1,4 @@
-import { getHomepageData } from '@plato/schema'
+import { getHomepageData } from '@plato/schema/server'
 import { HomepageClient } from '../_components/HomepageClient'
 
 export const dynamic = 'force-dynamic'

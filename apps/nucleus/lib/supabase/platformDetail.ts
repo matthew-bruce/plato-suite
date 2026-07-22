@@ -1,4 +1,4 @@
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 
 export type WorkstreamRow = {
   workstream_id: string
@@ -31,7 +31,7 @@ export type PlatformDetailData = {
 export async function getPlatformBySlug(
   slug: string
 ): Promise<PlatformDetailData | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const { data: platform, error } = await supabase
     .from('platforms')

@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 
 export interface SetBlendedRateResult {
   success: boolean
@@ -34,7 +34,7 @@ export async function setBlendedRate(
     return { success: false, error: 'Enter a valid rate.' }
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   // Write through the set_blended_rate RPC rather than a direct INSERT.
   // cost_configurations has FORCE ROW LEVEL SECURITY and was deliberately left
@@ -97,7 +97,7 @@ export async function updateCostConfiguration(
     return { success: false, error: 'Enter a valid rate.' }
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.rpc('update_cost_configuration', {
     p_cost_configuration_id: costConfigurationId,
     p_effective_from: updates.effectiveFrom,
@@ -131,7 +131,7 @@ export async function deleteCostConfiguration(
 ): Promise<MutateRateResult> {
   if (!costConfigurationId) return { success: false, error: 'Missing rate row.' }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.rpc('soft_delete_cost_configuration', {
     p_cost_configuration_id: costConfigurationId,
   })

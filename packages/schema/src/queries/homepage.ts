@@ -1,7 +1,7 @@
 // Server-side data fetching for the Nucleus homepage dashboard (ADR-028).
 // This function never throws — all errors return the empty structure.
 
-import { getSupabaseServerClient } from '../server'
+import { getSupabaseServerComponentClient } from '../serverComponent'
 import { resolveAppliedCostConfiguration } from './costConfig'
 import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepage'
 import type { PeriodStatus } from '../types/schedule'
@@ -31,7 +31,7 @@ function pickFirst<T>(value: T | T[] | null | undefined): T | null {
 
 export async function getHomepageData(periodId?: string): Promise<HomepageData> {
   try {
-    const supabase = getSupabaseServerClient()
+    const supabase = await getSupabaseServerComponentClient()
 
     const { data: periodsData, error: periodsErr } = await supabase
       .from('periods')

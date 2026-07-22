@@ -1,4 +1,4 @@
-import { getSchedulePageData } from '@plato/schema'
+import { getSchedulePageData } from '@plato/schema/server'
 import { SchedulePageClient } from '@/components/schedule/SchedulePageClient'
 
 export const dynamic = 'force-dynamic'

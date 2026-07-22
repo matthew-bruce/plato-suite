@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import type { ResourceLocation, PlanviewCode } from '@plato/schema'
 
 export interface ResourceSearchResult {
@@ -52,7 +52,7 @@ export async function searchResources(
 ): Promise<ResourceSearchResult[]> {
   if (query.length < 2) return []
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const { data, error } = await supabase
     .from('resources')
@@ -83,7 +83,7 @@ export async function searchResources(
 }
 
 export async function fetchWizardData(): Promise<WizardData> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const [suppliersResult, teamsResult] = await Promise.all([
     supabase
@@ -144,7 +144,7 @@ export async function findResourcePeriodConflicts(
   periodId: string,
   excludeAllocationId?: string | null,
 ): Promise<ConflictAllocation[]> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   type RawAllocRow = {
     allocation_id: string
@@ -210,7 +210,7 @@ export async function connectKeepExisting(
   periodId: string,
   vacantAllocationId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.rpc('connect_resource_keep_existing', {
     p_resource_id: resourceId,
     p_period_id: periodId,
@@ -233,7 +233,7 @@ export async function connectUseVacant(
   supersededAllocationId: string,
   resourceLocation: ResourceLocation | null,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.rpc('connect_resource_use_vacant', {
     p_resource_id: resourceId,
     p_period_id: periodId,
@@ -258,7 +258,7 @@ export async function updateTeamAssignments(
     return { success: false, error: `Capacity splits must sum to 100 (got ${total})` }
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   // Soft-delete + insert run inside a single Postgres function (RPC) so both
   // commit or roll back together — see migration 017. Two separate client
@@ -308,7 +308,7 @@ export interface CreateAllocationResult {
 export async function createResourceAndAllocation(
   params: CreateAllocationParams,
 ): Promise<CreateAllocationResult> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   try {
     let effectiveResourceId: string | null = null
@@ -426,7 +426,7 @@ export async function getTeamAssignments(
   periodId: string,
   allocationId?: string,
 ): Promise<Array<{ teamId: string; teamName: string; split: number }>> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   type RawRow = {
     team_id: string
@@ -471,7 +471,7 @@ export async function insertResource(
   supplierId: string | null,
   resourceLocation: ResourceLocation,
 ): Promise<{ success: boolean; resourceId?: string; error?: string }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const payload: Record<string, unknown> = {
     resource_name: resourceName,

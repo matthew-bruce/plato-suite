@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs'
-import { getSupabaseServerClient, resolveCostConfigurationByCode } from '@plato/schema'
+import { getSupabaseServerComponentClient, resolveCostConfigurationByCode } from '@plato/schema/server'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
 
@@ -151,7 +151,7 @@ export async function GET(request: Request): Promise<Response> {
     return new Response('Missing periodId query parameter', { status: 400 })
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   /* ── Query 1: Period ── */
   const { data: periodData, error: periodErr } = await supabase

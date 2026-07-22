@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import type { ResourceLocation } from '@plato/schema'
 
 /**
@@ -17,7 +17,7 @@ export async function togglePeriodLocked(
   periodId: string,
   locked: boolean,
 ): Promise<{ locked: boolean }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase.rpc('set_period_locked', {
     p_period_id: periodId,
     p_locked: locked,
@@ -37,7 +37,7 @@ export async function assignResourceToAllocation(
   resourceId: string,
   resourceLocation?: ResourceLocation,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const updates: Record<string, unknown> = { resource_id: resourceId, updated_at: new Date().toISOString() }
   if (resourceLocation) updates['resource_location'] = resourceLocation
@@ -74,7 +74,7 @@ export async function assignResourceToAllocation(
 export async function unassignResourceFromAllocation(
   allocationId: string,
 ): Promise<{ success: boolean; error?: string }> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const { data: existing, error: fetchErr } = await supabase
     .from('resource_period_allocations')
@@ -129,7 +129,7 @@ export async function batchUpdateDisplayOrder(
     return { success: false, error: 'No updates provided' }
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   try {
     for (const { allocationId, displayOrder } of updates) {

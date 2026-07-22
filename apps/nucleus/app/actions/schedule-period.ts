@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 
 export interface CreatePeriodParams {
   periodName: string
@@ -32,7 +32,7 @@ export async function createPeriod(params: CreatePeriodParams): Promise<CreatePe
     return { success: false, error: 'End date cannot be before the start date' }
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase.rpc('create_period_with_optional_copy', {
     p_period_name: name,
     p_start_date: params.startDate,
@@ -48,7 +48,7 @@ export async function createPeriod(params: CreatePeriodParams): Promise<CreatePe
  *  summary. Reads the source of truth so the figure is right even when the
  *  wizard is opened from a different period than the one being copied. */
 export async function getPeriodAllocationCount(periodId: string): Promise<number> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { count, error } = await supabase
     .from('resource_period_allocations')
     .select('allocation_id', { count: 'exact', head: true })
