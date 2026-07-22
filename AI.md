@@ -36,7 +36,7 @@ Plato is a modular SaaS platform for Platform Engineering teams. It provides pro
 
 Each module is independently shippable as a standalone product, or used as part of the integrated Plato suite. The suite must feel cohesive whether a client uses one module or all of them.
 
-**Tessera** (`apps/tessera`) is a client-specific internal tool for the RMG eBusiness supplier transition. It lives in this monorepo but is intentionally exempt from several architectural principles for its current phase. See ADR-TESS-001 and ADR-TESS-002 for the documented exceptions.
+**Tessera** (`apps/tessera`) is a client-specific internal tool for the RMG eBusiness supplier transition. It lives in this monorepo and remains intentionally exempt from a few architectural principles (RMG-specific data hardcoded, `kt_` tables living in the Nucleus Supabase project, no demo mode) — see ADR-TESS-002. Its auth and vendor-abstraction exceptions (ADR-TESS-001, ADR-TESS-002 §3) were resolved by ADR-033 (2026-07-22).
 
 ---
 
@@ -64,7 +64,7 @@ plato/
     auth/         ← single OIDC-standard auth implementation
     config/       ← Tailwind, ESLint, TSConfig, tenant config
   docs/
-    decisions/    ← Architecture Decision Records (ADRs 001–031, ADR-TESS-001, ADR-TESS-002)
+    decisions/    ← Architecture Decision Records (ADRs 001–034, ADR-TESS-001, ADR-TESS-002)
   scripts/
     seed-demo.ts  ← demo tenant seed data
 ```
@@ -80,8 +80,8 @@ plato/
 | UI Layer | React 19 | Component layer, used via Next.js |
 | Language | TypeScript | Strict mode. No `any`. |
 | Styling | Tailwind CSS v3 + CSS tokens | Brand-swappable via config. Do not upgrade to v4 without ADR. |
-| Database | Supabase (Postgres) | Abstracted via `@plato/schema` (Tessera exception: direct SDK calls, see ADR-TESS-002) |
-| Auth | Supabase Auth / OIDC | See auth section below. Tessera has no auth (ADR-TESS-001). |
+| Database | Supabase (Postgres) | Abstracted via `@plato/schema` — Tessera routes through it too as of ADR-033 (previously a direct-SDK exception, see ADR-TESS-002) |
+| Auth | Supabase Auth / OIDC | See auth section below. Both apps, including Tessera, require a session as of ADR-033. |
 | Hosting | Vercel / Docker | See deployment section below |
 | Node | 24.x | Current on all Vercel deployments |
 
@@ -101,7 +101,11 @@ import { tenantConfig } from '@plato/config'
 
 Never import across `apps/`. Cross-module concerns belong in `packages/`.
 
-**Tessera exception:** `apps/tessera` currently calls Supabase directly due to `kt_` tables not being in `@plato/schema`. This is documented in ADR-TESS-002 and is a temporary exception.
+**Resolved (2026-07-22, ADR-033):** `apps/tessera` previously called Supabase
+directly because its `kt_` tables aren't wrapped by `@plato/schema` (ADR-TESS-002).
+It now routes through `@plato/schema`'s cookie-aware server/browser clients like
+every other app — the `kt_` tables still aren't in the shared type registry, but
+data access itself is no longer a direct-SDK exception.
 
 ---
 
@@ -286,7 +290,7 @@ Switching skins is a single token file swap. No component code changes. This is 
 ## Coding Conventions
 
 - TypeScript strict mode — no `any`, no exceptions
-- Never call vendor SDKs directly — always use `@plato/[package]` abstraction (Tessera exception: see ADR-TESS-002)
+- Never call vendor SDKs directly — always use `@plato/[package]` abstraction (Tessera's former exception was resolved by ADR-033 — no app is exempt now)
 - Never use arbitrary Tailwind hex values — extend `tailwind.config.ts` with named tokens
 - Any new pure function gets a unit test at the same time — not retroactively
 - Check every new component at 390px width before considering it done

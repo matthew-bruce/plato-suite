@@ -7,6 +7,16 @@
 
 ---
 
+> **Partially resolved (2026-07-22, ADR-033).** Violations #1 (no authentication)
+> and #3 (direct Supabase SDK calls bypassing `@plato/schema`) below are
+> **resolved** — Tessera now requires a Supabase Auth session and routes all
+> data access through `@plato/schema`, per ADR-033. Violations #2
+> (RMG-specific data hardcoded), #4 (tables in the Nucleus Supabase project),
+> and #5 (no demo mode) remain genuinely open; this ADR is not superseded as a
+> whole.
+
+---
+
 ## Decision
 
 Tessera (`apps/tessera`) is built as a client-specific internal tool for
@@ -46,6 +56,9 @@ principles were explicitly set aside.
 
 ### 1. No authentication (reference: ADR-004, ADR-TESS-001)
 
+> **RESOLVED (2026-07-22, ADR-033).** Tessera now requires a Supabase Auth
+> session; open RLS policies were dropped in migration `024_authenticated_rls.sql`.
+
 **What:** All RLS policies are open (`FOR ALL USING (true)`). Any request
 can read or write any data. There is no login flow.
 
@@ -76,6 +89,10 @@ validated against white-label principles before any release.
 ---
 
 ### 3. Direct Supabase SDK calls (reference: ADR-003)
+
+> **RESOLVED (2026-07-22, ADR-033).** Tessera page components now route through
+> `@plato/schema` (`getSupabaseServerComponentClient()` / `getSupabaseBrowserClient()`)
+> like every other app. No component imports `@supabase/supabase-js` directly.
 
 **What:** Tessera page components import `createClient` from
 `@supabase/supabase-js` directly, bypassing the `@plato/schema`

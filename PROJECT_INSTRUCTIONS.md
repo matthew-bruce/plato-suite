@@ -119,20 +119,37 @@ Pulsar and Helios: not applicable for Q4 (came into use Q1 FY 26/27)
 **Q1 FY 26/27 team assignments:** Cloned from current-state (NULL
 period_id rows) — 78 rows covering all active teams.
 
-**Migration history (Nucleus, applied to `nwltpivvqynkfghazjpi`):**
+**Migration history (Nucleus, applied to `nwltpivvqynkfghazjpi`) — corrected
+2026-07-22 to match `packages/schema/migrations/` exactly. The previous
+version of this table (006_rpa_nullable_resource_id through
+010_cost_config_vat_precision) did not correspond to any files in the repo —
+see the process rule below on why, and ADR-032 / migration `026` for the one
+change from that history that turned out to be real but undocumented:**
 
 | Migration | Description |
 |---|---|
-| 001_core_schema | Full schema — all tables |
-| 002_seed_lookups | Supplier seed data |
-| 003_resource_location_and_job_title | resource_location enum, resource_country, resource_job_title |
-| 004_resource_team_assignments | resource_team_assignments junction table with capacity_split |
+| 001_core_schema | Baseline schema — all core Nucleus tables |
+| 002_seed_lookups | Lookup seed data + additive columns |
+| 003_resource_location_and_job_title | resource_location, resource_country, resource_job_title on resources |
+| 004_itinerary_session_type | Tessera `tessera_itinerary_sessions.session_type` (audit-trail no-op — column already existed) |
 | 005_schedule_display_fields | role_title and planview_code snapshot columns on resource_period_allocations |
-| 006_rpa_nullable_resource_id | resource_id nullable on resource_period_allocations (TBC/Vacant slots) |
-| 007_rpa_supplier_id | supplier_id added to resource_period_allocations; backfilled for all rows; CHECK constraint: resource_id IS NOT NULL OR supplier_id IS NOT NULL |
-| 008_platform_cost_items | platform_cost_items table — period-scoped ad-hoc platform costs with inline CRUD |
-| 009_rpa_vat_applies | vat_applies BOOLEAN on resource_period_allocations — explicit per-row VAT flag replacing supplier name inference |
-| 010_cost_config_vat_precision | vat_uplift_percent and on_costs_uplift_percent widened to NUMERIC(10,5) |
+| 006_rpa_display_order | display_order on resource_period_allocations (Platform Schedule drag-and-drop ordering) |
+| 015_rta_allocation_id | resource_id nullable on resource_team_assignments; allocation_id added as the alternative TBC join key |
+| 019_resource_conflict_connect_rpcs | connect_resource_keep_existing / connect_resource_use_vacant RPCs — Add Role/Resource wizard conflict resolution |
+| 020_platform_abbreviation | platforms.platform_abbreviation — canonical short label (WEB/APP/BIG/EPS/ETP/PDA) |
+| 021_set_blended_rate_rpc | set_blended_rate SECURITY DEFINER RPC — controlled write path for cost_configurations |
+| 022_period_cost_snapshots | period_cost_snapshots table + set_period_locked RPC — freezes cost figures for locked periods |
+| 023_create_period_rpc | Atomic "Create New Period" RPC for the Platform Schedule wizard |
+| 024_authenticated_rls | Authenticated-only access — closes ADR-031 (Nucleus) and ADR-TESS-001 (Tessera); see ADR-033 |
+| 025_platform_cost_items_active_user_policy | platform_cost_items — any-active-user RLS policy (was left with no policy after 024) |
+| 026_rpa_nullable_resource_id_retroactive | **Retroactive record.** resource_id nullable on resource_period_allocations — actually applied out-of-band on 2026-05-28; see ADR-032 |
+
+There is a gap between 006 and 015 (no 007–014 migration files exist in this
+repo) and no migrations for the vat_applies flag / cost_config VAT precision
+described in earlier versions of this table — if those changes are real and
+live, they are undocumented in the same way 026 was until this session; treat
+them as an open documentation-gap risk, not a confirmed non-issue, until
+verified the same way ADR-032 was.
 
 **platform_cost_items — Q4 FY 25/26 (3 rows seeded):**
 - Camel Resources: £68,200
@@ -264,6 +281,16 @@ verified via Vercel preview/production URLs.
 **Supabase keys** are held as Vercel environment variables. The
 `.env.local` pattern is documented for future local dev but not currently
 in use.
+
+**Any migration applied directly via Supabase MCP (`Supabase:apply_migration`)
+must have its exact SQL committed as a numbered file in
+`packages/schema/migrations/` in the same working session** — never leave a
+live migration undocumented in the repo, even temporarily. This is what
+caused the ADR-032/migration-006 drift discovered 2026-07-22: a migration
+applied out-of-band on 2026-05-28 was never filed, a later unrelated change
+took the "006" slot instead, and the corresponding ADR was never written —
+leaving both the schema history and the decision record silently wrong for
+almost two months.
 
 ### Supabase MCP Connector (IMPORTANT — read every session)
 

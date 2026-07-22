@@ -1,9 +1,13 @@
 # ARCHITECTURE.md — Plato Suite
 
-> Last updated: April 2026.
-> ADRs 001–032 and ADR-TESS-001 are committed to `docs/decisions/`.
+> Last updated: 2026-07-22.
+> ADRs 001–034, ADR-TESS-001, and ADR-TESS-002 are committed to `docs/decisions/`.
 > ADRs 001–006 were written retroactively in April 2026 (they previously existed as titles only in this file).
 > ADRs 007–031 were written in Claude design sessions and committed manually by Matt Bruce.
+> ADR-032 and ADR-034 were written retroactively on 2026-07-22, backfilling decisions
+> that had been implemented (and, in ADR-032's case, referenced by number in this
+> file) but never given a real ADR file — see PROJECT_INSTRUCTIONS.md's process
+> rule on committing out-of-band migrations in the same session going forward.
 
 ---
 
@@ -74,12 +78,12 @@ Each module is a Next.js 16+ App Router application. They share packages but dep
 | Roadmap | `apps/roadmap` | Executive roadmap canvas | ✅ | Early scaffold |
 | Tessera | `apps/tessera` | KT Operating System — supplier transition management | ⚠️ | Live — internal tool |
 
-> **Tessera note:** Tessera is a client-specific internal tool built for the RMG eBusiness transition (CG → TCS). It intentionally deviates from several architectural principles for speed of delivery:
-> - No authentication (open RLS) — documented in ADR-TESS-001
-> - Direct Supabase SDK calls (bypasses `@plato/schema` abstraction) — documented in ADR-031
-> - RMG-specific data and branding hardcoded — exception to PRINCIPLES.md §16 (no client fingerprints)
+> **Tessera note:** Tessera is a client-specific internal tool built for the RMG eBusiness transition (CG → TCS). It intentionally deviates from one architectural principle, plus two now-resolved exceptions:
+> - RMG-specific data and branding hardcoded — exception to PRINCIPLES.md §16 (no client fingerprints); still open
+> - ~~No authentication (open RLS) — ADR-TESS-001~~ — **resolved 2026-07-22.** Tessera now requires a Supabase Auth session, per ADR-033.
+> - ~~Direct Supabase SDK calls (bypasses `@plato/schema` abstraction) — ADR-TESS-002~~ — **resolved 2026-07-22.** Tessera now routes through `@plato/schema` like every other app, per ADR-033.
 >
-> These are time-bounded exceptions for a deadline-critical internal tool. Tessera may be genericised into a product in a future phase, at which point these exceptions would be addressed.
+> The remaining exception is time-bounded for a deadline-critical internal tool. Tessera may be genericised into a product in a future phase, at which point it would be addressed. See ADR-TESS-002 for the full, still-current list of accepted deviations.
 
 **Dependency note:** Nucleus owns the core `teams` and `resources` data. Other modules reference these. Nucleus is the recommended first module to implement in any new installation.
 
@@ -239,7 +243,11 @@ OIDC_REDIRECT_URI=
 
 Swapping identity providers = changing these four values. No code changes.
 
-> **Tessera exception:** Tessera has no auth for MVP. All RLS policies are open (`FOR ALL USING (true)`). This is documented in ADR-TESS-001 and is intentional for an internal deadline-driven tool.
+> **Tessera:** as of ADR-033 (2026-07-22), Tessera requires a Supabase Auth
+> session like every other app — the MVP-phase open RLS policies (ADR-TESS-001)
+> were dropped in migration `024_authenticated_rls.sql`. Tessera does not yet
+> use OIDC-standard auth (email/password only, via `@plato/auth`); that remains
+> a later-phase item per ADR-004.
 
 ---
 
@@ -349,7 +357,7 @@ Any deviation from the principles in this document requires an ADR before implem
 | 021 | Three-tier user role model |
 | 022 | Org containers as presentation layer |
 
-**Product and UI decisions (023–032)**
+**Product and UI decisions (023–034)**
 | ADR | Title |
 |---|---|
 | 023 | RMG design system — inline styles, --rmg-* tokens, no Tailwind in packages/ui |
@@ -360,13 +368,16 @@ Any deviation from the principles in this document requires an ADR before implem
 | 028 | Server component data fetching pattern |
 | 029 | Money stored as integer pence |
 | 030 | Despatch migration strategy |
-| 031 | Temporary anonymous RLS policies (development phase) |
-| 032 | PlatoShell — single shared shell component, mandatory for all apps |
+| 031 | Temporary anonymous RLS policies (development phase) — **superseded by 033** |
+| 032 | Nullable resource_id for vacant schedule slots |
+| 033 | Authenticated access (Supabase Auth) for Nucleus and Tessera — supersedes 031, ADR-TESS-001 |
+| 034 | PlatoShell — single shared shell component, mandatory for all apps |
 
 **Tessera-specific**
 | ADR | Title |
 |---|---|
-| ADR-TESS-001 | Tessera open RLS — no auth for MVP. Time-bounded exception to ADR-004. |
+| ADR-TESS-001 | Tessera open RLS — no auth for MVP. **Superseded by ADR-033.** |
+| ADR-TESS-002 | Tessera client-specific exceptions — RMG data, kt_ tables in Nucleus project, no demo mode remain open; no-auth and direct-SDK-calls violations resolved by ADR-033. |
 
 ---
 
