@@ -383,38 +383,22 @@ The `disciplines` lookup table is defined and its FK on `resources` is locked. T
 
 What is a roadmap item at schema level? What does it attach to — Workstream, Team, `org_container`, or any of these? Agreed that it must work without Teams present. Full design deferred to a dedicated Cursus module session.
 
-### 2.3 DASHBOARD_SPEC.md (memory reminder)
+### 2.5 Nullable `resource_id` on `resource_period_allocations` — RESOLVED (ADR-032)
 
-Document on another device. Contains Despatch context relevant to schema design. Bring into a Despatch session.
+**Resolved (2026-07-22, ADR-032 — retroactively documenting a decision applied
+2026-05-28).** `resource_id` on `resource_period_allocations` is nullable. This
+was applied directly to the live database on 2026-05-28 via the Supabase MCP
+connector without a corresponding migration file ever being committed to this
+repo; the paper trail (migration file + ADR) was backfilled on 2026-07-22 —
+see `packages/schema/migrations/026_rpa_nullable_resource_id_retroactive.sql`
+and `docs/decisions/032-nullable-resource-id-vacant-slots.md` for the full
+decision record, including the fill-vacant-seat RPCs (migration 019) and the
+`resource_team_assignments` side of this (migration 015).
 
-### 2.5 Nullable `resource_id` on `resource_period_allocations` — APPROVED, migration pending
-
-**Decision:** `resource_id` on `resource_period_allocations` should be
-made nullable. This supports "vacant slot" rows — cost commitments in a
-SoW or PO where a role exists and a rate has been agreed, but the named
-person hasn't been identified yet.
-
-**Approved approach:**
-```sql
-ALTER TABLE resource_period_allocations
-  ALTER COLUMN resource_id DROP NOT NULL;
-```
-
-**Behaviour:**
-- A null `resource_id` row represents a TBC/Vacant cost placeholder
-- `role_title` (already a snapshot column) describes the role
-- All cost and day calculations apply identically to vacant rows
-- UI must render null `resource_name` as "TBC" or "Vacant" with a
-  clear visual treatment — not a broken/empty row
-- When the person is identified, `resource_id` is populated. The cost
-  line was always present; only the attribution changes.
-
-**Blocked on:** This migration has not yet been applied. Until it is,
-vacant slots cannot be inserted. One Q4 Capgemini row is outstanding:
-"Non-Factory Service Engineer" (DevOps Senior Consultant, PR, 54 days,
-£209.48/day, offshore India) — insert this once the migration is applied.
-
-**ADR needed:** ADR-032 — Nullable resource_id for vacant schedule slots.
+The original Q4 Capgemini row that motivated this ("Non-Factory Service
+Engineer", DevOps Senior Consultant, PR, 54 days, £209.48/day, offshore India)
+was inserted once the migration was live — see `PROJECT_INSTRUCTIONS.md` for
+current seeded-data state.
 
 ---
 

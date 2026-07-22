@@ -40,6 +40,14 @@ Tessera is a new app in the Plato Suite — a KT (Knowledge Transfer) Operating 
 
 ## 2. Schema Decisions
 
+> **Superseded (2026-07-22):** the 6-dimension RAG model described below
+> (`rag_scores` table, PEOPLE/SESSIONS/DEMO/DOCUMENTATION/PEER_REVIEW/MILESTONE)
+> has been superseded by the 7-dimension model now live in
+> `docs/design/PLATO-DESIGN-SYSTEM.md`'s Tessera Dashboard spec
+> (People/Sessions/Schedule/Outcomes/Demo/Docs/Sign-off). This section is kept
+> as historical context for the original design, not as a current schema
+> reference.
+
 Own Supabase tables, Nucleus naming conventions, compatible for future migration to shared DB. Architect for Claude API hook in Phase 3 — don't build it yet, just don't make it impossible.
 
 ### Core tables
@@ -253,7 +261,11 @@ All nuggets are private (is_private: true). Content as follows:
 
 ### RAG Scoring Criteria Seed
 
-Six dimensions. Overall domain RAG = worst single dimension (not average).
+> **Superseded (2026-07-22)** — see the note at the top of §2. The live
+> dashboard uses the 7-dimension People/Sessions/Schedule/Outcomes/Demo/Docs/
+> Sign-off model, not the six dimensions below.
+
+Six dimensions (original design, superseded). Overall domain RAG = worst single dimension (not average).
 
 | Dimension | GREEN | AMBER | RED |
 |---|---|---|---|

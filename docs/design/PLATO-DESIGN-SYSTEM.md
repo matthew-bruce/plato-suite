@@ -1052,25 +1052,20 @@ Session entry: show as a timeline card. Use `STREAM_COLOURS` for left border.
 
 ## 21. RLS Reminder
 
-Tessera has no auth (ADR-TESS-001). All queries run as `anon`.  
-If any Supabase query returns 0 rows silently — check RLS policies **before touching the code**.  
-Fix: `CREATE POLICY "Open read" ON kt_table_name FOR SELECT USING (true);`  
-Check: `SELECT tablename, policyname FROM pg_policies WHERE tablename = 'kt_sessions';`
+**Resolved (2026-07-22, ADR-033):** both apps now require a logged-in Supabase
+Auth session. Every open/anon RLS policy (`USING (true)`, `anon` grants) across
+`public` — including the Tessera dev-phase policies below and the Nucleus
+`periods` / `resource_period_allocations` / `cost_configurations` open-read
+policies — was dropped in migration `024_authenticated_rls.sql`. Queries from
+an unauthenticated session will now correctly return 0 rows; that is expected
+behaviour, not a bug.
 
-### Nucleus tables requiring open RLS (development phase — ADR-031)
-
-The following tables have been granted open SELECT policies for the
-development phase. They will be tightened once Nucleus auth is implemented.
-
-- `periods`
-- `resource_period_allocations`
-- `cost_configurations`
-
-Fix if queries return 0 rows silently:
-```sql
-CREATE POLICY "Open read — dev phase (ADR-031)"
-  ON [table_name] FOR SELECT USING (true);
-```
+If a query returns 0 rows unexpectedly for a **logged-in** session, check RLS
+policies before touching the code:
+`SELECT tablename, policyname FROM pg_policies WHERE tablename = '[table]';`
+— Nucleus is gated by the ADR-021 role policies (`plato_is_active_user()` /
+`plato_is_superuser()`); Tessera's `kt_` tables each carry a single
+`FOR ALL TO authenticated USING (auth.role() = 'authenticated')` policy.
 
 ## Tessera Dashboard — UI Specification (May 2026)
 
@@ -1214,12 +1209,12 @@ const CHIP_NONE = { background: '#EEEEEE', color: '#8F9495' }
 | 1 | People | No resources linked to domain | Only TCS resources linked | ≥1 TCS + ≥1 non-TCS resource linked |
 | 2 | Sessions | No sessions linked | Sessions linked, no playback session yet | ≥1 KT session + ≥1 playback session linked |
 | 3 | Schedule | No linked sessions have a `planned_date` | Some linked sessions have `planned_date`, some don't | All linked sessions have `planned_date` |
-| 4 | KT | No linked sessions complete or have `confidence_score` | Some sessions complete or have `confidence_score` | All linked sessions complete and/or have `confidence_score` |
+| 4 | Outcomes | No linked sessions complete or have `confidence_score` | Some sessions complete or have `confidence_score` | All linked sessions complete and/or have `confidence_score` |
 | 5 | Demo | No `is_playback = true` session linked and COMPLETED | — (binary — no in-progress) | ≥1 `is_playback = true` session linked and COMPLETED |
 | 6 | Docs | Not manually set | — (binary) | Manually flagged as done via domain detail page |
 | 7 | Sign-off | Not manually set | — (binary) | Manually set by Platform SME — final gate, only settable when dims 1–6 are done |
 
-Dims 1–4 are auto-derived from DB. Dims 5 is auto-derived. Dims 6–7 require a manual toggle on the domain detail page (not yet built).
+Dims 1–4 are auto-derived from DB. Dims 5 is auto-derived. Dims 6–7 (Docs/Sign-off) are manual toggles on the domain detail page — shipped.
 
 **Progress bar** — derived from chip count:
 - `width: (doneCount / 7) * 100 + '%'`
