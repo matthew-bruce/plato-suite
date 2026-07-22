@@ -4,9 +4,14 @@
   "private": true,
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": "./src/serverComponent.ts"
+  },
+  "dependencies": {
+    "@plato/auth": "*"
   },
   "peerDependencies": {
+    "@supabase/ssr": "^0.5.0",
     "@supabase/supabase-js": "^2"
   }
 }

@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "next": ["../../apps/nucleus/node_modules/next"],
+      "next/*": ["../../apps/nucleus/node_modules/next/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

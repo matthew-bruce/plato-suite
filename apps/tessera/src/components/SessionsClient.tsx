@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import type { AppGroup, KtSession, SessionLead } from '@/app/sessions/page'
 import { TRACK_COLOURS, getSupplierColour } from '@plato/ui/tokens'
 import { highlightMatch } from '@/lib/highlightMatch'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseBrowserClient } from '@plato/schema'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1903,6 +1903,7 @@ function DetailPanel({
   const fetchResources = useCallback(async (sessionId: string) => {
     setLoading(true)
     setResources([])
+    const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
       .from('tessera_kt_session_resources')
       .select('role, resources(resource_id, resource_name, resource_function, suppliers(supplier_abbreviation, supplier_colour))')

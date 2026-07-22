@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { RISK_COLOURS, RISK_TINTS } from '@plato/ui/tokens'
 import type { RiskLevel } from '@plato/ui/tokens'
 
@@ -26,6 +26,7 @@ type MappingRow = {
 const RISK_LEVELS: RiskLevel[] = ['HIGH', 'MEDIUM', 'LOW', 'SCOPED']
 
 export default async function ParkerPage() {
+  const supabase = await getSupabaseServerComponentClient()
   const [questionsRes, mappingsRes] = await Promise.all([
     supabase
       .from('tessera_parker_questions')

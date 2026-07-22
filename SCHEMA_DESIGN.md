@@ -418,14 +418,20 @@ vacant slots cannot be inserted. One Q4 Capgemini row is outstanding:
 
 ---
 
-### 2.4 Read-gating of `resources.day_rate_override`
+### 2.4 Read-gating of `resources.day_rate_override` — RESOLVED (ADR-033)
 
 Migration `001` gates *writes* via trigger. Reads are not gated at DB level (Supabase's single `authenticated` role makes column GRANTs ineffective; Postgres has no native column-level RLS). Resolution options for `002+`:
 - A `resources_non_sensitive` view excluding the column, consumed by admin/viewer
 - A column-returning RPC gated by `plato_is_superuser()`
 - Enforcement at the `@plato/schema` client abstraction only
 
-Pick one before exposing the resources list to non-superusers.
+**Resolved (2026-07-22, ADR-033).** Real authentication now exists and the open
+anon RLS policies are gone (migration `024`). In the current single-user phase
+the only account is a `superuser`, so day-rate visibility is correctly gated by
+requiring a logged-in session — there is no non-superuser who can reach the
+resources list yet. A dedicated non-sensitive view / RPC only becomes necessary
+when `admin` / `viewer` accounts are actually provisioned; at that point pick
+one of the options above. No longer an open blocker.
 
 ---
 
@@ -560,7 +566,7 @@ Accumulated failure modes worth checking before assuming a new bug is novel.
 - Roadmap item schema and anchoring (Cursus module session).
 - Discipline seed value list (data migration session).
 - `workstream_theme` value list — user-defined, not an enum, no seed needed.
-- Read-gating of `day_rate_override` (see 2.4) — a `002+` concern.
+- Read-gating of `day_rate_override` (see 2.4) — **resolved via authenticated-only RLS (ADR-033); revisit only when admin/viewer accounts exist.**
 - **Versioned `vat_uplift_percent` / `on_costs_uplift_percent`.** (See also
   2.6, which supersedes this entry with the corrected migration numbers.)
   Migrations 021/022 added effective-dated, insert-only history for

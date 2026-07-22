@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { NuggetsClient } from '@/components/NuggetsClient'
 
 export const dynamic = 'force-dynamic'
@@ -12,6 +12,7 @@ export type Nugget = {
 }
 
 export default async function NuggetsPage() {
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase
     .from('tessera_nuggets')
     .select('id, number, title, content, tags')

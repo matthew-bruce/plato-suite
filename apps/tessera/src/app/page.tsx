@@ -3,7 +3,7 @@ import { AppGroupRow } from '@/components/AppGroupRow'
 import { ManualStatusToggle } from '@/components/ManualStatusToggle'
 import { ChipLegendInfo } from '@/components/ChipLegendInfo'
 import { ChipPill } from '@/components/ChipPill'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { CHIP_DESCRIPTIONS, type ChipKey } from '@/lib/chipLegend'
 
 export const dynamic = 'force-dynamic'
@@ -145,6 +145,7 @@ function manualChipState(ragScores: RagScore[], domainId: string, dimension: str
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default async function Home() {
+  const supabase = await getSupabaseServerComponentClient()
   const today = new Date()
   today.setUTCHours(0, 0, 0, 0)
   const todayStr = today.toISOString().slice(0, 10)
