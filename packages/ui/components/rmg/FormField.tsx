@@ -17,6 +17,9 @@ export interface FormFieldProps {
   defaultValue?: string
   placeholder?: string
   onChange?: React.ChangeEventHandler<HTMLInputElement | HTMLSelectElement>
+  /** Maps to the native input's autocomplete attribute (text/password variants),
+   *  e.g. 'current-password' so browser/password managers can offer autofill. */
+  autoComplete?: string
   /** Date variant only: inclusive bounds (YYYY-MM-DD). Days outside are
    *  disabled in the calendar popup. */
   minDate?: string
@@ -48,6 +51,25 @@ function CheckmarkIcon() {
   )
 }
 
+function EyeIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M10.6 6.2A9.9 9.9 0 0 1 12 6c6.5 0 10 6 10 6a15.8 15.8 0 0 1-2.9 3.4M6.5 7.6A15.8 15.8 0 0 0 2 12s3.5 6 10 6a9.9 9.9 0 0 0 3.6-.66"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function resolveBorder(
   variant: FormFieldProps['variant'],
   focused: boolean,
@@ -73,6 +95,7 @@ export function FormField({
   defaultValue,
   placeholder,
   onChange,
+  autoComplete,
   minDate,
   maxDate,
 }: FormFieldProps) {
@@ -80,6 +103,10 @@ export function FormField({
   const errorId = `${id}-error`
   const isDisabled = variant === 'disabled'
   const [focused, setFocused] = useState(false)
+  // Password variant: show/hide toggle. Lives here (not per-screen) so every
+  // password field across the suite gets it. Never persisted anywhere — it's
+  // purely a local view toggle, defaulting to hidden.
+  const [showPassword, setShowPassword] = useState(false)
   const [internalValue, setInternalValue] = useState(defaultValue ?? '')
   // Date variant: the calendar popup replaces the native date picker. It is
   // rendered through a portal (positioned against the field) so it can never be
@@ -128,7 +155,10 @@ export function FormField({
 
   const inputHeight = size === 'large' ? '56px' : '40px'
   const fontSize = size === 'large' ? 'var(--rmg-text-b2)' : 'var(--rmg-text-b3)'
-  const hasTrailing = type === 'dropdown' || type === 'date' || variant === 'validated'
+  // Password gets a trailing eye toggle; validated takes precedence over it
+  // (they never combine in practice, but guard so two icons can't overlap).
+  const showPasswordToggle = type === 'password' && variant !== 'validated'
+  const hasTrailing = type === 'dropdown' || type === 'date' || variant === 'validated' || showPasswordToggle
 
   const labelStyle: React.CSSProperties = {
     fontFamily: 'var(--rmg-font-body)',
@@ -267,11 +297,12 @@ export function FormField({
           <input
             id={id}
             name={name}
-            type={type === 'password' ? 'password' : 'text'}
+            type={type === 'password' && !showPassword ? 'password' : 'text'}
             disabled={isDisabled}
             value={controlled ? value : internalValue}
             placeholder={placeholder}
             onChange={handleChange}
+            autoComplete={autoComplete}
             aria-invalid={variant === 'error'}
             aria-describedby={variant === 'error' && errorMessage ? errorId : undefined}
             aria-required={required}
@@ -280,7 +311,31 @@ export function FormField({
             style={sharedInputStyle}
           />
         )}
-        {TrailingIcon}
+        {showPasswordToggle ? (
+          <button
+            type="button"
+            onClick={() => setShowPassword((s) => !s)}
+            disabled={isDisabled}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-pressed={showPassword}
+            tabIndex={isDisabled ? -1 : 0}
+            style={{
+              ...trailingStyle,
+              // Same nested-in-the-box position as the calendar/chevron icons,
+              // but this one is interactive, so it must receive clicks.
+              pointerEvents: isDisabled ? 'none' : 'auto',
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              margin: 0,
+              cursor: isDisabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        ) : (
+          TrailingIcon
+        )}
       </div>
 
       {variant === 'error' && errorMessage && (
