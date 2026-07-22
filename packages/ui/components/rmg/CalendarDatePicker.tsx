@@ -134,6 +134,19 @@ export function CalendarDatePicker({
     backgroundColor: disabled ? 'var(--rmg-color-grey-3)' : 'var(--rmg-color-surface-white)',
     fontFamily: 'var(--rmg-font-body)',
     fontSize,
+    // Explicit line-height (not left to the UA default) so the box has a
+    // guaranteed minimum content height even when it's empty — with no
+    // value and no placeholder, the rendered child would otherwise be a
+    // near-empty <span>, and an empty inline box can collapse well below
+    // one line's height once `height` itself is overridden to 'auto' (as
+    // callers like RatesPageClient's cellDateTrigger do to match a table
+    // cell's own sizing) — that's what caused the squashed AddRateRow
+    // field. Unitless so it scales with whatever fontSize is active —
+    // including a caller override (cellDateTrigger also overrides
+    // fontSize to 13px to match cellInput) — rather than a fixed px token
+    // sized for this component's own default 18px/16px, which would add
+    // extra height on top of a shrunk font instead of matching it.
+    lineHeight: 1.5,
     color: disabled ? 'var(--rmg-color-grey-1)' : 'var(--rmg-color-text-body)',
     outline: 'none',
     appearance: 'none' as const,
@@ -164,7 +177,7 @@ export function CalendarDatePicker({
         </label>
       )}
 
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
         {/* Hidden input carries the value for native form submission, same as FormField's date variant. */}
         <input type="hidden" name={name} value={value} readOnly />
         <button
@@ -180,15 +193,24 @@ export function CalendarDatePicker({
           }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          style={{ ...baseTriggerStyle, ...triggerStyle }}
+          // position: 'relative' always wins (kept out of the merge order) so
+          // the trailing icon's containing block is guaranteed to be this
+          // button, never overridable by a caller's triggerStyle.
+          style={{ ...baseTriggerStyle, ...triggerStyle, position: 'relative' }}
         >
           {hasValue ? (
             formatDisplay(value)
           ) : (
-            <span style={{ color: 'var(--rmg-color-grey-1)' }}>{placeholder ?? ''}</span>
+            // A genuinely empty <span></span> (zero characters — not even a
+            // space) doesn't generate a line box in some browsers, so the
+            // `lineHeight` above has nothing to apply to and the button
+            // collapses to just its padding+border. A non-breaking space
+            // guarantees real inline content, so the box always reserves a
+            // full line's height, matching a sibling <input>'s empty state.
+            <span style={{ color: 'var(--rmg-color-grey-1)' }}>{placeholder || ' '}</span>
           )}
+          {showIcon && <span style={trailingStyle}><CalendarIcon /></span>}
         </button>
-        {showIcon && <span style={trailingStyle}><CalendarIcon /></span>}
       </div>
 
       {open && !disabled && typeof document !== 'undefined' &&
