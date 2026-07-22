@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { revalidatePath } from 'next/cache'
 
 function toSlug(name: string): string {
@@ -21,7 +21,7 @@ export async function createTeam(
 
   if (!name) return { error: 'Name is required.' }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.from('teams').insert({
     platform_id: platformId,
     team_name: name,
@@ -46,7 +46,7 @@ export async function updateTeam(
 
   if (!name) return { error: 'Name is required.' }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase
     .from('teams')
     .update({
@@ -67,7 +67,7 @@ export async function deleteTeam(
   teamId: string,
   platformSlug: string
 ) {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase
     .from('teams')
     .update({ deleted_at: new Date().toISOString() })

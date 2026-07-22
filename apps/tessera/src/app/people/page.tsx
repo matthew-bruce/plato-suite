@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { PeopleClient } from '@/components/PeopleClient'
 
 export const dynamic = 'force-dynamic'
@@ -53,6 +53,7 @@ export default async function PeoplePage({
   searchParams: Promise<{ resource?: string }>
 }) {
   const { resource: initialSelectedId = null } = await searchParams
+  const supabase = await getSupabaseServerComponentClient()
   const [resourcesRes, suppliersRes, teamAssignmentsRes] = await Promise.all([
     supabase
       .from('resources')

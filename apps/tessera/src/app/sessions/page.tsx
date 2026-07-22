@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { buildSupplierMap } from '@plato/ui/tokens'
 import { SessionsClient } from '@/components/SessionsClient'
 
@@ -64,6 +64,7 @@ type DbLeadRow = {
 }
 
 export default async function SessionsPage() {
+  const supabase = await getSupabaseServerComponentClient()
   const [groupsRes, sessionsRes, leadsRes, suppliersRes, peopleRes] = await Promise.all([
     supabase
       .from('tessera_app_groups')

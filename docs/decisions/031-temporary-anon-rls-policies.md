@@ -1,7 +1,12 @@
 # ADR-031 — Temporary Anon RLS Policies for Pre-Auth Development
 
 Date: 2026-04-19
-Status: Accepted — temporary, expires on auth implementation
+Status: Superseded by ADR-033 (2026-07-22)
+
+> **Superseded.** All open/anon dev-phase policies described below were removed
+> in migration `024_authenticated_rls.sql`. Both apps now require a Supabase
+> Auth session; Nucleus is gated solely by the ADR-021 role policies. See
+> ADR-033 — Authenticated Access.
 
 ## Decision
 During the pre-authentication development phase, non-sensitive tables

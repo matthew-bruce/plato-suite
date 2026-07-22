@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { type RiskLevel } from '@/components/RiskPill'
 import {
   DomainTrackPanel,
@@ -66,6 +66,7 @@ export default async function DomainDetailPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const supabase = await getSupabaseServerComponentClient()
 
   const { data: domain } = await supabase
     .from('tessera_domains')

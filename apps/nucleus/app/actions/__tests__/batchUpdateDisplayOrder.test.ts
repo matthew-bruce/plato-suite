@@ -6,8 +6,8 @@ const eqMock = vi.fn()
 const updateMock = vi.fn(() => ({ eq: eqMock }))
 const fromMock = vi.fn(() => ({ update: updateMock }))
 
-vi.mock('@plato/schema', () => ({
-  getSupabaseServerClient: () => ({ from: fromMock }),
+vi.mock('@plato/schema/server', () => ({
+  getSupabaseServerComponentClient: () => ({ from: fromMock }),
 }))
 
 import { batchUpdateDisplayOrder } from '../schedule'

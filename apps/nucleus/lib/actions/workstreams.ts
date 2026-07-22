@@ -1,6 +1,6 @@
 'use server'
 
-import { getSupabaseServerClient } from '@plato/schema'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { revalidatePath } from 'next/cache'
 
 function toSlug(name: string): string {
@@ -21,7 +21,7 @@ export async function createWorkstream(
 
   if (!name || !fundingSource) return { error: 'Name and funding source are required.' }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase.from('workstreams').insert({
     platform_id: platformId,
     workstream_name: name,
@@ -46,7 +46,7 @@ export async function updateWorkstream(
 
   if (!name || !fundingSource) return { error: 'Name and funding source are required.' }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase
     .from('workstreams')
     .update({
@@ -67,7 +67,7 @@ export async function deleteWorkstream(
   workstreamId: string,
   platformSlug: string
 ) {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { error } = await supabase
     .from('workstreams')
     .update({ deleted_at: new Date().toISOString() })

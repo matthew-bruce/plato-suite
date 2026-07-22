@@ -12,8 +12,8 @@ let rpcResult: unknown
 
 const rpcMock = vi.fn()
 
-vi.mock('@plato/schema', () => ({
-  getSupabaseServerClient: () => ({ rpc: rpcMock }),
+vi.mock('@plato/schema/server', () => ({
+  getSupabaseServerComponentClient: () => ({ rpc: rpcMock }),
 }))
 
 import { updateTeamAssignments } from '../schedule-wizard'

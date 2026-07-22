@@ -11,9 +11,11 @@ import {
   Settings,
   GanttChartSquare,
 } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 import { PlatoShell } from '@plato/ui'
 import type { NavSection, ConfigItem } from '@plato/ui'
-import { supabase } from '@/lib/supabase'
+import { isPublicPath } from '@plato/auth'
+import { getSupabaseBrowserClient } from '@plato/schema'
 import type { ItineraryDay, ItinerarySession } from '@/app/itinerary/page'
 import { ItineraryPanel } from './ItineraryPanel'
 
@@ -66,6 +68,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
 ]
 
 export function TesseraAppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [itineraryData, setItineraryData] = useState<{
@@ -98,6 +101,7 @@ export function TesseraAppShell({ children }: { children: React.ReactNode }) {
     hasFetched.current = true
     setItineraryLoading(true)
     void (async () => {
+      const supabase = getSupabaseBrowserClient()
       const [{ data: days }, { data: sessions }] = await Promise.all([
         supabase.from('tessera_itinerary_days').select('*').order('date'),
         supabase.from('tessera_itinerary_sessions').select('*').order('sort_order'),
@@ -109,6 +113,12 @@ export function TesseraAppShell({ children }: { children: React.ReactNode }) {
       setItineraryLoading(false)
     })()
   }, [isPanelOpen])
+
+  // Auth pages render standalone — no nav chrome. All hooks above run first so
+  // this early return doesn't violate the rules of hooks.
+  if (isPublicPath(pathname)) {
+    return <>{children}</>
+  }
 
   return (
     <>

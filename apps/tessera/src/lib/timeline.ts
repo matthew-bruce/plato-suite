@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 
 export interface TimelineResource {
   resource_id: string
@@ -17,6 +17,7 @@ const EXCLUDE_NAMES    = new Set(['Robert Parker', 'Sean Hall', 'Rajat Jain'])
 const EXCLUDE_SUPPLIERS = new Set(['EPAM', 'TAAS', 'LT'])
 
 export async function getTimelineResources(): Promise<TimelineResource[]> {
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase
     .from('resources')
     .select(`

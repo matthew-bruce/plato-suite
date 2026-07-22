@@ -11,7 +11,7 @@ export interface FormFieldProps {
   label: string
   required?: boolean
   errorMessage?: string
-  type?: 'text' | 'dropdown' | 'date'
+  type?: 'text' | 'password' | 'dropdown' | 'date'
   name?: string
   value?: string
   defaultValue?: string
@@ -128,7 +128,7 @@ export function FormField({
 
   const inputHeight = size === 'large' ? '56px' : '40px'
   const fontSize = size === 'large' ? 'var(--rmg-text-b2)' : 'var(--rmg-text-b3)'
-  const hasTrailing = type !== 'text' || variant === 'validated'
+  const hasTrailing = type === 'dropdown' || type === 'date' || variant === 'validated'
 
   const labelStyle: React.CSSProperties = {
     fontFamily: 'var(--rmg-font-body)',
@@ -267,7 +267,7 @@ export function FormField({
           <input
             id={id}
             name={name}
-            type="text"
+            type={type === 'password' ? 'password' : 'text'}
             disabled={isDisabled}
             value={controlled ? value : internalValue}
             placeholder={placeholder}

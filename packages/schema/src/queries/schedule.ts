@@ -1,7 +1,7 @@
 // Server-side data fetching for the Platform Schedule page (ADR-028).
 // All Supabase access goes through the @plato/schema server client (ADR-027).
 
-import { getSupabaseServerClient } from '../server'
+import { getSupabaseServerComponentClient } from '../serverComponent'
 import { computeUnallocatedPct, selectDefaultPeriod } from '../utils/schedule'
 import { resolveAppliedCostConfigurationByCode } from './costConfig'
 import type {
@@ -72,7 +72,7 @@ function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
 export async function getSchedulePageData(
   periodId?: string,
 ): Promise<SchedulePageData | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const { data: allPeriodsData, error: periodsErr } = await supabase
     .from('periods')

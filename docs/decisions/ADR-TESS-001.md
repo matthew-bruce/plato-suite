@@ -1,8 +1,13 @@
 # ADR-TESS-001 — Tessera: Open RLS, No Authentication for MVP
 
 **Date:** 2026-04-22
-**Status:** Accepted (time-bounded)
-**Superseded by:** TBD — when Tessera is genericised into a product
+**Status:** Superseded by ADR-033 (2026-07-22)
+**Superseded by:** ADR-033 — Authenticated Access
+
+> **Superseded.** Tessera's open `USING (true)` RLS policies were replaced with
+> authenticated-only policies in migration `024_authenticated_rls.sql`, and
+> Tessera now requires a Supabase Auth session. The "Condition for Reversal"
+> below has been met. See ADR-033.
 
 ---
 

@@ -19,8 +19,8 @@ let responses: Record<string, unknown[]>
 
 const fromMock = vi.fn()
 
-vi.mock('@plato/schema', () => ({
-  getSupabaseServerClient: () => ({ from: fromMock }),
+vi.mock('@plato/schema/server', () => ({
+  getSupabaseServerComponentClient: () => ({ from: fromMock }),
 }))
 
 import { assignResourceToAllocation, unassignResourceFromAllocation } from '../schedule'

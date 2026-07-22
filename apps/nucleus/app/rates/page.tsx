@@ -1,4 +1,4 @@
-import { getRatesPageData } from '@plato/schema'
+import { getRatesPageData } from '@plato/schema/server'
 import { RatesPageClient } from '@/components/rates/RatesPageClient'
 
 export const dynamic = 'force-dynamic'

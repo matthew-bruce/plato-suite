@@ -13,8 +13,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const fromMock = vi.fn()
 
-vi.mock('@plato/schema', () => ({
-  getSupabaseServerClient: () => ({ from: fromMock }),
+vi.mock('@plato/schema/server', () => ({
+  getSupabaseServerComponentClient: () => ({ from: fromMock }),
 }))
 
 import { getTeamAssignments } from '../schedule-wizard'

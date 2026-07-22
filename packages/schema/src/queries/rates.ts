@@ -2,7 +2,7 @@
 // Scope is rate-setting and history only — no cost-impact analysis (that lives
 // on the Schedule page). Reads go through the shared @plato/schema server client.
 
-import { getSupabaseServerClient } from '../server'
+import { getSupabaseServerComponentClient } from '../serverComponent'
 import type { PeriodStatus } from '../types/schedule'
 
 export interface RatePlatform {
@@ -39,7 +39,7 @@ export interface RatesPageData {
 }
 
 export async function getRatesPageData(): Promise<RatesPageData> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
 
   const [platformsResult, historyResult, periodsResult] = await Promise.all([
     supabase

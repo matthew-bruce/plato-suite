@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { DomainsClient } from '@/components/DomainsClient'
 
 export const dynamic = 'force-dynamic'
@@ -46,6 +46,7 @@ type SessionRow = {
 }
 
 export default async function DomainsPage() {
+  const supabase = await getSupabaseServerComponentClient()
   const [domainsRes, ragRes, linksRes] = await Promise.all([
     supabase
       .from('tessera_domains')

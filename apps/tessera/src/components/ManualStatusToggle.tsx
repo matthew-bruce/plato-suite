@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseBrowserClient } from '@plato/schema'
 import { CHIP_DESCRIPTIONS, type ChipKey } from '@/lib/chipLegend'
 
 export type ManualDimension = 'DOCUMENTATION' | 'SIGN_OFF'
@@ -65,6 +65,7 @@ export function ManualStatusToggle({
     setState(next)
 
     startTransition(async () => {
+      const supabase = getSupabaseBrowserClient()
       const { error } = await supabase
         .from('tessera_rag_scores')
         .upsert(

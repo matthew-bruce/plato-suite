@@ -15,8 +15,10 @@ import {
   Settings,
   EyeOff,
 } from 'lucide-react'
+import { usePathname } from 'next/navigation'
 import { PlatoShell } from '@plato/ui'
 import type { NavSection, ConfigItem } from '@plato/ui'
+import { isPublicPath } from '@plato/auth'
 import { usePrivacyMode } from '@/context/PrivacyModeContext'
 
 const NAV_SECTIONS: NavSection[] = [
@@ -58,6 +60,14 @@ const CONFIG_ITEMS: ConfigItem[] = [
 ]
 
 export function NucleusAppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
+
+  // Auth pages (login / forgot / reset / callback) render standalone — no nav
+  // chrome. Middleware guarantees only these are reachable without a session.
+  if (isPublicPath(pathname)) {
+    return <>{children}</>
+  }
+
   return (
     <PlatoShell
       activeApp="nucleus"

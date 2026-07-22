@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import { ItineraryClient } from '@/components/ItineraryClient'
 
 export const dynamic = 'force-dynamic'
@@ -29,6 +29,7 @@ export type ItinerarySession = {
 export type TripState = 'before' | 'active' | 'after'
 
 export default async function ItineraryPage() {
+  const supabase = await getSupabaseServerComponentClient()
   const [daysRes, sessionsRes] = await Promise.all([
     supabase
       .from('tessera_itinerary_days')

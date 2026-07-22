@@ -3,7 +3,7 @@
 // the applicable cost_configurations row through this one function, so the
 // effective-dating rule lives in a single place (see utils/costConfig).
 
-import { getSupabaseServerClient } from '../server'
+import { getSupabaseServerComponentClient } from '../serverComponent'
 import { pickEffectiveCostConfig } from '../utils/costConfig'
 import type { CostConfiguration } from '../types/schedule'
 
@@ -47,7 +47,7 @@ export async function resolveCostConfiguration(
   platformId: string,
   targetDateISO: string,
 ): Promise<CostConfiguration | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase
     .from('cost_configurations')
     .select(COST_CONFIG_COLUMNS)
@@ -69,7 +69,7 @@ export async function resolveCostConfigurationByCode(
   platformCode: string,
   targetDateISO: string,
 ): Promise<CostConfiguration | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data: platformRow } = await supabase
     .from('platforms')
     .select('platform_id')
@@ -108,7 +108,7 @@ export async function resolveAppliedCostConfiguration(
     return resolveCostConfiguration(platformId, period.period_start_date)
   }
 
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data, error } = await supabase
     .from('period_cost_snapshots')
     .select(
@@ -143,7 +143,7 @@ export async function resolveAppliedCostConfigurationByCode(
   platformCode: string,
   period: AppliedConfigPeriod,
 ): Promise<CostConfiguration | null> {
-  const supabase = getSupabaseServerClient()
+  const supabase = await getSupabaseServerComponentClient()
   const { data: platformRow } = await supabase
     .from('platforms')
     .select('platform_id')
