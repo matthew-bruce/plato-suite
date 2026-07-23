@@ -264,6 +264,95 @@ describe('createResourceAndAllocation — new person path', () => {
     expect(result.success).toBe(false)
     expect(result.error).toBe('unique constraint violation')
   })
+
+  // Duplicate-resource regression (2026-07-23): migration 027 adds
+  // resources_name_supplier_active_unique — a partial unique index on
+  // (lower(resource_name), supplier_id) WHERE deleted_at IS NULL — after 11
+  // EPAM resources were found duplicated (an original April row + a June
+  // duplicate from a bulk script with no existing-resource check). This
+  // asserts the "new person" path surfaces that DB-level rejection cleanly
+  // and does NOT report success or an allocationId when the resource insert
+  // itself was rejected as a duplicate.
+  it('returns { success: false } and does not create an allocation when the resource insert is rejected as a duplicate name+supplier', async () => {
+    resetRpa()
+    resourcesInsertResult = {
+      data: null,
+      error: {
+        message:
+          'duplicate key value violates unique constraint "resources_name_supplier_active_unique"',
+        code: '23505',
+      },
+    }
+    setupFromMock('new')
+
+    const result = await createResourceAndAllocation({
+      mode: 'new',
+      resourceName: 'Aliaksei Yakimovich',
+      supplierId: 'supplier-epam',
+      supplierName: 'EPAM',
+      roleTitle: 'Engineer',
+      planviewCode: 'PR',
+      resourceLocation: 'offshore',
+      periodId: 'period-1',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('resources_name_supplier_active_unique')
+    expect(result.allocationId).toBeUndefined()
+
+    // The allocation INSERT must never be attempted after a rejected resource insert.
+    const allocationCalls = (fromMock.mock.calls as string[][]).filter(
+      ([t]) => t === 'resource_period_allocations',
+    )
+    expect(allocationCalls).toHaveLength(0)
+  })
+})
+
+// ── Silent-failure finding (2026-07-23 CRUD audit) — NOT YET FIXED ──────────
+//
+// Step 4 of createResourceAndAllocation (schedule-wizard.ts) inserts team
+// assignments after the resource + allocation are already committed. Today
+// that insert's error is caught, console.error'd, and swallowed BY DESIGN
+// ("Non-fatal: log but don't fail the whole operation") — the function still
+// returns { success: true }. A caller (AddResourceWizard.tsx) reports full
+// success and closes the wizard even when team assignments never saved.
+//
+// Per WORKING_AGREEMENT.md's diagnose-before-patch rule, this is flagged to
+// Matt for sign-off, not fixed here. This test uses `it.fails` — it encodes
+// the CORRECT/desired behaviour (a team-assignment failure should be visible
+// on the result, not swallowed) and is expected to fail against the current
+// code. It documents the gap without breaking the suite; if the source is
+// ever fixed to make this pass, `it.fails` itself will start failing as a
+// signal to convert it to a normal `it` and remove this comment.
+describe('createResourceAndAllocation — team-assignment failure visibility (flagged, not fixed)', () => {
+  it.fails(
+    'FLAGGED: should not report success when the team-assignment insert fails after resource+allocation creation',
+    async () => {
+      resetRpa()
+      resourcesInsertResult = { data: { resource_id: 'res-new-1' }, error: null }
+      displayOrderResult = { data: [], error: null }
+      allocInsertResult = { data: { allocation_id: 'alloc-1' }, error: null }
+      teamInsertResult = { error: { message: 'permission denied for resource_team_assignments' } }
+      setupFromMock('new', true)
+
+      const result = await createResourceAndAllocation({
+        mode: 'new',
+        resourceName: 'Jane Smith',
+        supplierId: 'supplier-1',
+        supplierName: 'Capgemini',
+        roleTitle: 'Engineer',
+        planviewCode: 'PR',
+        resourceLocation: 'onshore',
+        periodId: 'period-1',
+        teamAssignments: [{ teamId: 'team-a', capacitySplit: 100 }],
+      })
+
+      // Desired behaviour: the caller must be able to tell the write was
+      // incomplete. Currently `result.success` is `true` regardless, so this
+      // assertion fails — that failure is expected and intentional.
+      expect(result.success).toBe(false)
+    },
+  )
 })
 
 describe('createResourceAndAllocation — display_order', () => {
