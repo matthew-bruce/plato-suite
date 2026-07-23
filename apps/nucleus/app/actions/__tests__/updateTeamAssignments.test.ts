@@ -143,4 +143,77 @@ describe('updateTeamAssignments', () => {
     expect(result.success).toBe(false)
     expect(result.error).toBe('permission denied')
   })
+
+  // ── Capacity-split integrity regression ─────────────────────────────────
+  //
+  // resource_team_assignments.capacity_split is stored on a 0.00–1.00 scale
+  // (see migration 001 / SCHEMA_DESIGN.md 1.6); this action works in the 0–100
+  // percent scale used by the UI and divides by 100 before the RPC call
+  // (schedule-wizard.ts). The invariant that actually matters is: SUM(capacity_split)
+  // across active (deleted_at IS NULL) resource_team_assignments rows for a
+  // given resource_id + period must never exceed 1.00. The existing
+  // "rejects if real splits do not sum to 100" test above only proves
+  // inequality (90 !== 100) is caught; these tests specifically target the
+  // over-allocation case and prove the RPC is never reached when the incoming
+  // write would push the period total over 100% (i.e. capacity_split > 1.00).
+  describe('capacity_split integrity — never exceeds 1.00 (100%) for a resource+period', () => {
+    it('rejects a two-team split that sums to more than 100', async () => {
+      const result = await updateTeamAssignments('res-1', 'period-1', [
+        { teamId: 'team-a', capacitySplit: 70 },
+        { teamId: 'team-b', capacitySplit: 50 },
+      ])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('100')
+      expect(rpcMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects a three-team split that sums to more than 100', async () => {
+      const result = await updateTeamAssignments('res-1', 'period-1', [
+        { teamId: 'team-a', capacitySplit: 50 },
+        { teamId: 'team-b', capacitySplit: 40 },
+        { teamId: 'team-c', capacitySplit: 20 },
+      ])
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('110')
+      expect(rpcMock).not.toHaveBeenCalled()
+    })
+
+    it('accepts a split that sums to exactly 100 (capacity_split total of exactly 1.00)', async () => {
+      const result = await updateTeamAssignments('res-1', 'period-1', [
+        { teamId: 'team-a', capacitySplit: 33 },
+        { teamId: 'team-b', capacitySplit: 33 },
+        { teamId: 'team-c', capacitySplit: 34 },
+      ])
+
+      expect(result.success).toBe(true)
+      expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+        p_resource_id: 'res-1',
+        p_period_id: 'period-1',
+        p_allocation_id: null,
+        p_assignments: [
+          { team_id: 'team-a', capacity_split: 33 },
+          { team_id: 'team-b', capacity_split: 33 },
+          { team_id: 'team-c', capacity_split: 34 },
+        ],
+      })
+    })
+
+    it('TBC path: also rejects an over-100 split before the RPC is called', async () => {
+      const result = await updateTeamAssignments(
+        null,
+        'period-1',
+        [
+          { teamId: 'team-a', capacitySplit: 80 },
+          { teamId: 'team-b', capacitySplit: 40 },
+        ],
+        'alloc-1',
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('120')
+      expect(rpcMock).not.toHaveBeenCalled()
+    })
+  })
 })
