@@ -23,6 +23,7 @@ export interface DirectoryResource {
   supplier_name: string | null
   supplier_colour: string | null
   supplier_abbreviation: string | null
+  supplier_sort_order: number | null
   /** Resolved current team names (see resolveResourceTeams). Empty = "Not on a team". */
   teams: string[]
 }

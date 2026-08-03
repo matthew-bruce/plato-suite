@@ -49,6 +49,7 @@ export {
   filterDirectoryResources,
   sortAllocationHistory,
   checkIsSuperuser,
+  NO_TEAM_SENTINEL,
 } from './utils/people'
 export type {
   TeamAssignmentRow,

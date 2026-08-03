@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react'
 import { ChevronLeft, SlidersHorizontal } from 'lucide-react'
 import type { DirectoryResource } from '@plato/schema'
-import { filterDirectoryResources } from '@plato/schema'
+import { filterDirectoryResources, NO_TEAM_SENTINEL } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -11,10 +11,17 @@ import {
   PageToolbarPrimaryActions,
   PageToolbarResourceCount,
 } from '@plato/ui'
-import { getSupplierColour } from '@plato/ui/tokens'
-import { TeamFilterSheet } from './TeamFilterSheet'
+import { getSupplierColour, buildSupplierMap } from '@plato/ui/tokens'
+import { highlightMatch } from '@/lib/schedule/highlightMatch'
+import { TeamFilterSheet, ALL_TEAMS } from './TeamFilterSheet'
 import { PersonDetailPanel } from './PersonDetailPanel'
-import { FUNCTION_FILTER_ORDER, humanizeFunction, sentenceCaseLocation, getPersonInitials } from '@/lib/people/format'
+import {
+  FUNCTION_FILTER_ORDER,
+  LOCATION_FILTER_ORDER,
+  humanizeFunction,
+  sentenceCaseLocation,
+  getPersonInitials,
+} from '@/lib/people/format'
 
 const MOBILE_BREAKPOINT = 768
 const ALL_SENTINEL = '--all'
@@ -27,6 +34,8 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
   const [search, setSearch] = useState('')
   const [selectedFunctions, setSelectedFunctions] = useState<string[]>([])
   const [selectedTeams, setSelectedTeams] = useState<string[]>([])
+  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([])
   const [teamSheetOpen, setTeamSheetOpen] = useState(false)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
@@ -38,9 +47,51 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  // Supplier pill colours always come from the DB via buildSupplierMap() /
+  // getSupplierColour() — never hardcoded. Options are derived from the
+  // resources actually loaded (same pattern as Schedule's supplierOptions),
+  // ordered by supplier_sort_order then abbreviation.
+  const supplierOptions = useMemo(() => {
+    const bySupplier = new Map<string, { colour: string; sortOrder: number | null }>()
+    for (const r of resources) {
+      if (!r.supplier_abbreviation) continue
+      if (!bySupplier.has(r.supplier_abbreviation)) {
+        bySupplier.set(r.supplier_abbreviation, {
+          colour: r.supplier_colour ?? '',
+          sortOrder: r.supplier_sort_order,
+        })
+      }
+    }
+    const map = buildSupplierMap(
+      Array.from(bySupplier.entries()).map(([abbreviation, v]) => ({
+        supplier_abbreviation: abbreviation,
+        supplier_colour: v.colour,
+      })),
+    )
+    return Array.from(bySupplier.entries())
+      .map(([abbreviation, v]) => ({
+        abbreviation,
+        sortOrder: v.sortOrder,
+        colour: getSupplierColour(abbreviation, map),
+      }))
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Infinity
+        const sb = b.sortOrder ?? Infinity
+        if (sa !== sb) return sa - sb
+        return a.abbreviation.localeCompare(b.abbreviation)
+      })
+  }, [resources])
+
   const filtered = useMemo(
-    () => filterDirectoryResources(resources, { search, functions: selectedFunctions, teams: selectedTeams }),
-    [resources, search, selectedFunctions, selectedTeams],
+    () =>
+      filterDirectoryResources(resources, {
+        search,
+        functions: selectedFunctions,
+        teams: selectedTeams,
+        suppliers: selectedSuppliers,
+        locations: selectedLocations,
+      }),
+    [resources, search, selectedFunctions, selectedTeams, selectedSuppliers, selectedLocations],
   )
 
   const selectedResource: DirectoryResource | null = selectedResourceId
@@ -51,8 +102,18 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
     setSelectedFunctions((prev) => (prev.includes(fn) ? prev.filter((f) => f !== fn) : [...prev, fn]))
   }
 
-  function removeTeam(team: string) {
-    setSelectedTeams((prev) => prev.filter((t) => t !== team))
+  function toggleTeam(team: string) {
+    setSelectedTeams((prev) => (prev.includes(team) ? prev.filter((t) => t !== team) : [...prev, team]))
+  }
+
+  function toggleSupplier(abbreviation: string) {
+    setSelectedSuppliers((prev) =>
+      prev.includes(abbreviation) ? prev.filter((s) => s !== abbreviation) : [...prev, abbreviation],
+    )
+  }
+
+  function toggleLocation(location: string) {
+    setSelectedLocations((prev) => (prev.includes(location) ? prev.filter((l) => l !== location) : [...prev, location]))
   }
 
   // Mobile: selecting a resource pushes a full-screen detail view.
@@ -125,7 +186,7 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
           primaryRow={
             <>
               <div style={isMobile ? { flex: '1 1 100%' } : { maxWidth: 400, flexShrink: 0 }}>
-                <PageToolbarSearch value={search} onChange={setSearch} placeholder="Search by name…" />
+                <PageToolbarSearch value={search} onChange={setSearch} placeholder="Search name, role, team, location…" />
               </div>
               <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>{filtered.length} resources</PageToolbarResourceCount>
@@ -135,6 +196,11 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
           filterRow={
             isMobile ? (
               <MobileFilterRow
+                supplierOptions={supplierOptions}
+                selectedSuppliers={selectedSuppliers}
+                onToggleSupplier={toggleSupplier}
+                selectedLocations={selectedLocations}
+                onToggleLocation={toggleLocation}
                 selectedFunctions={selectedFunctions}
                 onToggleFunction={toggleFunction}
                 selectedTeamsCount={selectedTeams.length}
@@ -142,11 +208,17 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
               />
             ) : (
               <DesktopFilterRow
+                supplierOptions={supplierOptions}
+                selectedSuppliers={selectedSuppliers}
+                onToggleSupplier={toggleSupplier}
+                onClearSuppliers={() => setSelectedSuppliers([])}
+                selectedLocations={selectedLocations}
+                onToggleLocation={toggleLocation}
+                onClearLocations={() => setSelectedLocations([])}
                 selectedFunctions={selectedFunctions}
                 onToggleFunction={toggleFunction}
                 selectedTeams={selectedTeams}
-                onOpenTeamSheet={() => setTeamSheetOpen(true)}
-                onRemoveTeam={removeTeam}
+                onToggleTeam={toggleTeam}
               />
             )
           }
@@ -158,10 +230,10 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
       )}
 
       {isMobile ? (
-        <ResourceList resources={filtered} selectedId={selectedResourceId} onSelect={setSelectedResourceId} isMobile />
+        <ResourceList resources={filtered} selectedId={selectedResourceId} onSelect={setSelectedResourceId} search={search} isMobile />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 360px', gap: 20, alignItems: 'start' }}>
-          <ResourceList resources={filtered} selectedId={selectedResourceId} onSelect={setSelectedResourceId} />
+          <ResourceList resources={filtered} selectedId={selectedResourceId} onSelect={setSelectedResourceId} search={search} />
           <div style={{ position: 'sticky', top: 16 }}>
             {selectedResource ? (
               <PersonDetailPanel resource={selectedResource} />
@@ -187,32 +259,97 @@ export function PeopleDirectoryClient({ resources }: PeopleDirectoryClientProps)
   )
 }
 
+interface SupplierOption {
+  abbreviation: string
+  colour: string
+}
+
+function GroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 700,
+        textTransform: 'uppercase',
+        letterSpacing: '0.07em',
+        color: 'var(--rmg-color-grey-1)',
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+function GroupDivider() {
+  return <div style={{ width: 1, height: 18, background: 'var(--rmg-color-grey-2)', flexShrink: 0, margin: '0 4px' }} />
+}
+
 function DesktopFilterRow({
+  supplierOptions,
+  selectedSuppliers,
+  onToggleSupplier,
+  onClearSuppliers,
+  selectedLocations,
+  onToggleLocation,
+  onClearLocations,
   selectedFunctions,
   onToggleFunction,
   selectedTeams,
-  onOpenTeamSheet,
-  onRemoveTeam,
+  onToggleTeam,
 }: {
+  supplierOptions: SupplierOption[]
+  selectedSuppliers: string[]
+  onToggleSupplier: (abbreviation: string) => void
+  onClearSuppliers: () => void
+  selectedLocations: string[]
+  onToggleLocation: (location: string) => void
+  onClearLocations: () => void
   selectedFunctions: string[]
   onToggleFunction: (fn: string) => void
   selectedTeams: string[]
-  onOpenTeamSheet: () => void
-  onRemoveTeam: (team: string) => void
+  onToggleTeam: (team: string) => void
 }) {
   return (
     <>
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.07em',
-          color: 'var(--rmg-color-grey-1)',
-        }}
-      >
-        Function
-      </span>
+      <GroupLabel>Supplier</GroupLabel>
+      <PageToolbarFilterPill
+        label="All"
+        active={selectedSuppliers.length === 0}
+        colour={ALL_SENTINEL}
+        onClick={onClearSuppliers}
+      />
+      {supplierOptions.map((s) => (
+        <PageToolbarFilterPill
+          key={s.abbreviation}
+          label={s.abbreviation}
+          active={selectedSuppliers.includes(s.abbreviation)}
+          colour={s.colour}
+          onClick={() => onToggleSupplier(s.abbreviation)}
+        />
+      ))}
+
+      <GroupDivider />
+
+      <GroupLabel>Location</GroupLabel>
+      <PageToolbarFilterPill
+        label="All"
+        active={selectedLocations.length === 0}
+        colour={ALL_SENTINEL}
+        onClick={onClearLocations}
+      />
+      {LOCATION_FILTER_ORDER.map((loc) => (
+        <PageToolbarFilterPill
+          key={loc}
+          label={sentenceCaseLocation(loc) ?? loc}
+          active={selectedLocations.includes(loc)}
+          colour={ALL_SENTINEL}
+          onClick={() => onToggleLocation(loc)}
+        />
+      ))}
+
+      <GroupDivider />
+
+      <GroupLabel>Function</GroupLabel>
       {FUNCTION_FILTER_ORDER.map((fn) => (
         <PageToolbarFilterPill
           key={fn}
@@ -223,22 +360,44 @@ function DesktopFilterRow({
         />
       ))}
 
-      <div style={{ width: 1, height: 18, background: 'var(--rmg-color-grey-2)', flexShrink: 0, margin: '0 4px' }} />
+      <GroupDivider />
 
-      <TeamFilterTrigger count={selectedTeams.length} onClick={onOpenTeamSheet} />
-      {selectedTeams.map((team) => (
-        <PageToolbarFilterPill key={team} label={team} active colour={ALL_SENTINEL} onClick={() => onRemoveTeam(team)} />
+      <GroupLabel>Team</GroupLabel>
+      {ALL_TEAMS.map((team) => (
+        <PageToolbarFilterPill
+          key={team}
+          label={team}
+          active={selectedTeams.includes(team)}
+          colour={ALL_SENTINEL}
+          onClick={() => onToggleTeam(team)}
+        />
       ))}
+      <PageToolbarFilterPill
+        label="No team"
+        active={selectedTeams.includes(NO_TEAM_SENTINEL)}
+        colour={ALL_SENTINEL}
+        onClick={() => onToggleTeam(NO_TEAM_SENTINEL)}
+      />
     </>
   )
 }
 
 function MobileFilterRow({
+  supplierOptions,
+  selectedSuppliers,
+  onToggleSupplier,
+  selectedLocations,
+  onToggleLocation,
   selectedFunctions,
   onToggleFunction,
   selectedTeamsCount,
   onOpenTeamSheet,
 }: {
+  supplierOptions: SupplierOption[]
+  selectedSuppliers: string[]
+  onToggleSupplier: (abbreviation: string) => void
+  selectedLocations: string[]
+  onToggleLocation: (location: string) => void
   selectedFunctions: string[]
   onToggleFunction: (fn: string) => void
   selectedTeamsCount: number
@@ -246,6 +405,26 @@ function MobileFilterRow({
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', minWidth: 0, overflowX: 'auto', paddingBottom: 2 }}>
+      {supplierOptions.map((s) => (
+        <PageToolbarFilterPill
+          key={s.abbreviation}
+          label={s.abbreviation}
+          active={selectedSuppliers.includes(s.abbreviation)}
+          colour={s.colour}
+          onClick={() => onToggleSupplier(s.abbreviation)}
+          style={{ flexShrink: 0 }}
+        />
+      ))}
+      {LOCATION_FILTER_ORDER.map((loc) => (
+        <PageToolbarFilterPill
+          key={loc}
+          label={sentenceCaseLocation(loc) ?? loc}
+          active={selectedLocations.includes(loc)}
+          colour={ALL_SENTINEL}
+          onClick={() => onToggleLocation(loc)}
+          style={{ flexShrink: 0 }}
+        />
+      ))}
       {FUNCTION_FILTER_ORDER.map((fn) => (
         <PageToolbarFilterPill
           key={fn}
@@ -284,41 +463,17 @@ function MobileFilterRow({
   )
 }
 
-function TeamFilterTrigger({ count, onClick }: { count: number; onClick: () => void }) {
-  const active = count > 0
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        background: active ? '#FFF5F5' : 'var(--rmg-color-surface-white)',
-        border: `1px solid ${active ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-2)'}`,
-        borderRadius: 'var(--rmg-radius-s)',
-        padding: '5px 10px',
-        cursor: 'pointer',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 12,
-        fontWeight: active ? 600 : 400,
-        color: active ? 'var(--rmg-color-red)' : 'var(--rmg-color-text-body)',
-      }}
-    >
-      {active ? `Team (${count})` : '+ Team'}
-    </button>
-  )
-}
-
 function ResourceList({
   resources,
   selectedId,
   onSelect,
+  search,
   isMobile,
 }: {
   resources: DirectoryResource[]
   selectedId: string | null
   onSelect: (id: string) => void
+  search: string
   isMobile?: boolean
 }) {
   if (resources.length === 0) {
@@ -347,6 +502,7 @@ function ResourceList({
           resource={r}
           selected={r.resource_id === selectedId}
           onSelect={() => onSelect(r.resource_id)}
+          search={search}
           isMobile={isMobile}
         />
       ))}
@@ -358,11 +514,13 @@ function PersonRow({
   resource,
   selected,
   onSelect,
+  search,
   isMobile,
 }: {
   resource: DirectoryResource
   selected: boolean
   onSelect: () => void
+  search: string
   isMobile?: boolean
 }) {
   const colour = getSupplierColour(resource.supplier_abbreviation ?? '')
@@ -371,7 +529,7 @@ function PersonRow({
 
   const teamNode =
     resource.teams.length > 0 ? (
-      resource.teams.join(', ')
+      highlightMatch(resource.teams.join(', '), search)
     ) : (
       <span style={{ color: 'var(--rmg-color-orange)' }}>Not on a team</span>
     )
@@ -408,7 +566,7 @@ function PersonRow({
           whiteSpace: 'nowrap',
         }}
       >
-        {resource.resource_name}
+        {highlightMatch(resource.resource_name, search)}
       </div>
       {functionLabel && (
         <div
@@ -428,8 +586,8 @@ function PersonRow({
   if (isMobile) {
     const metaParts: ReactNode[] = [
       teamNode,
-      resource.resource_job_title,
-      locationLabel,
+      resource.resource_job_title ? highlightMatch(resource.resource_job_title, search) : null,
+      locationLabel ? highlightMatch(locationLabel, search) : null,
       resource.resource_years_experience !== null ? `${resource.resource_years_experience}y` : null,
     ].filter((p) => p !== null && p !== undefined && p !== '')
 
@@ -505,10 +663,12 @@ function PersonRow({
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--rmg-color-text-light)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {resource.resource_job_title ?? ''}
+        {resource.resource_job_title ? highlightMatch(resource.resource_job_title, search) : ''}
       </div>
 
-      <div style={{ fontSize: 12, color: 'var(--rmg-color-text-body)' }}>{locationLabel ?? ''}</div>
+      <div style={{ fontSize: 12, color: 'var(--rmg-color-text-body)' }}>
+        {locationLabel ? highlightMatch(locationLabel, search) : ''}
+      </div>
 
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--rmg-color-text-body)', textAlign: 'right' }}>
         {resource.resource_years_experience !== null ? `${resource.resource_years_experience}y` : ''}

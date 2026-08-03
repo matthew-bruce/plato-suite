@@ -41,27 +41,50 @@ function latestPeriodRows(rows: TeamAssignmentRow[]): TeamAssignmentRow[] {
   return dated.filter((r) => r.period_start_date === latestDate)
 }
 
+/** Reserved value for the Team group's "No team" pill — selects resources
+ *  with zero team assignments (teams: []), OR'd together with any other
+ *  selected real team names within the same group. */
+export const NO_TEAM_SENTINEL = '__no_team__'
+
 export interface DirectoryFilterCriteria {
   search: string
   /** resource_function values. Empty = no function filter applied. */
   functions: string[]
-  /** team names. Empty = no team filter applied. */
+  /** team names, plus optionally NO_TEAM_SENTINEL. Empty = no team filter applied. */
   teams: string[]
+  /** supplier_abbreviation values. Empty = no supplier filter applied. */
+  suppliers: string[]
+  /** resource_location values. Empty = no location filter applied. */
+  locations: string[]
 }
 
 export interface FilterableResource {
   resource_name: string
   resource_function: string | null
+  resource_location: string | null
+  resource_job_title: string | null
+  supplier_abbreviation: string | null
   teams: string[]
 }
 
+/** True if `query` (already trimmed/lower-cased) appears in the resource's
+ *  name, role/job title, any current team name, or location. */
+function resourceMatchesSearch(r: FilterableResource, query: string): boolean {
+  if (r.resource_name.toLowerCase().includes(query)) return true
+  if (r.resource_job_title && r.resource_job_title.toLowerCase().includes(query)) return true
+  if (r.resource_location && r.resource_location.toLowerCase().includes(query)) return true
+  if (r.teams.some((t) => t.toLowerCase().includes(query))) return true
+  return false
+}
+
 /**
- * Combine the People Directory's search box, Function pills and Team
- * multi-select. Search and Function are independent of the Team filter and
- * of each other's presence — Function and Team combine with AND; multiple
- * Team selections OR together. A resource with no team assignment
- * (teams: []) is excluded ONLY when a Team filter is actively applied —
- * under search-only, Function-only, or no filters, it still matches.
+ * Combine the People Directory's search box with the Supplier, Location,
+ * Function and Team pill groups. Every group is independent of the others
+ * being present — all four groups combine with AND; multiple selections
+ * within a single group OR together. A resource with no team assignment
+ * (teams: []) is excluded when a Team filter is applied UNLESS the
+ * NO_TEAM_SENTINEL pill is itself one of the selected teams, in which case
+ * it's exactly what that selection matches.
  */
 export function filterDirectoryResources<T extends FilterableResource>(
   resources: T[],
@@ -70,15 +93,24 @@ export function filterDirectoryResources<T extends FilterableResource>(
   const search = criteria.search.trim().toLowerCase()
 
   return resources.filter((r) => {
-    if (search && !r.resource_name.toLowerCase().includes(search)) return false
+    if (search && !resourceMatchesSearch(r, search)) return false
 
     if (criteria.functions.length > 0) {
       if (!r.resource_function || !criteria.functions.includes(r.resource_function)) return false
     }
 
     if (criteria.teams.length > 0) {
-      if (r.teams.length === 0) return false
-      if (!r.teams.some((t) => criteria.teams.includes(t))) return false
+      const matchesTeam = r.teams.some((t) => criteria.teams.includes(t))
+      const matchesNoTeam = r.teams.length === 0 && criteria.teams.includes(NO_TEAM_SENTINEL)
+      if (!matchesTeam && !matchesNoTeam) return false
+    }
+
+    if (criteria.suppliers.length > 0) {
+      if (!r.supplier_abbreviation || !criteria.suppliers.includes(r.supplier_abbreviation)) return false
+    }
+
+    if (criteria.locations.length > 0) {
+      if (!r.resource_location || !criteria.locations.includes(r.resource_location)) return false
     }
 
     return true

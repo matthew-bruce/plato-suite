@@ -12,6 +12,10 @@ const FUNCTION_LABELS: Record<string, string> = {
 // Filter-pill / subtext order — deliberately not the DB enum's declaration order.
 export const FUNCTION_FILTER_ORDER = ['FACTORY', 'SERVICE', 'MIGRATION', 'CLOUD_OPS', 'PROGRAMME', 'COMMERCIAL']
 
+// resource_location is a fixed Postgres enum (onshore/nearshore/offshore) —
+// no DB fetch needed, same rationale as FUNCTION_FILTER_ORDER above.
+export const LOCATION_FILTER_ORDER = ['onshore', 'nearshore', 'offshore']
+
 export function humanizeFunction(fn: string | null): string | null {
   if (!fn) return null
   return FUNCTION_LABELS[fn] ?? fn

@@ -1,6 +1,7 @@
 'use client'
 
 import { Checkbox } from '@plato/ui/components/rmg'
+import { NO_TEAM_SENTINEL } from '@plato/schema'
 
 const TEAMS = [
   'Cosmos', 'Cygnus', 'DST', 'ETP', 'Helion', 'Janus',
@@ -85,6 +86,13 @@ export function TeamFilterSheet({ selected, onChange, onClose }: TeamFilterSheet
               onChange={() => toggle(team)}
             />
           ))}
+          <div style={{ height: 1, background: 'var(--rmg-color-grey-3)', margin: '6px 0' }} />
+          <Checkbox
+            label="No team"
+            size="small"
+            checked={selected.includes(NO_TEAM_SENTINEL)}
+            onChange={() => toggle(NO_TEAM_SENTINEL)}
+          />
         </div>
 
         <div style={{ padding: '12px 20px', borderTop: '1px solid var(--rmg-color-grey-3)', display: 'flex', justifyContent: 'space-between', gap: 8 }}>

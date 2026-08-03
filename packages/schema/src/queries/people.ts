@@ -19,6 +19,7 @@ type SupplierEmbed = {
   supplier_name: string
   supplier_colour: string | null
   supplier_abbreviation: string | null
+  sort_order: number | null
 }
 
 type TeamEmbed = { team_name: string }
@@ -66,7 +67,7 @@ export async function getPeopleDirectoryData(): Promise<PeopleDirectoryData> {
       .select(
         'resource_id, resource_name, resource_function, resource_location, resource_job_title, ' +
           'resource_years_experience, resource_primary_tech_stack, resource_secondary_tech_stack, ' +
-          'supplier_id, suppliers(supplier_name, supplier_colour, supplier_abbreviation)',
+          'supplier_id, suppliers(supplier_name, supplier_colour, supplier_abbreviation, sort_order)',
       )
       .is('deleted_at', null)
       .order('resource_name'),
@@ -113,6 +114,7 @@ export async function getPeopleDirectoryData(): Promise<PeopleDirectoryData> {
       supplier_name: supplier?.supplier_name ?? null,
       supplier_colour: supplier?.supplier_colour ?? null,
       supplier_abbreviation: supplier?.supplier_abbreviation ?? null,
+      supplier_sort_order: supplier?.sort_order ?? null,
       teams: resolveResourceTeams(assignmentsByResource.get(r.resource_id) ?? []),
     }
   })
