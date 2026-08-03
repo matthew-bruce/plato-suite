@@ -13,6 +13,11 @@ export { getSchedulePageData } from './queries/schedule'
 export { getRatesPageData } from './queries/rates'
 export { getHomepageData } from './queries/homepage'
 export {
+  getPeopleDirectoryData,
+  getResourceAllocationHistory,
+  getResourceCommercialSnapshot,
+} from './queries/people'
+export {
   resolveCostConfiguration,
   resolveCostConfigurationByCode,
   resolveAppliedCostConfiguration,
