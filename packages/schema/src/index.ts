@@ -34,3 +34,27 @@ export type {
 } from './queries/rates'
 
 export type { PeriodSummary, AttentionItem, HomepageData } from './types/homepage'
+
+export type {
+  ResourceFunction,
+  DirectoryResource,
+  PeopleDirectoryData,
+  AllocationHistoryRow,
+  CommercialAllocation,
+  CommercialSnapshot,
+} from './types/people'
+
+export {
+  resolveResourceTeams,
+  filterDirectoryResources,
+  sortAllocationHistory,
+  checkIsSuperuser,
+  NO_TEAM_SENTINEL,
+} from './utils/people'
+export type {
+  TeamAssignmentRow,
+  DirectoryFilterCriteria,
+  FilterableResource,
+  SortableHistoryRow,
+  SuperuserRpcClient,
+} from './utils/people'
