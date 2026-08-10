@@ -13,6 +13,10 @@ export interface NavItem {
   href: string
   icon: React.ReactNode
   exactMatch?: boolean
+  /** No page behind this item yet. Renders greyed, non-clickable, with a
+   *  "Coming soon" affordance — no href/route change, stays in place in the
+   *  nav (not removed). */
+  disabled?: boolean
 }
 
 export interface NavSection {
@@ -25,6 +29,7 @@ export interface ConfigItem {
   href?: string
   icon?: React.ReactNode
   element?: React.ReactNode
+  disabled?: boolean
 }
 
 export interface PlatoShellProps {
@@ -296,8 +301,9 @@ export function PlatoShell({
                 <NavItemEl
                   key={iIdx}
                   item={item}
-                  active={isActive(item.href, item.exactMatch)}
+                  active={!item.disabled && isActive(item.href, item.exactMatch)}
                   collapsed={isCollapsed}
+                  disabled={item.disabled}
                 />
               ))}
             </div>
@@ -346,8 +352,9 @@ export function PlatoShell({
                       href: item.href ?? '#',
                       icon: item.icon,
                     }}
-                    active={item.href ? isActive(item.href) : false}
+                    active={!item.disabled && (item.href ? isActive(item.href) : false)}
                     collapsed={isCollapsed}
+                    disabled={item.disabled}
                   />
                 )
               )}
@@ -401,46 +408,44 @@ function NavItemEl({
   item,
   active,
   collapsed,
+  disabled,
 }: {
   item: Pick<NavItem, 'label' | 'href'> & { icon?: React.ReactNode }
   active: boolean
   collapsed: boolean
+  disabled?: boolean
 }) {
   const [hovered, setHovered] = useState(false)
 
-  const bg = active ? '#F8E7E7' : hovered ? '#F5F5F5' : 'transparent'
-  const color = active ? '#DA202A' : hovered ? '#2A2A2D' : '#666666'
+  const bg = disabled ? 'transparent' : active ? '#F8E7E7' : hovered ? '#F5F5F5' : 'transparent'
+  const color = disabled ? '#B0B0B0' : active ? '#DA202A' : hovered ? '#2A2A2D' : '#666666'
   const fontWeight = active ? 600 : 500
 
-  return (
-    <a
-      href={item.href}
-      title={collapsed ? item.label : undefined}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: collapsed ? 0 : 10,
-        padding: '8px 12px',
-        borderRadius: 6,
-        cursor: 'pointer',
-        fontFamily: 'var(--rmg-font-body)',
-        fontSize: 13,
-        fontWeight,
-        width: 'calc(100% - 12px)',
-        margin: '1px 6px',
-        backgroundColor: bg,
-        color,
-        textDecoration: 'none',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        boxSizing: 'border-box',
-        borderLeft: active ? '2px solid #DA202A' : '2px solid transparent',
-        transition: 'background-color 150ms ease, color 150ms ease',
-      }}
-    >
+  const sharedStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: collapsed ? 0 : 10,
+    padding: '8px 12px',
+    borderRadius: 6,
+    cursor: disabled ? 'default' : 'pointer',
+    fontFamily: 'var(--rmg-font-body)',
+    fontSize: 13,
+    fontWeight,
+    width: 'calc(100% - 12px)',
+    margin: '1px 6px',
+    backgroundColor: bg,
+    color,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    justifyContent: collapsed ? 'center' : 'flex-start',
+    boxSizing: 'border-box',
+    borderLeft: active ? '2px solid #DA202A' : '2px solid transparent',
+    transition: 'background-color 150ms ease, color 150ms ease',
+  }
+
+  const content = (
+    <>
       {item.icon !== undefined && (
         <span
           style={{
@@ -455,10 +460,49 @@ function NavItemEl({
         </span>
       )}
       {!collapsed && (
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: disabled ? 1 : undefined }}>
           {item.label}
         </span>
       )}
+      {!collapsed && disabled && (
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            color: '#B0B0B0',
+            background: '#F5F5F5',
+            borderRadius: 4,
+            padding: '2px 6px',
+            flexShrink: 0,
+          }}
+        >
+          Soon
+        </span>
+      )}
+    </>
+  )
+
+  // Disabled items render as a non-interactive div — no href, no route
+  // change, no hover state — but stay in the nav at the same position.
+  if (disabled) {
+    return (
+      <div title={collapsed ? `${item.label} — coming soon` : undefined} aria-disabled="true" style={sharedStyle}>
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <a
+      href={item.href}
+      title={collapsed ? item.label : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={sharedStyle}
+    >
+      {content}
     </a>
   )
 }
