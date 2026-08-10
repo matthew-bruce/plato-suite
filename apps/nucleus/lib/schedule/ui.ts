@@ -19,21 +19,14 @@ export function getUtilColour(pct: number): string {
   return '#0892CB'
 }
 
-// A row counts towards base cost unless it's BAU or has been explicitly
-// marked non-chargeable. is_chargeable defaults to TRUE at the DB level, so
-// null/undefined (never touched) must not be treated as excluded.
-export function isIncludedInBaseCost(
-  planviewCode: string | null | undefined,
-  isChargeable?: boolean | null,
-): boolean {
+export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
-  return isChargeable !== false && planviewCode !== 'BAU'
+  return planviewCode !== 'BAU'
 }
 
 interface DaysRow {
   capacity_days: number | null
   planview_code: string | null | undefined
-  is_chargeable?: boolean | null
   teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
 }
 
@@ -46,7 +39,7 @@ export function sumFilteredDays<T extends DaysRow>(
 ): number {
   return groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return rs
+      if (!isIncludedInBaseCost(r.planview_code)) return rs
       return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
     }, 0)
   }, 0)
@@ -59,11 +52,8 @@ export function formatDaysTotal(days: number): string {
   return rounded.toLocaleString('en-GB', { maximumFractionDigits: 1 })
 }
 
-export function isChargeableRow(
-  planviewCode: string | null | undefined,
-  isChargeable?: boolean | null,
-): boolean {
-  return isChargeable === true && planviewCode === 'PR'
+export function isChargeableRow(planviewCode: string | null | undefined): boolean {
+  return planviewCode === 'PR'
 }
 
 export function getLocationColour(location: string | null | undefined): string {

@@ -47,48 +47,27 @@ describe('getUtilColour', () => {
 })
 
 describe('isIncludedInBaseCost', () => {
-  it('includes PR / F_Gov / ETP when is_chargeable is true', () => {
-    expect(isIncludedInBaseCost('PR', true)).toBe(true)
-    expect(isIncludedInBaseCost('F_Gov', true)).toBe(true)
-    expect(isIncludedInBaseCost('ETP', true)).toBe(true)
+  it('includes PR / F_Gov / ETP', () => {
+    expect(isIncludedInBaseCost('PR')).toBe(true)
+    expect(isIncludedInBaseCost('F_Gov')).toBe(true)
+    expect(isIncludedInBaseCost('ETP')).toBe(true)
   })
-  it('excludes BAU regardless of is_chargeable', () => {
-    expect(isIncludedInBaseCost('BAU', true)).toBe(false)
-    expect(isIncludedInBaseCost('BAU', false)).toBe(false)
-    expect(isIncludedInBaseCost('BAU', null)).toBe(false)
+  it('excludes BAU', () => {
+    expect(isIncludedInBaseCost('BAU')).toBe(false)
   })
-  it('excludes null/empty planview code', () => {
+  it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
     expect(isIncludedInBaseCost(undefined)).toBe(false)
-  })
-  it('excludes non-BAU rows explicitly marked is_chargeable = false', () => {
-    expect(isIncludedInBaseCost('PR', false)).toBe(false)
-    expect(isIncludedInBaseCost('F_Gov', false)).toBe(false)
-    expect(isIncludedInBaseCost('ETP', false)).toBe(false)
-    expect(isIncludedInBaseCost('Hypercare', false)).toBe(false)
-  })
-  it('treats null/undefined is_chargeable as chargeable-by-default (DB DEFAULT TRUE)', () => {
-    expect(isIncludedInBaseCost('PR', null)).toBe(true)
-    expect(isIncludedInBaseCost('PR', undefined)).toBe(true)
-    expect(isIncludedInBaseCost('PR')).toBe(true)
   })
 })
 
 describe('isChargeableRow', () => {
-  it('returns true only for PR with is_chargeable = true', () => {
-    expect(isChargeableRow('PR', true)).toBe(true)
-    expect(isChargeableRow('F_Gov', true)).toBe(false)
-    expect(isChargeableRow('BAU', true)).toBe(false)
-    expect(isChargeableRow('ETP', true)).toBe(false)
-    expect(isChargeableRow(null, true)).toBe(false)
-  })
-  it('returns false for PR when is_chargeable = false', () => {
-    expect(isChargeableRow('PR', false)).toBe(false)
-  })
-  it('returns false for PR when is_chargeable is null/undefined', () => {
-    expect(isChargeableRow('PR', null)).toBe(false)
-    expect(isChargeableRow('PR', undefined)).toBe(false)
-    expect(isChargeableRow('PR')).toBe(false)
+  it('returns true only for PR', () => {
+    expect(isChargeableRow('PR')).toBe(true)
+    expect(isChargeableRow('F_Gov')).toBe(false)
+    expect(isChargeableRow('BAU')).toBe(false)
+    expect(isChargeableRow('ETP')).toBe(false)
+    expect(isChargeableRow(null)).toBe(false)
   })
 })
 
