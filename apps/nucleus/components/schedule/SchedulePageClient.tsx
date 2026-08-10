@@ -65,6 +65,7 @@ import {
   getUtilColour,
   isIncludedInBaseCost,
   isChargeableRow,
+  withDerivedChargeable,
   getLocationColour,
   getPlanBadgeStyle,
   getTextColour,
@@ -469,9 +470,10 @@ export function SchedulePageClient({ data }: Props) {
   }
 
   async function handleUpdateAllocation(id: string, updates: AllocationUpdates) {
+    const finalUpdates = withDerivedChargeable(updates)
     setLocalAllocations((prev) => prev.map((a) => {
       if (a.allocation_id !== id) return a
-      const next = { ...a, ...updates }
+      const next = { ...a, ...finalUpdates }
       const days = next.capacity_days ?? 0
       const base = Math.round(next.day_rate * days * (next.utilisation_percent / 100))
       const vatApplies = next.vat_applies !== false
@@ -479,7 +481,7 @@ export function SchedulePageClient({ data }: Props) {
       return { ...next, base_total_pence: base, vat_total_pence: vat }
     }))
     const supabase = getSupabaseBrowserClient()
-    await supabase.from('resource_period_allocations').update(updates).eq('allocation_id', id)
+    await supabase.from('resource_period_allocations').update(finalUpdates).eq('allocation_id', id)
   }
 
   async function handleDeleteAllocation(id: string) {
@@ -738,6 +740,7 @@ export function SchedulePageClient({ data }: Props) {
                   { value: 'F_Gov', label: 'F_GOV' },
                   { value: 'BAU', label: 'BAU' },
                   { value: 'ETP', label: 'ETP' },
+                  { value: 'Externally Funded', label: 'EXTERNALLY FUNDED' },
                 ]}
               />
               <CustomSelect
