@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs'
 import { getSupabaseServerComponentClient, resolveCostConfigurationByCode } from '@plato/schema/server'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
+import { isChargeableRow } from '@/lib/schedule/ui'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -29,6 +30,7 @@ interface AllocationRow {
   capacity_days: number | null
   day_rate: number
   vat_applies: boolean
+  is_chargeable: boolean
   team_name: string
 }
 
@@ -190,6 +192,7 @@ export async function GET(request: Request): Promise<Response> {
       utilisation_percent,
       capacity_days,
       vat_applies,
+      is_chargeable,
       resources:resource_id!left ( resource_name, resource_location ),
       suppliers:supplier_id ( supplier_name, sort_order, supplier_colour )
     `)
@@ -207,6 +210,7 @@ export async function GET(request: Request): Promise<Response> {
     utilisation_percent: number | string
     capacity_days: number | string | null
     vat_applies: boolean | null
+    is_chargeable: boolean | null
     resource_id?: string | null
     resources: { resource_name: string; resource_location: string | null } | { resource_name: string; resource_location: string | null }[] | null
     suppliers: { supplier_name: string; sort_order: number | null; supplier_colour: string | null } | { supplier_name: string; sort_order: number | null; supplier_colour: string | null }[] | null
@@ -260,6 +264,7 @@ export async function GET(request: Request): Promise<Response> {
         capacity_days: r.capacity_days === null ? null : Number(r.capacity_days),
         day_rate: r.day_rate,
         vat_applies: r.vat_applies ?? true,
+        is_chargeable: r.is_chargeable ?? true,
         team_name: r.resource_id ? (teamMap.get(r.resource_id) ?? '') : '',
       }
     })
@@ -414,6 +419,10 @@ export async function GET(request: Request): Promise<Response> {
 
     for (const alloc of group.rows) {
       const rowNum = ws.rowCount + 1
+      // Literal, not an "=IF(E{row}="PR",...)" formula, so is_chargeable=false
+      // rows are correctly excluded even though they still carry planview_code
+      // "PR" — matching the on-screen Chargeable badge (isChargeableRow).
+      const isChargeable = isChargeableRow(alloc.planview_code, alloc.is_chargeable)
       const r = ws.addRow([
         alloc.role_title ?? '',
         alloc.resource_name,
@@ -425,7 +434,7 @@ export async function GET(request: Request): Promise<Response> {
         alloc.utilisation_percent / 100,
         alloc.capacity_days ?? 0,
         alloc.day_rate / 100,
-        { formula: `=IF(E${rowNum}="PR","Yes","No")` },
+        isChargeable ? 'Yes' : 'No',
         { formula: `=(H${rowNum}*I${rowNum})*J${rowNum}` },
         // Placeholder — replaced in pass 2 once VAT row is known
         { formula: `=L${rowNum}` },
@@ -446,7 +455,6 @@ export async function GET(request: Request): Promise<Response> {
       setRowFill(ws, rowNum, rowArgb, NUM_COLS)
 
       /* ── Column K — Chargeable Yes/No colour ── */
-      const isChargeable = alloc.planview_code === 'PR'
       ws.getCell(`K${rowNum}`).font = {
         bold: isChargeable,
         color: { argb: isChargeable ? 'FF1B5E20' : 'FF8F9495' },
@@ -638,7 +646,7 @@ export async function GET(request: Request): Promise<Response> {
   const grandTotalVat = resourcesAdhocVat + etpSsTotal
   const xChargeableDays = allocations.reduce(
     (s, a) =>
-      a.planview_code === 'PR'
+      isChargeableRow(a.planview_code, a.is_chargeable)
         ? s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100)
         : s,
     0,
@@ -1020,7 +1028,7 @@ export async function GET(request: Request): Promise<Response> {
       alloc.utilisation_percent / 100,
       alloc.capacity_days ?? 0,
       alloc.day_rate / 100,
-      alloc.planview_code === 'PR' ? 'Yes' : 'No',
+      isChargeableRow(alloc.planview_code, alloc.is_chargeable) ? 'Yes' : 'No',
       total,
       vatInclusive,
     ])

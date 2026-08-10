@@ -303,12 +303,12 @@ export function SchedulePageClient({ data }: Props) {
   const totals = useMemo(() => {
     const allocsBase = localAllocations.reduce(
       (sum, a) =>
-        isIncludedInBaseCost(a.planview_code) ? sum + (a.base_total_pence ?? 0) : sum,
+        isIncludedInBaseCost(a.planview_code, a.is_chargeable) ? sum + (a.base_total_pence ?? 0) : sum,
       0,
     )
     const allocsVat = localAllocations.reduce(
       (sum, a) =>
-        isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
+        isIncludedInBaseCost(a.planview_code, a.is_chargeable) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
     )
     const vatMultiplier = 1 + vatPct / 100
@@ -334,7 +334,7 @@ export function SchedulePageClient({ data }: Props) {
     // Platform total WITH ETP+SS
     const totalPlatformIncEtp = totalPlatform + etpAndSsPence
     const chargeableDays = localAllocations
-      .filter((a) => isChargeableRow(a.planview_code))
+      .filter((a) => isChargeableRow(a.planview_code, a.is_chargeable))
       .reduce((s, a) => s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100), 0)
     const calcRatePence = chargeableDays > 0 ? totalPlatform / chargeableDays : 0
     const calcRateIncEtp = chargeableDays > 0 ? totalPlatformIncEtp / chargeableDays : 0
@@ -1527,14 +1527,14 @@ function ScheduleTable({
 
   const footerBase = groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return rs
       return rs + Math.round((r.base_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
     }, 0)
   }, 0)
 
   const footerVat = groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code)) return rs
+      if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return rs
       return rs + Math.round((r.vat_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
     }, 0)
   }, 0)
@@ -1559,17 +1559,17 @@ function ScheduleTable({
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
-            if (!isIncludedInBaseCost(r.planview_code)) return s
+            if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return s
             const split = getCapacitySplit(r.teams, activeTeamFilter)
             return s + Math.round((r.base_total_pence ?? 0) * split)
           }, 0)
           const vat = g.rows.reduce((s, r) => {
-            if (!isIncludedInBaseCost(r.planview_code)) return s
+            if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return s
             const split = getCapacitySplit(r.teams, activeTeamFilter)
             return s + Math.round((r.vat_total_pence ?? 0) * split)
           }, 0)
           const days = g.rows.reduce((s, r) => {
-            if (!isIncludedInBaseCost(r.planview_code)) return s
+            if (!isIncludedInBaseCost(r.planview_code, r.is_chargeable)) return s
             const split = getCapacitySplit(r.teams, activeTeamFilter)
             return s + (r.capacity_days ?? 0) * (r.utilisation_percent / 100) * split
           }, 0)
@@ -3078,8 +3078,8 @@ function AllocationRow({
           <span
             style={{
               display: 'inline-block',
-              background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
-              color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+              background: isChargeableRow(plan, row.is_chargeable) ? '#C1E3C1' : '#EEEEEE',
+              color: isChargeableRow(plan, row.is_chargeable) ? '#1A6B00' : '#8F9495',
               borderRadius: 4,
               padding: '2px 6px',
               fontSize: 9,
@@ -3088,7 +3088,7 @@ function AllocationRow({
               letterSpacing: '0.06em',
             }}
           >
-            {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+            {isChargeableRow(plan, row.is_chargeable) ? 'Chargeable' : 'Not charged'}
           </span>
         </Cell>
         {/* 7 Location */}
@@ -3278,8 +3278,8 @@ function AllocationRow({
         <span
           style={{
             display: 'inline-block',
-            background: isChargeableRow(plan) ? '#C1E3C1' : '#EEEEEE',
-            color: isChargeableRow(plan) ? '#1A6B00' : '#8F9495',
+            background: isChargeableRow(plan, row.is_chargeable) ? '#C1E3C1' : '#EEEEEE',
+            color: isChargeableRow(plan, row.is_chargeable) ? '#1A6B00' : '#8F9495',
             borderRadius: 4,
             padding: '2px 6px',
             fontSize: 9,
@@ -3288,7 +3288,7 @@ function AllocationRow({
             letterSpacing: '0.06em',
           }}
         >
-          {isChargeableRow(plan) ? 'Chargeable' : 'Not charged'}
+          {isChargeableRow(plan, row.is_chargeable) ? 'Chargeable' : 'Not charged'}
         </span>
       </Cell>
 
