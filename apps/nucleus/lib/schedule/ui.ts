@@ -56,6 +56,27 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
   return planviewCode === 'PR'
 }
 
+// Single source of truth for the resource_period_allocations.is_chargeable
+// column: it must always mirror planview_code (true for PR, false for
+// everything else), never be set independently, or it drifts out of sync
+// with planview_code the way it did before the DB was corrected. Used at
+// every write site that sets planview_code — the "Add Allocation" wizard
+// insert and the Planview <select>'s update handler.
+export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
+  return planviewCode === 'PR'
+}
+
+// Applied to every allocation update payload before it's sent to the DB:
+// whenever planview_code is part of the update (e.g. the Planview <select>
+// changing), is_chargeable is re-derived alongside it so the two fields
+// can never be edited independently and drift apart.
+export function withDerivedChargeable<T extends { planview_code?: string | null }>(
+  updates: T,
+): T & { is_chargeable?: boolean } {
+  if (!('planview_code' in updates)) return updates
+  return { ...updates, is_chargeable: deriveIsChargeable(updates.planview_code) }
+}
+
 export function getLocationColour(location: string | null | undefined): string {
   if (!location) return '#D5D5D5'
   const key = location.toLowerCase()

@@ -396,3 +396,69 @@ describe('createResourceAndAllocation — display_order', () => {
     expect(result.displayOrder).toBe(8)
   })
 })
+
+// is_chargeable must mirror planviewCode at insert time (deriveIsChargeable
+// in lib/schedule/ui.ts) rather than the old hardcoded `false` — otherwise
+// every new allocation drifts out of sync with its Planview code again.
+describe('createResourceAndAllocation — is_chargeable derivation', () => {
+  function captureAllocInsertPayload(): { payload: Record<string, unknown> | undefined } {
+    const captured: { payload: Record<string, unknown> | undefined } = { payload: undefined }
+    fromMock.mockImplementation((table: string) => {
+      fromCallIndex++
+      if (table === 'resource_period_allocations' && isDisplayOrderCall()) {
+        return makeDisplayOrderChain(displayOrderResult)
+      }
+      if (table === 'resource_period_allocations') {
+        const single = vi.fn().mockResolvedValue(allocInsertResult)
+        const selectFn = vi.fn().mockReturnValue({ single })
+        const insert = vi.fn((payload: Record<string, unknown>) => {
+          captured.payload = payload
+          return { select: selectFn }
+        })
+        return { insert }
+      }
+      return {}
+    })
+    return captured
+  }
+
+  it('sets is_chargeable = true when planviewCode is PR', async () => {
+    resetRpa()
+    displayOrderResult = { data: [], error: null }
+    allocInsertResult = { data: { allocation_id: 'alloc-pr' }, error: null }
+    const captured = captureAllocInsertPayload()
+
+    await createResourceAndAllocation({
+      mode: 'tbc',
+      supplierId: 'sup',
+      supplierName: 'Sup',
+      roleTitle: 'Role',
+      planviewCode: 'PR',
+      resourceLocation: 'onshore',
+      periodId: 'p',
+    })
+
+    expect(captured.payload?.is_chargeable).toBe(true)
+  })
+
+  it('sets is_chargeable = false when planviewCode is F_Gov, BAU, or ETP', async () => {
+    for (const planviewCode of ['F_Gov', 'BAU', 'ETP'] as const) {
+      resetRpa()
+      displayOrderResult = { data: [], error: null }
+      allocInsertResult = { data: { allocation_id: `alloc-${planviewCode}` }, error: null }
+      const captured = captureAllocInsertPayload()
+
+      await createResourceAndAllocation({
+        mode: 'tbc',
+        supplierId: 'sup',
+        supplierName: 'Sup',
+        roleTitle: 'Role',
+        planviewCode,
+        resourceLocation: 'onshore',
+        periodId: 'p',
+      })
+
+      expect(captured.payload?.is_chargeable).toBe(false)
+    }
+  })
+})

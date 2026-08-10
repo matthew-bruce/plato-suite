@@ -2,6 +2,7 @@
 
 import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import type { ResourceLocation, PlanviewCode } from '@plato/schema'
+import { deriveIsChargeable } from '../../lib/schedule/ui'
 
 export interface ResourceSearchResult {
   resource_id: string
@@ -363,7 +364,7 @@ export async function createResourceAndAllocation(
       day_rate: params.dayRate ?? 0,
       utilisation_percent: 100,
       capacity_days: params.capacityDays ?? 0,
-      is_chargeable: false,
+      is_chargeable: deriveIsChargeable(params.planviewCode),
       vat_applies: true,
       display_order: newDisplayOrder,
     }

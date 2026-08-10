@@ -4,6 +4,8 @@ import {
   getUtilColour,
   isIncludedInBaseCost,
   isChargeableRow,
+  deriveIsChargeable,
+  withDerivedChargeable,
   getLocationColour,
   getPlanBadgeStyle,
   getTextColour,
@@ -71,6 +73,47 @@ describe('isChargeableRow', () => {
     expect(isChargeableRow('BAU')).toBe(false)
     expect(isChargeableRow('ETP')).toBe(false)
     expect(isChargeableRow(null)).toBe(false)
+  })
+})
+
+describe('deriveIsChargeable', () => {
+  it('returns true for PR', () => {
+    expect(deriveIsChargeable('PR')).toBe(true)
+  })
+  it('returns false for F_Gov, BAU, and Hypercare', () => {
+    expect(deriveIsChargeable('F_Gov')).toBe(false)
+    expect(deriveIsChargeable('BAU')).toBe(false)
+    expect(deriveIsChargeable('Hypercare')).toBe(false)
+  })
+  it('returns false for null/undefined', () => {
+    expect(deriveIsChargeable(null)).toBe(false)
+    expect(deriveIsChargeable(undefined)).toBe(false)
+  })
+})
+
+describe('withDerivedChargeable', () => {
+  it('injects is_chargeable = true when the update sets planview_code to PR', () => {
+    expect(withDerivedChargeable({ planview_code: 'PR' })).toEqual({
+      planview_code: 'PR',
+      is_chargeable: true,
+    })
+  })
+  it('injects is_chargeable = false when the update sets planview_code to F_Gov/BAU/Hypercare', () => {
+    expect(withDerivedChargeable({ planview_code: 'F_Gov' })).toEqual({
+      planview_code: 'F_Gov',
+      is_chargeable: false,
+    })
+    expect(withDerivedChargeable({ planview_code: 'BAU' })).toEqual({
+      planview_code: 'BAU',
+      is_chargeable: false,
+    })
+    expect(withDerivedChargeable({ planview_code: 'Hypercare' })).toEqual({
+      planview_code: 'Hypercare',
+      is_chargeable: false,
+    })
+  })
+  it('leaves the payload untouched when planview_code is not part of the update', () => {
+    expect(withDerivedChargeable({ day_rate: 50000 })).toEqual({ day_rate: 50000 })
   })
 })
 
