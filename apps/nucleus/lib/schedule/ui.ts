@@ -21,7 +21,7 @@ export function getUtilColour(pct: number): string {
 
 export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
-  return planviewCode !== 'BAU'
+  return planviewCode !== 'BAU' && planviewCode !== 'Hypercare'
 }
 
 interface DaysRow {

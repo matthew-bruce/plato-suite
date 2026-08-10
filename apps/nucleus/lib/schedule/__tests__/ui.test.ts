@@ -55,6 +55,9 @@ describe('isIncludedInBaseCost', () => {
   it('excludes BAU', () => {
     expect(isIncludedInBaseCost('BAU')).toBe(false)
   })
+  it('excludes Hypercare', () => {
+    expect(isIncludedInBaseCost('Hypercare')).toBe(false)
+  })
   it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
     expect(isIncludedInBaseCost(undefined)).toBe(false)
