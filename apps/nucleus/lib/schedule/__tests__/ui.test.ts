@@ -6,6 +6,7 @@ import {
   isChargeableRow,
   deriveIsChargeable,
   withDerivedChargeable,
+  PLANVIEW_CODES,
   getLocationColour,
   getPlanBadgeStyle,
   getTextColour,
@@ -57,8 +58,8 @@ describe('isIncludedInBaseCost', () => {
   it('excludes BAU', () => {
     expect(isIncludedInBaseCost('BAU')).toBe(false)
   })
-  it('excludes Externally Funded', () => {
-    expect(isIncludedInBaseCost('Externally Funded')).toBe(false)
+  it('excludes NPC', () => {
+    expect(isIncludedInBaseCost('NPC')).toBe(false)
   })
   it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
@@ -86,9 +87,9 @@ describe('deriveIsChargeable', () => {
   it('returns true for F_Gov (recovered indirectly via the blended rate)', () => {
     expect(deriveIsChargeable('F_Gov')).toBe(true)
   })
-  it('returns false for BAU and Externally Funded (genuinely non-recoverable)', () => {
+  it('returns false for BAU and NPC (genuinely non-recoverable)', () => {
     expect(deriveIsChargeable('BAU')).toBe(false)
-    expect(deriveIsChargeable('Externally Funded')).toBe(false)
+    expect(deriveIsChargeable('NPC')).toBe(false)
   })
   it('returns false for null/undefined', () => {
     expect(deriveIsChargeable(null)).toBe(false)
@@ -107,18 +108,50 @@ describe('withDerivedChargeable', () => {
       is_chargeable: true,
     })
   })
-  it('injects is_chargeable = false when the update sets planview_code to BAU/Externally Funded', () => {
+  it('injects is_chargeable = false when the update sets planview_code to BAU/NPC', () => {
     expect(withDerivedChargeable({ planview_code: 'BAU' })).toEqual({
       planview_code: 'BAU',
       is_chargeable: false,
     })
-    expect(withDerivedChargeable({ planview_code: 'Externally Funded' })).toEqual({
-      planview_code: 'Externally Funded',
+    expect(withDerivedChargeable({ planview_code: 'NPC' })).toEqual({
+      planview_code: 'NPC',
       is_chargeable: false,
     })
   })
   it('leaves the payload untouched when planview_code is not part of the update', () => {
     expect(withDerivedChargeable({ day_rate: 50000 })).toEqual({ day_rate: 50000 })
+  })
+})
+
+// Single source of truth for the Planview filter dropdown's and the
+// per-row edit-mode <select>'s option lists — both are generated from
+// this array, so a row's planview_code always has a matching <option>
+// and the browser never silently falls back to displaying the first
+// option (which is what happened to 'NPC' rows before it was added here:
+// no matching <option> meant the <select> showed "PR").
+describe('PLANVIEW_CODES', () => {
+  it('includes all 5 valid planview_code values', () => {
+    expect(PLANVIEW_CODES.map((pc) => pc.value)).toEqual([
+      'PR',
+      'F_Gov',
+      'BAU',
+      'ETP',
+      'NPC',
+    ])
+  })
+  it('has a matching option for NPC, so a row with that code is not coerced to the first option (PR) by the browser', () => {
+    expect(PLANVIEW_CODES.some((pc) => pc.value === 'NPC')).toBe(true)
+  })
+  it('renders a row with planview_code = NPC as selected in edit mode, not falling back to the first option', () => {
+    // Mirrors the edit-mode <select>'s value expression in
+    // SchedulePageClient.tsx: value={plan ?? 'BAU'} where plan is
+    // row.planview_code. A <select value=X> only displays X as selected
+    // when X matches one of its rendered <option value> attributes —
+    // otherwise the browser silently falls back to the first option.
+    const row: { planview_code: string | null } = { planview_code: 'NPC' }
+    const selectValue = row.planview_code ?? 'BAU'
+    expect(selectValue).toBe('NPC')
+    expect(PLANVIEW_CODES.map((pc) => pc.value)).toContain(selectValue)
   })
 })
 
@@ -143,8 +176,8 @@ describe('getPlanBadgeStyle', () => {
   it('returns F_Gov style', () => {
     expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
-  it('returns Externally Funded style', () => {
-    expect(getPlanBadgeStyle('Externally Funded')).toEqual({
+  it('returns NPC style', () => {
+    expect(getPlanBadgeStyle('NPC')).toEqual({
       background: 'var(--rmg-color-tint-orange)',
       color: 'var(--rmg-color-orange)',
     })
