@@ -80,8 +80,13 @@ describe('deriveIsChargeable', () => {
   it('returns true for PR', () => {
     expect(deriveIsChargeable('PR')).toBe(true)
   })
-  it('returns false for F_Gov, BAU, and Hypercare', () => {
-    expect(deriveIsChargeable('F_Gov')).toBe(false)
+  // F_Gov cost must still be recovered by the platform — just indirectly,
+  // spread across the blended rate, since F_Gov resources don't timesheet
+  // against PR tickets the way PR resources do.
+  it('returns true for F_Gov (recovered indirectly via the blended rate)', () => {
+    expect(deriveIsChargeable('F_Gov')).toBe(true)
+  })
+  it('returns false for BAU and Hypercare (genuinely non-recoverable)', () => {
     expect(deriveIsChargeable('BAU')).toBe(false)
     expect(deriveIsChargeable('Hypercare')).toBe(false)
   })
@@ -92,17 +97,17 @@ describe('deriveIsChargeable', () => {
 })
 
 describe('withDerivedChargeable', () => {
-  it('injects is_chargeable = true when the update sets planview_code to PR', () => {
+  it('injects is_chargeable = true when the update sets planview_code to PR or F_Gov', () => {
     expect(withDerivedChargeable({ planview_code: 'PR' })).toEqual({
       planview_code: 'PR',
       is_chargeable: true,
     })
-  })
-  it('injects is_chargeable = false when the update sets planview_code to F_Gov/BAU/Hypercare', () => {
     expect(withDerivedChargeable({ planview_code: 'F_Gov' })).toEqual({
       planview_code: 'F_Gov',
-      is_chargeable: false,
+      is_chargeable: true,
     })
+  })
+  it('injects is_chargeable = false when the update sets planview_code to BAU/Hypercare', () => {
     expect(withDerivedChargeable({ planview_code: 'BAU' })).toEqual({
       planview_code: 'BAU',
       is_chargeable: false,

@@ -57,13 +57,18 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
 }
 
 // Single source of truth for the resource_period_allocations.is_chargeable
-// column: it must always mirror planview_code (true for PR, false for
-// everything else), never be set independently, or it drifts out of sync
-// with planview_code the way it did before the DB was corrected. Used at
-// every write site that sets planview_code — the "Add Allocation" wizard
+// column: it must always mirror planview_code, never be set independently,
+// or it drifts out of sync the way it did before the DB was corrected. Used
+// at every write site that sets planview_code — the "Add Allocation" wizard
 // insert and the Planview <select>'s update handler.
+//
+// is_chargeable means "this resource's cost must be recovered by the
+// platform" — true for both PR (recovered directly, per day, against an
+// approved PR ticket) and F_Gov (recovered indirectly, spread across the
+// blended rate, since F_Gov resources don't timesheet against tickets).
+// Only Hypercare and BAU are genuinely non-recoverable and stay false.
 export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
-  return planviewCode === 'PR'
+  return planviewCode === 'PR' || planviewCode === 'F_Gov'
 }
 
 // Applied to every allocation update payload before it's sent to the DB:
