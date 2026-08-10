@@ -5,14 +5,14 @@ import { getCapacitySplit } from '../scheduleUtils'
 
 // Single source of truth for the five valid planview_code values, shared by
 // the Planview filter dropdown and the per-row edit-mode <select> so their
-// option lists can't drift apart the way they did when 'Externally Funded'
-// was added to one and not the other.
+// option lists can't drift apart the way they did when 'NPC' (Non Platform
+// Cost) was added to one and not the other.
 export const PLANVIEW_CODES: { value: string; label: string }[] = [
   { value: 'PR', label: 'PR' },
   { value: 'F_Gov', label: 'F_GOV' },
   { value: 'BAU', label: 'BAU' },
   { value: 'ETP', label: 'ETP' },
-  { value: 'Externally Funded', label: 'EXTERNALLY FUNDED' },
+  { value: 'NPC', label: 'NPC' },
 ]
 
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
@@ -33,7 +33,7 @@ export function getUtilColour(pct: number): string {
 
 export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
-  return planviewCode !== 'BAU' && planviewCode !== 'Externally Funded'
+  return planviewCode !== 'BAU' && planviewCode !== 'NPC'
 }
 
 interface DaysRow {
@@ -78,7 +78,7 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
 // platform" — true for both PR (recovered directly, per day, against an
 // approved PR ticket) and F_Gov (recovered indirectly, spread across the
 // blended rate, since F_Gov resources don't timesheet against tickets).
-// Only Externally Funded and BAU are genuinely non-recoverable and stay false.
+// Only NPC and BAU are genuinely non-recoverable and stay false.
 export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
   return planviewCode === 'PR' || planviewCode === 'F_Gov'
 }
@@ -118,7 +118,7 @@ export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
       return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
       return { background: '#BEE0F5', color: '#005F8A' }
-    case 'Externally Funded':
+    case 'NPC':
       return { background: 'var(--rmg-color-tint-orange)', color: 'var(--rmg-color-orange)' }
     default:
       return { background: '#EEEEEE', color: '#8F9495' }
