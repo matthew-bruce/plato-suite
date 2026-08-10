@@ -29,8 +29,15 @@ export async function togglePeriodLocked(
 
 /**
  * Assign a resource to a TBC allocation row. Sets resource_id (and optionally
- * resource_location) plus updated_at. Returns { success: false } if the
- * allocation does not exist.
+ * resource_location) and re-keys the vacant seat's team assignments onto the
+ * resource. Routed through the assign_resource_to_vacant_allocation RPC
+ * (migration 028) so both writes commit or roll back together — a failed
+ * re-key can no longer leave the allocation named while its team assignment
+ * row stays stranded on the vacant seat (the exact bug found in the
+ * 2026-07-23 investigation; see
+ * docs/investigations/2026-07-23-assignResource-silent-failure-challenge.md).
+ * Returns { success: false } if the allocation does not exist or if either
+ * write fails — no error is swallowed.
  */
 export async function assignResourceToAllocation(
   allocationId: string,
@@ -39,31 +46,13 @@ export async function assignResourceToAllocation(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await getSupabaseServerComponentClient()
 
-  const updates: Record<string, unknown> = { resource_id: resourceId, updated_at: new Date().toISOString() }
-  if (resourceLocation) updates['resource_location'] = resourceLocation
-
-  const { data, error } = await supabase
-    .from('resource_period_allocations')
-    .update(updates)
-    .eq('allocation_id', allocationId)
-    .select('allocation_id')
+  const { error } = await supabase.rpc('assign_resource_to_vacant_allocation', {
+    p_allocation_id: allocationId,
+    p_resource_id: resourceId,
+    p_resource_location: resourceLocation ?? null,
+  })
 
   if (error) return { success: false, error: error.message }
-  if (!data || (data as unknown[]).length === 0) return { success: false, error: 'Allocation not found' }
-
-  // Carry forward any team assignments made while the row was TBC: rekey them
-  // from allocation_id to the now-assigned resource_id. Non-fatal — a failure
-  // here shouldn't roll back the resource assignment itself.
-  const { error: migrateErr } = await supabase
-    .from('resource_team_assignments')
-    .update({ resource_id: resourceId, allocation_id: null })
-    .eq('allocation_id', allocationId)
-    .is('resource_id', null)
-
-  if (migrateErr) {
-    console.error('Failed to migrate TBC team assignments:', migrateErr.message)
-  }
-
   return { success: true }
 }
 
