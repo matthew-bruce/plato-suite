@@ -57,8 +57,8 @@ describe('isIncludedInBaseCost', () => {
   it('excludes BAU', () => {
     expect(isIncludedInBaseCost('BAU')).toBe(false)
   })
-  it('excludes Hypercare', () => {
-    expect(isIncludedInBaseCost('Hypercare')).toBe(false)
+  it('excludes Externally Funded', () => {
+    expect(isIncludedInBaseCost('Externally Funded')).toBe(false)
   })
   it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
@@ -86,9 +86,9 @@ describe('deriveIsChargeable', () => {
   it('returns true for F_Gov (recovered indirectly via the blended rate)', () => {
     expect(deriveIsChargeable('F_Gov')).toBe(true)
   })
-  it('returns false for BAU and Hypercare (genuinely non-recoverable)', () => {
+  it('returns false for BAU and Externally Funded (genuinely non-recoverable)', () => {
     expect(deriveIsChargeable('BAU')).toBe(false)
-    expect(deriveIsChargeable('Hypercare')).toBe(false)
+    expect(deriveIsChargeable('Externally Funded')).toBe(false)
   })
   it('returns false for null/undefined', () => {
     expect(deriveIsChargeable(null)).toBe(false)
@@ -107,13 +107,13 @@ describe('withDerivedChargeable', () => {
       is_chargeable: true,
     })
   })
-  it('injects is_chargeable = false when the update sets planview_code to BAU/Hypercare', () => {
+  it('injects is_chargeable = false when the update sets planview_code to BAU/Externally Funded', () => {
     expect(withDerivedChargeable({ planview_code: 'BAU' })).toEqual({
       planview_code: 'BAU',
       is_chargeable: false,
     })
-    expect(withDerivedChargeable({ planview_code: 'Hypercare' })).toEqual({
-      planview_code: 'Hypercare',
+    expect(withDerivedChargeable({ planview_code: 'Externally Funded' })).toEqual({
+      planview_code: 'Externally Funded',
       is_chargeable: false,
     })
   })
@@ -143,8 +143,8 @@ describe('getPlanBadgeStyle', () => {
   it('returns F_Gov style', () => {
     expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
-  it('returns Hypercare style', () => {
-    expect(getPlanBadgeStyle('Hypercare')).toEqual({
+  it('returns Externally Funded style', () => {
+    expect(getPlanBadgeStyle('Externally Funded')).toEqual({
       background: 'var(--rmg-color-tint-orange)',
       color: 'var(--rmg-color-orange)',
     })

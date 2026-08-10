@@ -21,7 +21,7 @@ export function getUtilColour(pct: number): string {
 
 export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
-  return planviewCode !== 'BAU' && planviewCode !== 'Hypercare'
+  return planviewCode !== 'BAU' && planviewCode !== 'Externally Funded'
 }
 
 interface DaysRow {
@@ -66,7 +66,7 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
 // platform" — true for both PR (recovered directly, per day, against an
 // approved PR ticket) and F_Gov (recovered indirectly, spread across the
 // blended rate, since F_Gov resources don't timesheet against tickets).
-// Only Hypercare and BAU are genuinely non-recoverable and stay false.
+// Only Externally Funded and BAU are genuinely non-recoverable and stay false.
 export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
   return planviewCode === 'PR' || planviewCode === 'F_Gov'
 }
@@ -106,7 +106,7 @@ export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
       return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
       return { background: '#BEE0F5', color: '#005F8A' }
-    case 'Hypercare':
+    case 'Externally Funded':
       return { background: 'var(--rmg-color-tint-orange)', color: 'var(--rmg-color-orange)' }
     default:
       return { background: '#EEEEEE', color: '#8F9495' }
