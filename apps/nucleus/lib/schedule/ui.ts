@@ -21,7 +21,7 @@ export function getUtilColour(pct: number): string {
 
 export function isIncludedInBaseCost(planviewCode: string | null | undefined): boolean {
   if (!planviewCode) return false
-  return planviewCode !== 'BAU'
+  return planviewCode !== 'BAU' && planviewCode !== 'Externally Funded'
 }
 
 interface DaysRow {
@@ -56,6 +56,32 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
   return planviewCode === 'PR'
 }
 
+// Single source of truth for the resource_period_allocations.is_chargeable
+// column: it must always mirror planview_code, never be set independently,
+// or it drifts out of sync the way it did before the DB was corrected. Used
+// at every write site that sets planview_code — the "Add Allocation" wizard
+// insert and the Planview <select>'s update handler.
+//
+// is_chargeable means "this resource's cost must be recovered by the
+// platform" — true for both PR (recovered directly, per day, against an
+// approved PR ticket) and F_Gov (recovered indirectly, spread across the
+// blended rate, since F_Gov resources don't timesheet against tickets).
+// Only Externally Funded and BAU are genuinely non-recoverable and stay false.
+export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
+  return planviewCode === 'PR' || planviewCode === 'F_Gov'
+}
+
+// Applied to every allocation update payload before it's sent to the DB:
+// whenever planview_code is part of the update (e.g. the Planview <select>
+// changing), is_chargeable is re-derived alongside it so the two fields
+// can never be edited independently and drift apart.
+export function withDerivedChargeable<T extends { planview_code?: string | null }>(
+  updates: T,
+): T & { is_chargeable?: boolean } {
+  if (!('planview_code' in updates)) return updates
+  return { ...updates, is_chargeable: deriveIsChargeable(updates.planview_code) }
+}
+
 export function getLocationColour(location: string | null | undefined): string {
   if (!location) return '#D5D5D5'
   const key = location.toLowerCase()
@@ -80,6 +106,8 @@ export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
       return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
       return { background: '#BEE0F5', color: '#005F8A' }
+    case 'Externally Funded':
+      return { background: 'var(--rmg-color-tint-orange)', color: 'var(--rmg-color-orange)' }
     default:
       return { background: '#EEEEEE', color: '#8F9495' }
   }
