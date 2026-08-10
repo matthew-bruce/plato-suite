@@ -92,8 +92,17 @@ describe('getPlanBadgeStyle', () => {
   it('returns F_Gov style', () => {
     expect(getPlanBadgeStyle('F_Gov')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
+  it('returns Hypercare style', () => {
+    expect(getPlanBadgeStyle('Hypercare')).toEqual({
+      background: 'var(--rmg-color-tint-orange)',
+      color: 'var(--rmg-color-orange)',
+    })
+  })
   it('falls back for null', () => {
     expect(getPlanBadgeStyle(null).color).toBeTruthy()
+  })
+  it('falls back to the default style for unmapped codes', () => {
+    expect(getPlanBadgeStyle('SomethingElse')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
   })
 })
 

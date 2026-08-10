@@ -738,6 +738,7 @@ export function SchedulePageClient({ data }: Props) {
                   { value: 'F_Gov', label: 'F_GOV' },
                   { value: 'BAU', label: 'BAU' },
                   { value: 'ETP', label: 'ETP' },
+                  { value: 'Hypercare', label: 'HYPERCARE' },
                 ]}
               />
               <CustomSelect

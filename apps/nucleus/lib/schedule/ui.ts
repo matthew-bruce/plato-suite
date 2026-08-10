@@ -80,6 +80,8 @@ export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
       return { background: '#EEEEEE', color: '#8F9495' }
     case 'ETP':
       return { background: '#BEE0F5', color: '#005F8A' }
+    case 'Hypercare':
+      return { background: 'var(--rmg-color-tint-orange)', color: 'var(--rmg-color-orange)' }
     default:
       return { background: '#EEEEEE', color: '#8F9495' }
   }
