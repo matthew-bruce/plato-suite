@@ -6,6 +6,7 @@ import {
   isChargeableRow,
   deriveIsChargeable,
   withDerivedChargeable,
+  PLANVIEW_CODES,
   getLocationColour,
   getPlanBadgeStyle,
   getTextColour,
@@ -119,6 +120,27 @@ describe('withDerivedChargeable', () => {
   })
   it('leaves the payload untouched when planview_code is not part of the update', () => {
     expect(withDerivedChargeable({ day_rate: 50000 })).toEqual({ day_rate: 50000 })
+  })
+})
+
+// Single source of truth for the Planview filter dropdown's and the
+// per-row edit-mode <select>'s option lists — both are generated from
+// this array, so a row's planview_code always has a matching <option>
+// and the browser never silently falls back to displaying the first
+// option (which is what happened to 'Externally Funded' rows before it
+// was added here: no matching <option> meant the <select> showed "PR").
+describe('PLANVIEW_CODES', () => {
+  it('includes all 5 valid planview_code values', () => {
+    expect(PLANVIEW_CODES.map((pc) => pc.value)).toEqual([
+      'PR',
+      'F_Gov',
+      'BAU',
+      'ETP',
+      'Externally Funded',
+    ])
+  })
+  it('has a matching option for Externally Funded, so a row with that code is not coerced to the first option (PR) by the browser', () => {
+    expect(PLANVIEW_CODES.some((pc) => pc.value === 'Externally Funded')).toBe(true)
   })
 })
 

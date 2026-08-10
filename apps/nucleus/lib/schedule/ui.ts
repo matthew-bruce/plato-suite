@@ -3,6 +3,18 @@
 
 import { getCapacitySplit } from '../scheduleUtils'
 
+// Single source of truth for the five valid planview_code values, shared by
+// the Planview filter dropdown and the per-row edit-mode <select> so their
+// option lists can't drift apart the way they did when 'Externally Funded'
+// was added to one and not the other.
+export const PLANVIEW_CODES: { value: string; label: string }[] = [
+  { value: 'PR', label: 'PR' },
+  { value: 'F_Gov', label: 'F_GOV' },
+  { value: 'BAU', label: 'BAU' },
+  { value: 'ETP', label: 'ETP' },
+  { value: 'Externally Funded', label: 'EXTERNALLY FUNDED' },
+]
+
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
   const decimals = opts.decimals ?? 2
   const value = pence / 100

@@ -66,6 +66,7 @@ import {
   isIncludedInBaseCost,
   isChargeableRow,
   withDerivedChargeable,
+  PLANVIEW_CODES,
   getLocationColour,
   getPlanBadgeStyle,
   getTextColour,
@@ -734,14 +735,7 @@ export function SchedulePageClient({ data }: Props) {
                 label="Planview"
                 value={planviewFilter}
                 onChange={setPlanviewFilter}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'PR', label: 'PR' },
-                  { value: 'F_Gov', label: 'F_GOV' },
-                  { value: 'BAU', label: 'BAU' },
-                  { value: 'ETP', label: 'ETP' },
-                  { value: 'Externally Funded', label: 'EXTERNALLY FUNDED' },
-                ]}
+                options={[{ value: 'all', label: 'All' }, ...PLANVIEW_CODES]}
               />
               <CustomSelect
                 label="Location"
@@ -3069,10 +3063,9 @@ function AllocationRow({
             onChange={(e) => onUpdate(row.allocation_id, { planview_code: e.target.value as Allocation['planview_code'] })}
             style={{ ...editInputStyle, width: 'auto' }}
           >
-            <option value="PR">PR</option>
-            <option value="F_Gov">F_GOV</option>
-            <option value="BAU">BAU</option>
-            <option value="ETP">ETP</option>
+            {PLANVIEW_CODES.map((pc) => (
+              <option key={pc.value} value={pc.value}>{pc.label}</option>
+            ))}
           </select>
         </Cell>
         {/* 6 Chargeable — computed */}
