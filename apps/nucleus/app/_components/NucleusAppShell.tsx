@@ -31,10 +31,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Organisation',
     items: [
-      { label: 'Org Structure', icon: <Building2 size={16} />,  href: '#' },
-      { label: 'Teams',         icon: <Users size={16} />,      href: '#' },
-      { label: 'Resources',     icon: <UserCircle size={16} />, href: '#' },
-      { label: 'Suppliers',     icon: <Truck size={16} />,      href: '#' },
+      { label: 'Org Structure', icon: <Building2 size={16} />,  href: '#', disabled: true },
+      { label: 'Teams',         icon: <Users size={16} />,      href: '#', disabled: true },
+      { label: 'Resources',     icon: <UserCircle size={16} />, href: '/people' },
+      { label: 'Suppliers',     icon: <Truck size={16} />,      href: '#', disabled: true },
     ],
   },
   {
@@ -42,8 +42,8 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Platform Schedule', icon: <CalendarRange size={16} />, href: '/schedule' },
       { label: 'Blended Rates',      icon: <LineChart size={16} />,     href: '/rates'    },
-      { label: 'Rate Cards',         icon: <ReceiptText size={16} />,   href: '#'         },
-      { label: 'Periods',            icon: <Layers size={16} />,        href: '#'         },
+      { label: 'Rate Cards',         icon: <ReceiptText size={16} />,   href: '#', disabled: true },
+      { label: 'Periods',            icon: <Layers size={16} />,        href: '#', disabled: true },
     ],
   },
   {
@@ -55,7 +55,7 @@ const NAV_SECTIONS: NavSection[] = [
 ]
 
 const CONFIG_ITEMS: ConfigItem[] = [
-  { label: 'Settings', icon: <Settings size={16} />, href: '#' },
+  { label: 'Settings', icon: <Settings size={16} />, href: '#', disabled: true },
   { label: 'Privacy mode', element: <PrivacyModeNavItem /> },
 ]
 
