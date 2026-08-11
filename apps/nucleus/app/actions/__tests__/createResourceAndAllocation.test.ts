@@ -422,32 +422,27 @@ describe('createResourceAndAllocation — is_chargeable derivation', () => {
     return captured
   }
 
-  // Recovered by the platform: PR directly (per day, against a PR ticket),
-  // F_Gov indirectly (spread across the blended rate, since F_Gov resources
-  // don't timesheet against tickets).
-  it('sets is_chargeable = true when planviewCode is PR or F_Gov', async () => {
-    for (const planviewCode of ['PR', 'F_Gov'] as const) {
-      resetRpa()
-      displayOrderResult = { data: [], error: null }
-      allocInsertResult = { data: { allocation_id: `alloc-${planviewCode}` }, error: null }
-      const captured = captureAllocInsertPayload()
+  it('sets is_chargeable = true only when planviewCode is PR', async () => {
+    resetRpa()
+    displayOrderResult = { data: [], error: null }
+    allocInsertResult = { data: { allocation_id: 'alloc-PR' }, error: null }
+    const captured = captureAllocInsertPayload()
 
-      await createResourceAndAllocation({
-        mode: 'tbc',
-        supplierId: 'sup',
-        supplierName: 'Sup',
-        roleTitle: 'Role',
-        planviewCode,
-        resourceLocation: 'onshore',
-        periodId: 'p',
-      })
+    await createResourceAndAllocation({
+      mode: 'tbc',
+      supplierId: 'sup',
+      supplierName: 'Sup',
+      roleTitle: 'Role',
+      planviewCode: 'PR',
+      resourceLocation: 'onshore',
+      periodId: 'p',
+    })
 
-      expect(captured.payload?.is_chargeable).toBe(true)
-    }
+    expect(captured.payload?.is_chargeable).toBe(true)
   })
 
-  it('sets is_chargeable = false when planviewCode is BAU or ETP (genuinely non-recoverable)', async () => {
-    for (const planviewCode of ['BAU', 'ETP'] as const) {
+  it('sets is_chargeable = false when planviewCode is F_Gov, BAU, or ETP', async () => {
+    for (const planviewCode of ['F_Gov', 'BAU', 'ETP'] as const) {
       resetRpa()
       displayOrderResult = { data: [], error: null }
       allocInsertResult = { data: { allocation_id: `alloc-${planviewCode}` }, error: null }

@@ -68,19 +68,22 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
   return planviewCode === 'PR'
 }
 
-// Single source of truth for the resource_period_allocations.is_chargeable
-// column: it must always mirror planview_code, never be set independently,
-// or it drifts out of sync the way it did before the DB was corrected. Used
-// at every write site that sets planview_code — the "Add Allocation" wizard
-// insert and the Planview <select>'s update handler.
+// is_chargeable drives the "Chargeable" Yes/No badge and excludes non-PR
+// rows from the billable-days total used to calculate the blended rate.
+// It is true ONLY for planview_code === 'PR' — F_Gov, BAU, and NPC are all
+// false. F_Gov's cost is still correctly included in Total Platform Cost,
+// but via isIncludedInBaseCost() above — a separate, deliberately
+// different rule (it excludes only BAU and NPC) — do not conflate the two.
 //
-// is_chargeable means "this resource's cost must be recovered by the
-// platform" — true for both PR (recovered directly, per day, against an
-// approved PR ticket) and F_Gov (recovered indirectly, spread across the
-// blended rate, since F_Gov resources don't timesheet against tickets).
-// Only NPC and BAU are genuinely non-recoverable and stay false.
+// This column is derived and must never be set independently of
+// planview_code, or it silently drifts out of sync with what the exported
+// Rate Calculator (app/api/export/schedule/route.ts) assumes, even though
+// that export currently computes its own values from planview_code
+// directly rather than reading this column.
+//
+// Must always return the same result as isChargeableRow() above.
 export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
-  return planviewCode === 'PR' || planviewCode === 'F_Gov'
+  return planviewCode === 'PR'
 }
 
 // Applied to every allocation update payload before it's sent to the DB:

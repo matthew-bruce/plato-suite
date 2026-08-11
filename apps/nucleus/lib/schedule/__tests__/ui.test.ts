@@ -81,13 +81,8 @@ describe('deriveIsChargeable', () => {
   it('returns true for PR', () => {
     expect(deriveIsChargeable('PR')).toBe(true)
   })
-  // F_Gov cost must still be recovered by the platform — just indirectly,
-  // spread across the blended rate, since F_Gov resources don't timesheet
-  // against PR tickets the way PR resources do.
-  it('returns true for F_Gov (recovered indirectly via the blended rate)', () => {
-    expect(deriveIsChargeable('F_Gov')).toBe(true)
-  })
-  it('returns false for BAU and NPC (genuinely non-recoverable)', () => {
+  it('returns false for F_Gov, BAU, and NPC', () => {
+    expect(deriveIsChargeable('F_Gov')).toBe(false)
     expect(deriveIsChargeable('BAU')).toBe(false)
     expect(deriveIsChargeable('NPC')).toBe(false)
   })
@@ -95,20 +90,30 @@ describe('deriveIsChargeable', () => {
     expect(deriveIsChargeable(null)).toBe(false)
     expect(deriveIsChargeable(undefined)).toBe(false)
   })
+  // deriveIsChargeable and isChargeableRow must never diverge — they're
+  // kept as separate named exports for different call sites (DB-write
+  // derivation vs. UI badge/days-filter), but the underlying rule is the
+  // same and this pins that down so a future session can't drift one
+  // without the other again.
+  it('always agrees with isChargeableRow for every valid planview_code', () => {
+    for (const { value } of PLANVIEW_CODES) {
+      expect(deriveIsChargeable(value)).toBe(isChargeableRow(value))
+    }
+  })
 })
 
 describe('withDerivedChargeable', () => {
-  it('injects is_chargeable = true when the update sets planview_code to PR or F_Gov', () => {
+  it('injects is_chargeable = true only when the update sets planview_code to PR', () => {
     expect(withDerivedChargeable({ planview_code: 'PR' })).toEqual({
       planview_code: 'PR',
       is_chargeable: true,
     })
+  })
+  it('injects is_chargeable = false when the update sets planview_code to F_Gov/BAU/NPC', () => {
     expect(withDerivedChargeable({ planview_code: 'F_Gov' })).toEqual({
       planview_code: 'F_Gov',
-      is_chargeable: true,
+      is_chargeable: false,
     })
-  })
-  it('injects is_chargeable = false when the update sets planview_code to BAU/NPC', () => {
     expect(withDerivedChargeable({ planview_code: 'BAU' })).toEqual({
       planview_code: 'BAU',
       is_chargeable: false,
