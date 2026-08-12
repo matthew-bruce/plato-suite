@@ -102,26 +102,41 @@ type Props = { data: SchedulePageData }
 // the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
 // correct value rather than one per mode that could drift apart.
 //
-// Columns 2-8 and 10-13 are `%` of the row, tuned by hand so the table fills
-// its width with no dead gaps (both templates total 97%, leaving Handle's
-// 24px plus a small margin) — these are the ORIGINAL, correct proportions
-// and should not be re-derived; if one ever needs to change, adjust it
-// in place and re-verify the full-width fill, don't re-balance the set.
+// Columns 2-8 and 10-13 hold free-flowing text or a dropdown; their relative
+// proportions (13:13:9:8:6:7:8:5:7:8:8 in view mode, 8:8:6:8:5:8:6:6:7:7:7 in
+// edit mode) are the ORIGINAL, hand-tuned values and should not be
+// re-derived — if one ever needs to change, adjust it in place and
+// re-verify the full-width fill, don't re-balance the set.
 //
 // Columns 9 (Monthly days) and 14 (Confirmed) are the exception: both hold a
 // fixed-size control (three small day inputs + a populate button; a
 // checkbox/status icon) whose rendered size doesn't depend on the data, so
-// they get a `px` width sized to that control/header plus padding instead of
-// a `%` share — a `%` share either strands dead space around them or starves
-// them, which is what made this table's width need re-tuning repeatedly.
-// Track 9 is edit-only (0 in view mode, where the breakdown doesn't render);
-// track 14 is the same fixed width in both modes. When adding a column,
-// classify it the same way: free-flowing text/dropdown → tune its `%` share
-// against the total; a fixed-size control → give it a `px` width and leave
-// every other column's `%` alone.
+// they get a `px` width sized to that control/header plus padding — a
+// proportional share either strands dead space around them or starves them,
+// which is what made this table's width need re-tuning repeatedly. Track 9
+// is edit-only (0 in view mode, where the breakdown doesn't render); track
+// 14 is the same fixed width in both modes.
+//
+// View mode's flexible columns stay `%`: Confirmed is its only fixed-px
+// column, and that's a small enough slice of the row that a `%`-only layout
+// still fills it with nothing worth noticing left over or short.
+//
+// Edit mode's flexible columns are `fr`, not `%`: Monthly days' 150px is a
+// much bigger, viewport-independent bite out of the row, and a `%` split
+// only accounts for a share of the *container*, not of "whatever the fixed
+// columns didn't already take" — so at any container wider than ~1060px the
+// leftover between the two grew into a dead gap after Confirmed (up to
+// 130px at 1600px), and the same mismatch on the low end starved Team and
+// its neighbours of the padding everything else had. `fr` tracks always
+// divide exactly what's left after the `px` columns, so the row fills
+// completely and every gap stays even, at any container width. When adding
+// a column, classify it the same way: free-flowing text/dropdown → give it
+// a share of whichever unit its row already uses (`%` in SCHEDULE_COLS,
+// `fr` in EDIT_SCHEDULE_COLS); a fixed-size control → give it a `px` width
+// and leave every other column alone.
 //                     1     2   3   4  5  6  7  8  9(mo)  10 11 12 13 14
 const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0     5% 7% 8% 8% 80px'
-const EDIT_SCHEDULE_COLS = '24px 8% 8% 6% 8% 5% 8% 6% 150px 6% 7% 7% 7% 80px'
+const EDIT_SCHEDULE_COLS = '24px 8fr 8fr 6fr 8fr 5fr 8fr 6fr 150px 6fr 7fr 7fr 7fr 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -1795,6 +1810,7 @@ function ScheduleTable({
           onAdd={onAddEtpSsItem}
         />}
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -1946,7 +1962,7 @@ function HeaderRow({
 
   return (
     <div
-      className={styles.header}
+      className={`${styles.header} ${styles.scheduleRow}`}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -2150,7 +2166,7 @@ function SupplierSection({
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         onClick={onToggle}
         style={{
           display: 'grid',
@@ -2396,7 +2412,7 @@ function AdHocSection({
   return (
     <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         style={{
           display: 'grid',
           gridTemplateColumns: 'var(--schedule-cols)',
@@ -2506,6 +2522,7 @@ function AdHocSection({
 
       {expanded && editingAdHoc && (
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -2577,7 +2594,7 @@ function EtpSsSection({
   return (
     <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         style={{
           display: 'grid',
           gridTemplateColumns: 'var(--schedule-cols)',
@@ -2696,6 +2713,7 @@ function EtpSsSection({
 
       {expanded && editingEtpSs && (
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -2744,6 +2762,7 @@ function EtpSsEditRow({
 
   return (
     <div
+      className={styles.scheduleRow}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -2861,7 +2880,7 @@ function AdHocRow({
 
   if (!editing) {
     return (
-      <div className={styles.allocationRow} style={{ gridTemplateColumns: 'var(--schedule-cols)' }}>
+      <div className={`${styles.allocationRow} ${styles.scheduleRow}`} style={{ gridTemplateColumns: 'var(--schedule-cols)' }}>
         <Cell><span /></Cell>
         <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
         <Cell><span /></Cell>
@@ -2888,6 +2907,7 @@ function AdHocRow({
 
   return (
     <div
+      className={styles.scheduleRow}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -3272,7 +3292,7 @@ function AllocationRow({
   if (editingSchedule && pendingDelete) {
     return (
       <div
-        className={styles.allocationRow}
+        className={`${styles.allocationRow} ${styles.scheduleRow}`}
         style={{ gridTemplateColumns: 'var(--schedule-cols)', background: '#FFF5F5' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
@@ -3302,7 +3322,7 @@ function AllocationRow({
   if (editingSchedule) {
     return (
       <div
-        className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
+        className={`${styles.allocationRow} ${styles.allocationRowEditing} ${styles.scheduleRow}`}
         style={{ gridTemplateColumns: 'var(--schedule-cols)', background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
@@ -3592,7 +3612,7 @@ function AllocationRow({
 
   return (
     <div
-      className={styles.allocationRow}
+      className={`${styles.allocationRow} ${styles.scheduleRow}`}
       style={{
         gridTemplateColumns: 'var(--schedule-cols)',
         background: rowBg,

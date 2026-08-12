@@ -22,6 +22,23 @@
   padding: 0 16px 0 12px;
 }
 
+/* Every row that shares the --schedule-cols grid template — header, band,
+   footer, ad-hoc/ETP cost rows, allocation rows — gets this class so its
+   direct children can never impose a content-driven minimum on a `fr`
+   track. Without it, a grid item's default min-width: auto lets its own
+   content (e.g. a wide "avg./day £605.00" figure) force that item's track
+   wider in THAT row's grid instance — CSS Grid resolves `fr` sizing
+   per-container, so a track can end up a different pixel width from one
+   row to the next even though every row references the identical
+   --schedule-cols string. That's a real, easy-to-reintroduce misalignment
+   bug (not just a hypothetical): rows drift out of step with the header
+   only where a row's content happens to be unusually wide for its column.
+   min-width: 0 here forces every row's `fr` tracks to resolve purely from
+   the declared column template, identical across every row, every time. */
+.scheduleRow > * {
+  min-width: 0;
+}
+
 /* handle col (1) + content cols through the Days total */
 .bandLeft {
   grid-column: 1 / span 11;
