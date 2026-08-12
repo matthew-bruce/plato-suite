@@ -45,6 +45,12 @@ export interface ScheduleAllocation {
   capacity_days: number | null
   is_chargeable: boolean
   vat_applies: boolean
+  is_confirmed: boolean
+  /** Optional per-calendar-month breakdown of capacity_days, keyed by the
+   *  month's first day (YYYY-MM-01). Empty when the allocation's total is
+   *  entered directly. When non-empty, capacity_days is kept equal to the
+   *  sum of these values — see migration 029. */
+  monthly_days: Record<string, number>
   teams: TeamAssignment[]
   /** Missing capacity, as a whole percentage (e.g. 50 for a 50% split with no
    *  second team). Undefined/null when fully allocated or when there are no
@@ -61,6 +67,11 @@ export interface SchedulePageData {
   allocations: ScheduleAllocation[]
   allPeriods: Pick<Period, 'period_id' | 'period_name' | 'period_status' | 'period_start_date' | 'period_end_date'>[]
   costItems: PlatformCostItem[]
+  /** England-and-Wales bank holiday dates (YYYY-MM-DD) covering the calendar
+   *  years this period spans. Drives the "Populate working days" button; an
+   *  empty year means that year has no seeded data and the button is disabled
+   *  rather than silently producing an unadjusted figure. */
+  bankHolidays: string[]
 }
 
 export type PlatformCostItem = {

@@ -64,6 +64,20 @@ export function formatDaysTotal(days: number): string {
   return rounded.toLocaleString('en-GB', { maximumFractionDigits: 1 })
 }
 
+// Single source of truth for "X/Y confirmed" — used by both the per-supplier
+// chip and the Filtered Totals bar so the two figures can't diverge. Callers
+// pass whatever set of rows is currently visible (already filtered by
+// search/planview/location/team/supplier), so the count always reflects the
+// active view, not the full unfiltered dataset.
+export function calculateConfirmedCount(
+  rows: { is_confirmed: boolean }[],
+): { confirmed: number; total: number } {
+  return {
+    confirmed: rows.filter((r) => r.is_confirmed).length,
+    total: rows.length,
+  }
+}
+
 export function isChargeableRow(planviewCode: string | null | undefined): boolean {
   return planviewCode === 'PR'
 }

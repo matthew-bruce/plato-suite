@@ -22,18 +22,18 @@
   padding: 0 16px 0 12px;
 }
 
-/* handle col (1) + 9 original content cols */
+/* handle col (1) + content cols through the Days total */
 .bandLeft {
-  grid-column: 1 / span 10;
+  grid-column: 1 / span 11;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 0;
 }
 
-/* base (col 11) + vat (col 12) */
+/* base (col 12) + vat (col 13) */
 .bandTotals {
-  grid-column: 11 / span 2;
+  grid-column: 12 / span 2;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -125,7 +125,10 @@
   }
 
   /* Cell index map (1-based): 1 Handle, 2 Resource, 3 Role, 4 Team, 5 Util,
-     6 Plan, 7 Chargeable, 8 Location, 9 Days, 10 DayRate, 11 Base, 12 VAT */
+     6 Plan, 7 Chargeable, 8 Location, 9 Monthly days, 10 Days, 11 DayRate,
+     12 Base, 13 VAT, 14 Confirmed. Cells 9 and 14 exist in both view and edit
+     mode (9 as an empty placeholder outside edit mode, 14 as an icon rather
+     than a checkbox), so these indices never differ by mode. */
   .allocationRow > :nth-child(1)  { display: none; }                                             /* Handle — hidden on mobile */
   .allocationRow > :nth-child(2)  { grid-column: 1; grid-row: 1; }                               /* Resource */
   .allocationRow > :nth-child(7)  { grid-column: 2; grid-row: 1; justify-content: flex-end; }    /* Chargeable */
@@ -133,13 +136,32 @@
   .allocationRow > :nth-child(4)  { grid-column: 1; grid-row: 3; }                               /* Team */
   .allocationRow > :nth-child(8)  { grid-column: 2; grid-row: 3; justify-content: flex-end; }    /* Location */
   .allocationRow > :nth-child(6)  { grid-column: 1; grid-row: 4; }                               /* Plan */
-  .allocationRow > :nth-child(9)  { grid-column: 2; grid-row: 4; justify-content: flex-end; white-space: normal; overflow: visible; } /* Days */
-  .allocationRow > :nth-child(11) { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Base */
-  .allocationRow > :nth-child(12) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
+  .allocationRow > :nth-child(10) { grid-column: 2; grid-row: 4; justify-content: flex-end; white-space: normal; overflow: visible; } /* Days */
+  .allocationRow > :nth-child(12) { grid-column: 1; grid-row: 5; flex-direction: column; align-items: flex-start; white-space: normal; overflow: visible; } /* Base */
+  .allocationRow > :nth-child(13) { grid-column: 2; grid-row: 5; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* +VAT */
+  /* Confirmed takes a full-width row of its own. Deliberately no grid-row:
+     the monthly-days cell above it is hidden outside edit mode, so letting
+     both auto-place keeps them stacked in DOM order (monthly then confirmed)
+     without leaving an empty, gap-producing row in whichever mode hides one. */
+  .allocationRow > :nth-child(14) { grid-column: 1 / span 2; justify-content: flex-end; flex-direction: column; align-items: flex-end; white-space: normal; overflow: visible; } /* Confirmed */
   .allocationRow > :nth-child(5),
-  .allocationRow > :nth-child(10) { display: none; }                                             /* Utilisation, Day Rate — hidden */
+  .allocationRow > :nth-child(9),
+  .allocationRow > :nth-child(11) { display: none; }                                             /* Utilisation, Monthly days, Day Rate — hidden */
 
-  /* Data labels for Base and +VAT cells */
+  /* Edit mode only: the monthly breakdown earns its own full-width row under
+     the money figures, where its month inputs have room to sit inline. Must
+     follow the display:none rule above (equal specificity — source order
+     wins) and, like Confirmed, auto-places rather than pinning a row. */
+  .allocationRowEditing > :nth-child(9) {
+    display: flex;
+    grid-column: 1 / span 2;
+    flex-direction: column;
+    align-items: flex-start;
+    white-space: normal;
+    overflow: visible;
+  }
+
+  /* Data labels for Base, +VAT, Monthly days and Confirmed cells */
   .cell[data-label]::before {
     content: attr(data-label);
     display: block;
