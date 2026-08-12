@@ -491,7 +491,7 @@ export function SchedulePageClient({ data }: Props) {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
       .from('platform_cost_items')
-      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category, is_confirmed')
       .eq('period_id', period.period_id)
       .is('deleted_at', null)
       .order('sort_order')
@@ -500,11 +500,17 @@ export function SchedulePageClient({ data }: Props) {
 
   async function handleUpdateCostItem(
     id: string,
-    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>,
+    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>,
   ) {
+    const previous = localCostItems
     setLocalCostItems((prev) => prev.map((item) => item.cost_item_id === id ? { ...item, ...updates } : item))
     const supabase = getSupabaseBrowserClient()
-    await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+    const { error } = await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+    if (error) {
+      // Revert optimistic state and tell the user — same pattern as handleUpdateAllocation.
+      setLocalCostItems(previous)
+      setAllocationError(error.message || 'Could not save the change. Please try again.')
+    }
   }
 
   async function handleDeleteCostItem(id: string) {
@@ -1683,7 +1689,7 @@ function ScheduleTable({
   onToggleEditAdHoc: () => void
   editingEtpSs: boolean
   onToggleEditEtpSs: () => void
-  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDeleteCostItem: (id: string) => Promise<void>
   onAddCostItem: () => Promise<void>
   onAddEtpSsItem: () => Promise<void>
@@ -1720,7 +1726,14 @@ function ScheduleTable({
   }, 0)
 
   const footerDays = sumFilteredDays(groups, activeTeamFilter)
-  const footerConfirmed = calculateConfirmedCount(groups.flatMap((g) => g.rows))
+  // Cost items aren't part of any team/search/planview/location filter (they
+  // don't belong to a resource), so — same as costItemsBase/costItemsVat
+  // above — they only count when the view is otherwise unfiltered; folding
+  // them in while a filter is active would overstate what's actually shown.
+  const footerConfirmed = calculateConfirmedCount([
+    ...groups.flatMap((g) => g.rows),
+    ...(isUnfiltered ? costItems : []),
+  ])
 
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
@@ -2411,7 +2424,7 @@ function AdHocSection({
   items: PlatformCostItem[]
   editingAdHoc: boolean
   onToggleEditAdHoc: () => void
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
   vatPct: number
@@ -2595,7 +2608,7 @@ function EtpSsSection({
   locked: boolean
   editingEtpSs: boolean
   onToggleEditEtpSs: () => void
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
 }) {
@@ -2768,7 +2781,7 @@ function EtpSsEditRow({
   onDelete,
 }: {
   item: PlatformCostItem
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
   const [labelValue, setLabelValue] = useState(item.label)
@@ -2788,14 +2801,15 @@ function EtpSsEditRow({
       }}
     >
       <div style={{ gridColumn: 1 }} />
-      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
           value={labelValue}
           onChange={(e) => setLabelValue(e.target.value)}
           onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
           style={{
-            width: '100%',
+            flex: 1,
+            minWidth: 0,
             border: '1px solid #D5D5D5',
             borderRadius: 6,
             padding: '4px 8px',
@@ -2804,6 +2818,7 @@ function EtpSsEditRow({
             color: '#2A2A2D',
           }}
         />
+        <RedXButton onClick={() => onDelete(item.cost_item_id)} title="Remove item" ariaLabel="Remove item" />
       </div>
       <div style={{ gridColumn: '6 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <select
@@ -2849,22 +2864,12 @@ function EtpSsEditRow({
         />
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => onDelete(item.cost_item_id)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#DA202A',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            fontFamily: 'var(--rmg-font-body)',
-            padding: '2px 6px',
-          }}
-        >
-          Remove
-        </button>
+        <input
+          type="checkbox"
+          checked={item.is_confirmed}
+          onChange={(e) => onUpdate(item.cost_item_id, { is_confirmed: e.target.checked })}
+          style={{ flexShrink: 0, cursor: 'pointer' }}
+        />
       </div>
     </div>
   )
@@ -2880,7 +2885,7 @@ function AdHocRow({
   item: PlatformCostItem
   editing: boolean
   vatPct: number
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
   const [labelValue, setLabelValue] = useState(item.label)
@@ -2905,6 +2910,11 @@ function AdHocRow({
         <Cell><span /></Cell>
         <Cell><span /></Cell>
         <Cell><span /></Cell>
+        {/* 9 Monthly days, 10 Days, 11 Day Rate — cost items have none of
+            these, so all three are empty placeholders. Without the third
+            (11), Base/+VAT below would auto-place one track early and land
+            under the Day Rate/Base headers instead of their own. */}
+        <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right" dataLabel="Base">
@@ -2916,6 +2926,14 @@ function AdHocRow({
           <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', color: item.vat_applies ? '#2A2A2D' : '#8F9495', ...blurStyle }}>
             {formatMoney(vatTotal)}
           </span>
+        </Cell>
+        <Cell align="right" dataLabel="Confirmed">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
+            <ConfirmedStatusIcon
+              isConfirmed={item.is_confirmed}
+              name={item.label || 'This item'}
+            />
+          </div>
         </Cell>
       </div>
     )
@@ -2933,14 +2951,15 @@ function AdHocRow({
       }}
     >
       <div style={{ gridColumn: 1 }} />
-      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
           value={labelValue}
           onChange={(e) => setLabelValue(e.target.value)}
           onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
           style={{
-            width: '100%',
+            flex: 1,
+            minWidth: 0,
             border: '1px solid #D5D5D5',
             borderRadius: 6,
             padding: '4px 8px',
@@ -2949,6 +2968,7 @@ function AdHocRow({
             color: '#2A2A2D',
           }}
         />
+        <RedXButton onClick={() => onDelete(item.cost_item_id)} title="Remove item" ariaLabel="Remove item" />
       </div>
       <div style={{ gridColumn: '7 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
@@ -2982,22 +3002,12 @@ function AdHocRow({
         </label>
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => onDelete(item.cost_item_id)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#DA202A',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            fontFamily: 'var(--rmg-font-body)',
-            padding: '2px 6px',
-          }}
-        >
-          Remove
-        </button>
+        <input
+          type="checkbox"
+          checked={item.is_confirmed}
+          onChange={(e) => onUpdate(item.cost_item_id, { is_confirmed: e.target.checked })}
+          style={{ flexShrink: 0, cursor: 'pointer' }}
+        />
       </div>
     </div>
   )
