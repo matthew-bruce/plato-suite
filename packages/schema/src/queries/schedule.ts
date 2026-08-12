@@ -38,6 +38,7 @@ type RawAllocationRow = {
   capacity_days: number | string | null
   is_chargeable: boolean
   vat_applies: boolean | null
+  is_confirmed: boolean
   display_order: number | null
   resource_location: string | null
   suppliers: SupplierEmbed | SupplierEmbed[] | null
@@ -142,6 +143,7 @@ export async function getSchedulePageData(
         capacity_days,
         is_chargeable,
         vat_applies,
+        is_confirmed,
         display_order,
         resource_location,
         suppliers!left ( supplier_name, supplier_colour, sort_order )
@@ -279,6 +281,7 @@ export async function getSchedulePageData(
         capacity_days: capacityDays,
         is_chargeable: row.is_chargeable,
         vat_applies: vatApplies,
+        is_confirmed: row.is_confirmed,
         teams,
         unallocatedPct,
         base_total_pence: base,

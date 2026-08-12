@@ -45,6 +45,7 @@ export interface ScheduleAllocation {
   capacity_days: number | null
   is_chargeable: boolean
   vat_applies: boolean
+  is_confirmed: boolean
   teams: TeamAssignment[]
   /** Missing capacity, as a whole percentage (e.g. 50 for a 50% split with no
    *  second team). Undefined/null when fully allocated or when there are no

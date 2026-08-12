@@ -74,6 +74,7 @@ import {
   sortAllocations as sortByColumn,
   sumFilteredDays,
   formatDaysTotal,
+  calculateConfirmedCount,
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
@@ -82,6 +83,16 @@ import styles from './schedule.module.css'
 type Props = { data: SchedulePageData }
 
 const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
+
+// Edit-mode-only variant: adds a 13th "Confirmed" column at the end. Column
+// indices 1-12 (Handle..+VAT) are unchanged from SCHEDULE_COLS, so every
+// existing `gridColumn: N` reference in the band/footer rows still lines up
+// — only the widths shift slightly to make room for column 13. Used by the
+// header, supplier band rows, allocation rows, and the footer bar whenever
+// editingSchedule is true, so the whole table's columns stay aligned; the
+// read-only view keeps SCHEDULE_COLS unconditionally (Confirmed never shows
+// outside edit mode).
+const EDIT_SCHEDULE_COLS = '24px 12% 12% 8% 7% 6% 7% 7% 5% 11% 7% 7% 7%'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -127,7 +138,10 @@ export function SchedulePageClient({ data }: Props) {
   // Default sort is null so rows render in their persisted display_order on load.
   // Clicking a column header applies a session-only sort (never written to DB).
   const [sort, setSort] = useState<SortState>({ col: null, dir: 'asc' })
-  const [reorderError, setReorderError] = useState<string | null>(null)
+  // Shared error banner for allocation-table writes (reorder, and any
+  // per-row field update including Confirmed) — one mechanism, not one per
+  // field, so failures always surface the same way.
+  const [allocationError, setAllocationError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
   const [editingAdHoc, setEditingAdHoc] = useState(false)
@@ -472,6 +486,7 @@ export function SchedulePageClient({ data }: Props) {
 
   async function handleUpdateAllocation(id: string, updates: AllocationUpdates) {
     const finalUpdates = withDerivedChargeable(updates)
+    const previous = localAllocations
     setLocalAllocations((prev) => prev.map((a) => {
       if (a.allocation_id !== id) return a
       const next = { ...a, ...finalUpdates }
@@ -482,7 +497,12 @@ export function SchedulePageClient({ data }: Props) {
       return { ...next, base_total_pence: base, vat_total_pence: vat }
     }))
     const supabase = getSupabaseBrowserClient()
-    await supabase.from('resource_period_allocations').update(finalUpdates).eq('allocation_id', id)
+    const { error } = await supabase.from('resource_period_allocations').update(finalUpdates).eq('allocation_id', id)
+    if (error) {
+      // Revert optimistic state and tell the user — same pattern as handleReorder.
+      setLocalAllocations(previous)
+      setAllocationError(error.message || 'Could not save the change. Please try again.')
+    }
   }
 
   async function handleDeleteAllocation(id: string) {
@@ -577,6 +597,7 @@ export function SchedulePageClient({ data }: Props) {
       capacity_days: 0,
       is_chargeable: false,
       vat_applies: true,
+      is_confirmed: false,
       teams,
       base_total_pence: 0,
       vat_total_pence: 0,
@@ -614,7 +635,7 @@ export function SchedulePageClient({ data }: Props) {
     if (!res.success) {
       // Revert optimistic state and tell the user.
       setLocalAllocations(previous)
-      setReorderError(res.error ?? 'Could not save the new row order. Please try again.')
+      setAllocationError(res.error ?? 'Could not save the new row order. Please try again.')
     }
   }
 
@@ -661,14 +682,14 @@ export function SchedulePageClient({ data }: Props) {
     >
       <PageHeader onCreateNewPeriod={() => setCreatePeriodOpen(true)} />
 
-      {reorderError && (
+      {allocationError && (
         <div style={{ marginBottom: 12 }}>
           <Notification
             variant="banner"
             status="error"
-            message={reorderError}
+            message={allocationError}
             paddingX={16}
-            onDismiss={() => setReorderError(null)}
+            onDismiss={() => setAllocationError(null)}
           />
         </div>
       )}
@@ -1452,7 +1473,7 @@ function byDisplayOrder(a: ScheduleAllocation, b: ScheduleAllocation): number {
 
 /* ── ScheduleTable ─────────────────────────────────────────────── */
 
-type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable' | 'resource_location'>>
+type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable' | 'is_confirmed' | 'resource_location'>>
 
 function ScheduleTable({
   groups,
@@ -1536,6 +1557,7 @@ function ScheduleTable({
   }, 0)
 
   const footerDays = sumFilteredDays(groups, activeTeamFilter)
+  const footerConfirmed = calculateConfirmedCount(groups.flatMap((g) => g.rows))
 
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
@@ -1551,7 +1573,7 @@ function ScheduleTable({
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
-        <HeaderRow sort={sort} onSort={onSort} locked={locked} />
+        <HeaderRow sort={sort} onSort={onSort} locked={locked} editingSchedule={editingSchedule} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
@@ -1623,7 +1645,7 @@ function ScheduleTable({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: SCHEDULE_COLS,
+            gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
             padding: COL_PADDING,
             background: '#F5F5F5',
             borderTop: '2px solid #E0E0E0',
@@ -1644,6 +1666,11 @@ function ScheduleTable({
           <div style={{ gridColumn: 12 }}>
             <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
+          {editingSchedule && (
+            <div style={{ gridColumn: 13 }}>
+              <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
+            </div>
+          )}
         </div>
         {activeTeamFilter && (
           <TeamRunRateBar
@@ -1758,10 +1785,12 @@ function HeaderRow({
   sort,
   onSort,
   locked,
+  editingSchedule,
 }: {
   sort: SortState
   onSort: (col: SortableCol) => void
   locked: boolean
+  editingSchedule: boolean
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -1770,7 +1799,7 @@ function HeaderRow({
       className={styles.header}
       style={{
         display: 'grid',
-        gridTemplateColumns: SCHEDULE_COLS,
+        gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
         padding: COL_PADDING,
         background: '#EFEFEF',
         borderBottom: '2px solid #E0E0E0',
@@ -1801,6 +1830,9 @@ function HeaderRow({
       />
       <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
+      {editingSchedule && (
+        <Th label="Confirmed" col={null} sort={sort} onSort={onSort} align="right" />
+      )}
     </div>
   )
 }
@@ -1923,6 +1955,7 @@ function SupplierSection({
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
   const pillTextColour = getTextColour(colour)
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
+  const supplierConfirmed = calculateConfirmedCount(rows)
   const { isPrivate } = usePrivacyMode()
   const blurStyle: React.CSSProperties | undefined = isPrivate
     ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
@@ -1952,7 +1985,7 @@ function SupplierSection({
         onClick={onToggle}
         style={{
           display: 'grid',
-          gridTemplateColumns: SCHEDULE_COLS,
+          gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
           padding: COL_PADDING,
           background: tint,
           cursor: 'pointer',
@@ -1992,9 +2025,28 @@ function SupplierSection({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
+            gap: 6,
             padding: '10px 8px 10px 0',
           }}
         >
+          {editingSchedule && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                flexShrink: 0,
+                borderRadius: '100px',
+                padding: '2px 8px',
+                fontSize: 10,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                background: '#EEEEEE',
+                color: '#8F9495',
+              }}
+            >
+              {supplierConfirmed.confirmed}/{supplierConfirmed.total} confirmed
+            </span>
+          )}
           {days > 0 ? (
             <>
               <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px', ...blurStyle }}>
@@ -2926,7 +2978,7 @@ function AllocationRow({
     return (
       <div
         className={styles.allocationRow}
-        style={{ gridTemplateColumns: SCHEDULE_COLS, background: '#FFF5F5' }}
+        style={{ gridTemplateColumns: EDIT_SCHEDULE_COLS, background: '#FFF5F5' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
         <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
@@ -2956,7 +3008,7 @@ function AllocationRow({
     return (
       <div
         className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
-        style={{ gridTemplateColumns: SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
+        style={{ gridTemplateColumns: EDIT_SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
         <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
@@ -3145,6 +3197,17 @@ function AllocationRow({
             <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
               {formatMoney(displayVat)}
             </span>
+          </div>
+        </Cell>
+        {/* 12 Confirmed — checkbox */}
+        <Cell align="right" dataLabel="Confirmed">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
+            <input
+              type="checkbox"
+              checked={row.is_confirmed}
+              onChange={(e) => onUpdate(row.allocation_id, { is_confirmed: e.target.checked })}
+              style={{ flexShrink: 0, cursor: 'pointer' }}
+            />
           </div>
         </Cell>
       </div>
