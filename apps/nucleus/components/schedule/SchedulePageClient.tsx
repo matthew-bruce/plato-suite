@@ -100,19 +100,41 @@ type Props = { data: SchedulePageData }
 // Both templates declare all 14 tracks so column indices are identical in
 // view and edit mode — every `gridColumn: N` on this page (supplier bands,
 // the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
-// correct value rather than one per mode that could drift apart. Only the
-// widths differ: view mode collapses the monthly-days track to zero and
-// renders an empty placeholder cell there, since the breakdown is an
-// edit-only affordance while Confirmed shows in both modes (icon vs
-// checkbox). Both total 97%, matching the table's original fill.
+// correct value rather than one per mode that could drift apart.
 //
-// Edit mode buys the monthly column's width from Resource/Role/Team, which
-// hold free-flowing text and tolerate it. The narrow header labels
-// (UTILISATION / CHARGEABLE / CONFIRMED) keep enough width that the header
-// text does not collide.
-//                     1     2   3   4  5  6  7  8  9(mo) 10 11 12 13 14
-const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0 5% 7% 8% 8% 5%'
-const EDIT_SCHEDULE_COLS = '24px 8% 8% 6% 8% 5% 8% 6% 15% 6% 7% 7% 7% 6%'
+// Fixed vs. flexible, and why: a column's content is either a fixed-size
+// control (checkbox, status icon/badge, small numeric input, icon button —
+// its rendered size doesn't depend on the data) or variable-length text
+// (a name, title, or free-form list — it needs room to grow). Sizing the
+// first group with `%`/`fr` either strands dead space around a small
+// control or starves it, and it's the reason this table's column widths
+// have needed rebalancing more than once. The fix is to size each group
+// with the CSS unit that actually matches its content:
+//
+//   Fixed-width (px, sized to the control + padding — never grows):
+//     1 Handle, 5 Utilisation, 7 Chargeable, 9 Monthly days, 10 Days,
+//     11 Day Rate, 12 Base, 13 +VAT, 14 Confirmed
+//   Flexible (fr, shares whatever width the fixed columns don't use):
+//     2 Resource, 3 Role, 4 Team, 6 Plan (dropdown in edit mode),
+//     8 Location (dropdown in edit mode)
+//
+// `fr` tracks always consume exactly the remaining row width, so the
+// flexible columns fill the table with no dead gaps by construction —
+// unlike `%`, which only sums to a full row if every column's percentage is
+// re-tuned by hand whenever one changes. When adding or removing a column,
+// classify it into one of the two groups above and follow its unit
+// (fixed px sized to the control, or a share of `fr`); don't reach for `%`.
+//
+// Only track 9 (Monthly days) differs between the two templates: it's a
+// real edit-only affordance in edit mode and a zero-width placeholder in
+// view mode, so the index stays 9 either way. Every fixed-px figure below is
+// sized to its header label plus sort icon (the widest thing that ever has
+// to fit that track) or, if larger, its control — not to the data, which
+// ellipsizes gracefully (Th, Cell) if a narrow viewport ever squeezes it
+// below that.
+//                     1     2    3    4    5    6    7    8     9(mo)  10   11    12   13    14
+const SCHEDULE_COLS = '24px 13fr 13fr 7fr 90px 6fr 96px 10fr 0     80px 100px 90px 105px 80px'
+const EDIT_SCHEDULE_COLS = '24px 13fr 13fr 7fr 90px 6fr 96px 10fr 160px 80px 100px 90px 105px 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -2027,13 +2049,24 @@ function Th({
         gap: 4,
         justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
         transition: 'color 120ms',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
-      {privacyIcon && <EyeOff size={11} />}
-      {label}
-      {trailing}
+      {privacyIcon && <span style={{ flexShrink: 0, display: 'inline-flex' }}><EyeOff size={11} /></span>}
+      {/* A column narrower than its own label (e.g. a flexible text column
+          squeezed by its neighbours at a small viewport) ellipsizes here
+          instead of overflowing into the next header — the same defence
+          Cell uses for row data. The trailing icon and sort arrow keep
+          flexShrink: 0 so they're never what gives way. */}
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      {trailing && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{trailing}</span>}
       {clickable && (
-        <SortIcon active={active} dir={active ? sort.dir : null} />
+        <span style={{ flexShrink: 0, display: 'inline-flex' }}>
+          <SortIcon active={active} dir={active ? sort.dir : null} />
+        </span>
       )}
     </div>
   )
@@ -3019,6 +3052,41 @@ function UserPlusIcon() {
   )
 }
 
+/** Small transparent red "✕" button — the shared visual treatment for a
+ *  destructive/reset action on a row (deleting it, or clearing a locked
+ *  field back to manual entry). Not for confirmed multi-step deletes,
+ *  which use their own inline Yes/Cancel controls. */
+function RedXButton({
+  onClick,
+  title,
+  ariaLabel,
+}: {
+  onClick: () => void
+  title: string
+  ariaLabel: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+      style={{
+        flexShrink: 0,
+        background: 'transparent',
+        border: 'none',
+        color: '#DA202A',
+        cursor: 'pointer',
+        fontSize: 14,
+        lineHeight: 1,
+        padding: '0 2px',
+      }}
+    >
+      ✕
+    </button>
+  )
+}
+
 function UserMinusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -3277,14 +3345,7 @@ function AllocationRow({
                   <button type="button" onClick={() => setUnassignConfirm(true)} title="Remove resource" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }}><UserMinusIcon /></button>
                 </>
               )}
-              <button
-                type="button"
-                onClick={() => setPendingDelete(true)}
-                title="Delete row"
-                style={{ background: 'transparent', border: 'none', color: '#DA202A', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
-              >
-                ✕
-              </button>
+              <RedXButton onClick={() => setPendingDelete(true)} title="Delete row" ariaLabel="Delete row" />
             </div>
           )}
         </Cell>
@@ -3471,24 +3532,11 @@ function AllocationRow({
                     cursor: 'not-allowed',
                   }}
                 />
-                <button
-                  type="button"
+                <RedXButton
                   onClick={() => void monthlyDays.onClear(row.allocation_id)}
                   title="Clear the monthly breakdown and enter a total directly"
-                  aria-label="Clear monthly breakdown"
-                  style={{
-                    flexShrink: 0,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--rmg-color-grey-1)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    lineHeight: 1,
-                    padding: '0 2px',
-                  }}
-                >
-                  ×
-                </button>
+                  ariaLabel="Clear monthly breakdown"
+                />
               </>
             ) : (
               <input
@@ -3571,7 +3619,7 @@ function AllocationRow({
         {tbc ? (
           <span style={nullStyle}>TBC</span>
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {highlightMatch(row.resource_name!, searchQuery)}
           </span>
         )}
@@ -3580,7 +3628,7 @@ function AllocationRow({
       {/* 2 Role */}
       <Cell>
         {row.role_title ? (
-          <span style={{ fontSize: 13, color: '#333' }}>
+          <span style={{ fontSize: 13, color: '#333', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {highlightMatch(row.role_title, searchQuery)}
           </span>
         ) : (
