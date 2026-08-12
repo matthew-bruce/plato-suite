@@ -50,6 +50,12 @@ type RawResourceRow = {
   resource_location: string | null
 }
 
+type RawMonthlyDaysRow = {
+  allocation_id: string
+  month_start_date: string
+  days: number | string
+}
+
 type RawTeamAssignmentRow = {
   resource_id: string
   team_id: string
@@ -128,7 +134,7 @@ export async function getSchedulePageData(
     { period_id: period.period_id, locked: period.locked, period_start_date: period.period_start_date },
   )
 
-  const [allocsResult, costItemsResult] = await Promise.all([
+  const [allocsResult, costItemsResult, bankHolidaysResult] = await Promise.all([
     supabase
       .from('resource_period_allocations')
       .select(
@@ -157,11 +163,46 @@ export async function getSchedulePageData(
       .eq('period_id', activePeriodId)
       .is('deleted_at', null)
       .order('sort_order'),
+    // Bank holidays for every calendar year this period touches. Bounded by
+    // the period's own dates rather than fetched wholesale, and read through
+    // the same request as everything else so the Populate button has its data
+    // without a second client round trip.
+    supabase
+      .from('uk_bank_holidays')
+      .select('holiday_date')
+      .gte('holiday_date', `${period.period_start_date.slice(0, 4)}-01-01`)
+      .lte('holiday_date', `${period.period_end_date.slice(0, 4)}-12-31`)
+      .order('holiday_date'),
   ])
 
   const { data: allocsData, error: allocsErr } = allocsResult
   if (allocsErr) throw new Error(`Failed to load allocations: ${allocsErr.message}`)
   const { data: costItemsData } = costItemsResult
+  const { data: bankHolidaysData } = bankHolidaysResult
+  const bankHolidays = ((bankHolidaysData ?? []) as unknown as { holiday_date: string }[])
+    .map((h) => h.holiday_date.slice(0, 10))
+
+  // Optional monthly breakdown, keyed allocation_id → { 'YYYY-MM-01': days }.
+  // Allocations with no rows simply get an empty object, which is what puts
+  // their total in directly-editable manual mode on the client.
+  const allocationIds = ((allocsData ?? []) as unknown as RawAllocationRow[]).map(
+    (r) => r.allocation_id,
+  )
+  const monthlyDaysMap = new Map<string, Record<string, number>>()
+  if (allocationIds.length > 0) {
+    const { data: monthlyData, error: monthlyErr } = await supabase
+      .from('resource_period_allocation_monthly_days')
+      .select('allocation_id, month_start_date, days')
+      .in('allocation_id', allocationIds)
+
+    if (monthlyErr) throw new Error(`Failed to load monthly days: ${monthlyErr.message}`)
+
+    for (const r of (monthlyData ?? []) as unknown as RawMonthlyDaysRow[]) {
+      const existing = monthlyDaysMap.get(r.allocation_id) ?? {}
+      existing[r.month_start_date.slice(0, 10)] = Number(r.days)
+      monthlyDaysMap.set(r.allocation_id, existing)
+    }
+  }
 
   // Collect non-null resource IDs for separate lookups (resources + teams).
   // Keeping resource data in a separate query guarantees TBC rows (resource_id=null)
@@ -282,6 +323,7 @@ export async function getSchedulePageData(
         is_chargeable: row.is_chargeable,
         vat_applies: vatApplies,
         is_confirmed: row.is_confirmed,
+        monthly_days: monthlyDaysMap.get(row.allocation_id) ?? {},
         teams,
         unallocatedPct,
         base_total_pence: base,
@@ -300,5 +342,12 @@ export async function getSchedulePageData(
       return (a.resource_name ?? '').localeCompare(b.resource_name ?? '')
     })
 
-  return { period, costConfig, allocations, allPeriods, costItems: (costItemsData ?? []) as PlatformCostItem[] }
+  return {
+    period,
+    costConfig,
+    allocations,
+    allPeriods,
+    costItems: (costItemsData ?? []) as PlatformCostItem[],
+    bankHolidays,
+  }
 }

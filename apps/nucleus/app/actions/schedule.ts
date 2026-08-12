@@ -135,3 +135,60 @@ export async function batchUpdateDisplayOrder(
     return { success: false, error: message }
   }
 }
+
+/**
+ * Write part of an allocation's monthly day breakdown and re-sync its
+ * capacity_days total in the same transaction.
+ *
+ * Routed through the set_allocation_monthly_days RPC (migration 029) rather
+ * than an upsert followed by a separate capacity_days update: capacity_days is
+ * what every cost figure on the page reads, so a half-applied write would
+ * leave the authoritative total disagreeing with the breakdown it is supposed
+ * to be the sum of.
+ *
+ * `months` and `days` are parallel arrays. A null in `days` clears that month
+ * (deleting its row), which is how blanking a single month input is expressed.
+ * Passing every month at once is how the "Populate working days" button lands
+ * a whole quarter in one round trip. Returns the recomputed capacity_days.
+ */
+export async function setAllocationMonthlyDays(
+  allocationId: string,
+  months: string[],
+  days: (number | null)[],
+): Promise<{ success: boolean; capacityDays?: number; error?: string }> {
+  if (months.length !== days.length) {
+    return { success: false, error: 'months and days must be the same length' }
+  }
+  if (months.length === 0) {
+    return { success: false, error: 'No months provided' }
+  }
+
+  const supabase = await getSupabaseServerComponentClient()
+
+  const { data, error } = await supabase.rpc('set_allocation_monthly_days', {
+    p_allocation_id: allocationId,
+    p_months: months,
+    p_days: days,
+  })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, capacityDays: Number(data ?? 0) }
+}
+
+/**
+ * Drop an allocation's whole monthly breakdown, returning its total to direct
+ * manual entry. capacity_days is deliberately left untouched by the RPC, so
+ * the figure already on screen stays put and simply becomes editable again.
+ */
+export async function clearAllocationMonthlyDays(
+  allocationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await getSupabaseServerComponentClient()
+
+  const { error } = await supabase.rpc('clear_allocation_monthly_days', {
+    p_allocation_id: allocationId,
+  })
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
+}

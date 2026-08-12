@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy } from 'lucide-react'
+import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy, CalendarRange } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -43,7 +43,17 @@ import {
   togglePeriodLocked,
   batchUpdateDisplayOrder,
   unassignResourceFromAllocation,
+  setAllocationMonthlyDays,
+  clearAllocationMonthlyDays,
 } from '@/app/actions/schedule'
+import {
+  getPeriodMonths,
+  calculateWorkingDaysInMonth,
+  sumMonthlyDays,
+  hasAnyMonthlyValue,
+  parseIsoDate,
+  type PeriodMonth,
+} from '@/lib/schedule/monthlyDays'
 import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
 import { CreatePeriodWizard } from './CreatePeriodWizard'
@@ -82,25 +92,27 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
-// 12-column layout. Confirmed is now visible in both view and edit mode
-// (a read-only status icon in view mode, an editable checkbox in edit
-// mode), so the whole resource-allocation table — header, supplier band
-// rows, allocation rows, and the footer bar — always uses the 13-column
-// RESOURCE_TABLE_COLS below instead. SCHEDULE_COLS survives only because
-// the unrelated AdHoc/ETP-SS cost-item sections still use it — those have
-// no Confirmed column and were never part of this feature.
-const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
-
-// The one column definition for the resource-allocation table, used
-// unconditionally by both view and edit mode so the two can never drift
-// apart again the way they briefly did when Confirmed was edit-mode-only.
-// Column indices 1-12 (Handle..+VAT) match SCHEDULE_COLS's order. Confirmed
-// (13) only ever holds a checkbox or an 18px status icon, so it's sized
-// narrow like Days (9) rather than given a proportional share — the other
-// columns are trimmed by ~1% each (not shrunk to make room, which is what
-// left this whole row under-filled and Confirmed itself oversized before)
-// so the total stays at 97%, matching SCHEDULE_COLS's own fill exactly.
-const RESOURCE_TABLE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 5% 7% 8% 8% 5%'
+// The resource-allocation table's 14 tracks, in one place:
+//   1 Handle  2 Resource  3 Role  4 Team  5 Utilisation  6 Plan
+//   7 Chargeable  8 Location  9 Monthly days  10 Days  11 Day Rate
+//   12 Base  13 +VAT  14 Confirmed
+//
+// Both templates declare all 14 tracks so column indices are identical in
+// view and edit mode — every `gridColumn: N` on this page (supplier bands,
+// the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
+// correct value rather than one per mode that could drift apart. Only the
+// widths differ: view mode collapses the monthly-days track to zero and
+// renders an empty placeholder cell there, since the breakdown is an
+// edit-only affordance while Confirmed shows in both modes (icon vs
+// checkbox). Both total 97%, matching the table's original fill.
+//
+// Edit mode buys the monthly column's width from Resource/Role/Team, which
+// hold free-flowing text and tolerate it. The narrow header labels
+// (UTILISATION / CHARGEABLE / CONFIRMED) keep enough width that the header
+// text does not collide.
+//                     1     2   3   4  5  6  7  8  9(mo) 10 11 12 13 14
+const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0 5% 7% 8% 8% 5%'
+const EDIT_SCHEDULE_COLS = '24px 8% 8% 6% 8% 5% 8% 6% 15% 6% 7% 7% 7% 6%'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -126,7 +138,25 @@ interface SortState {
 }
 
 export function SchedulePageClient({ data }: Props) {
-  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems } = data
+  const { period, costConfig, allocations: rawAllocations, allPeriods, costItems: initialCostItems, bankHolidays } = data
+
+  // Calendar months this period spans (e.g. Q3 FY26/27 → Oct, Nov, Dec 2026),
+  // and the bank-holiday data available for them. A year with no seeded
+  // holidays disables "Populate working days" rather than letting it produce
+  // an unadjusted — and therefore wrong — figure.
+  const periodMonths = useMemo(
+    () => getPeriodMonths(period.period_start_date, period.period_end_date),
+    [period.period_start_date, period.period_end_date],
+  )
+  const holidayDates = useMemo(() => bankHolidays.map(parseIsoDate), [bankHolidays])
+  const yearsWithHolidayData = useMemo(
+    () => new Set(bankHolidays.map((d) => Number(d.slice(0, 4)))),
+    [bankHolidays],
+  )
+  const missingHolidayYears = useMemo(
+    () => [...new Set(periodMonths.map((m) => m.year))].filter((y) => !yearsWithHolidayData.has(y)),
+    [periodMonths, yearsWithHolidayData],
+  )
   const vatPct = costConfig?.vat_uplift_percent ?? 0
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -147,8 +177,8 @@ export function SchedulePageClient({ data }: Props) {
   // Clicking a column header applies a session-only sort (never written to DB).
   const [sort, setSort] = useState<SortState>({ col: null, dir: 'asc' })
   // Shared error banner for allocation-table writes (reorder, and any
-  // per-row field update including Confirmed) — one mechanism, not one per
-  // field, so failures always surface the same way.
+  // per-row field update including Confirmed and the monthly breakdown) —
+  // one mechanism, not one per field, so failures always surface the same way.
   const [allocationError, setAllocationError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [localCostItems, setLocalCostItems] = useState<PlatformCostItem[]>(initialCostItems)
@@ -513,6 +543,70 @@ export function SchedulePageClient({ data }: Props) {
     }
   }
 
+  /**
+   * Recompute an allocation's derived money figures after its day total
+   * changes, so BASE/+VAT and every roll-up react immediately rather than
+   * waiting for a refetch. Mirrors handleUpdateAllocation's own maths.
+   */
+  function withRecalculatedTotals(a: Allocation, capacityDays: number): Allocation {
+    const base = Math.round(a.day_rate * capacityDays * (a.utilisation_percent / 100))
+    const vat = a.vat_applies !== false ? Math.round(base * (1 + vatPct / 100)) : base
+    return { ...a, capacity_days: capacityDays, base_total_pence: base, vat_total_pence: vat }
+  }
+
+  /**
+   * Write one or more months of an allocation's breakdown. A null in `days`
+   * clears that month. capacity_days is re-synced to the new sum server-side
+   * in the same transaction (migration 029), so the optimistic total here can
+   * never disagree with what landed. Reverts and surfaces the error banner on
+   * failure, matching handleReorder.
+   */
+  async function handleSetMonthlyDays(
+    allocationId: string,
+    months: string[],
+    days: (number | null)[],
+  ) {
+    const previous = localAllocations
+
+    setLocalAllocations((prev) =>
+      prev.map((a) => {
+        if (a.allocation_id !== allocationId) return a
+        const nextMonthly = { ...a.monthly_days }
+        months.forEach((m, i) => {
+          const d = days[i]
+          if (d === null) delete nextMonthly[m]
+          else nextMonthly[m] = d
+        })
+        return withRecalculatedTotals({ ...a, monthly_days: nextMonthly }, sumMonthlyDays(nextMonthly))
+      }),
+    )
+
+    const res = await setAllocationMonthlyDays(allocationId, months, days)
+    if (!res.success) {
+      setLocalAllocations(previous)
+      setAllocationError(res.error ?? 'Could not save the monthly breakdown. Please try again.')
+    }
+  }
+
+  /**
+   * Drop an allocation's whole breakdown, handing its total back to direct
+   * manual entry. capacity_days is deliberately left where it is — the figure
+   * on screen stays put and simply becomes editable again.
+   */
+  async function handleClearMonthlyDays(allocationId: string) {
+    const previous = localAllocations
+
+    setLocalAllocations((prev) =>
+      prev.map((a) => (a.allocation_id === allocationId ? { ...a, monthly_days: {} } : a)),
+    )
+
+    const res = await clearAllocationMonthlyDays(allocationId)
+    if (!res.success) {
+      setLocalAllocations(previous)
+      setAllocationError(res.error ?? 'Could not clear the monthly breakdown. Please try again.')
+    }
+  }
+
   async function handleDeleteAllocation(id: string) {
     setLocalAllocations((prev) => prev.filter((a) => a.allocation_id !== id))
     const supabase = getSupabaseBrowserClient()
@@ -606,6 +700,7 @@ export function SchedulePageClient({ data }: Props) {
       is_chargeable: false,
       vat_applies: true,
       is_confirmed: false,
+      monthly_days: {},
       teams,
       base_total_pence: 0,
       vat_total_pence: 0,
@@ -645,6 +740,16 @@ export function SchedulePageClient({ data }: Props) {
       setLocalAllocations(previous)
       setAllocationError(res.error ?? 'Could not save the new row order. Please try again.')
     }
+  }
+
+  const monthlyDaysContext: MonthlyDaysContext = {
+    months: periodMonths,
+    periodStart: parseIsoDate(period.period_start_date),
+    periodEnd: parseIsoDate(period.period_end_date),
+    holidays: holidayDates,
+    missingHolidayYears,
+    onSet: handleSetMonthlyDays,
+    onClear: handleClearMonthlyDays,
   }
 
   const allExpanded =
@@ -889,6 +994,7 @@ export function SchedulePageClient({ data }: Props) {
         onEditTeams={handleOpenEditTeams}
         onAddAllocation={handleOpenWizard}
         onReorder={handleReorder}
+        monthlyDays={monthlyDaysContext}
         blendedDayRate={(effectiveCostConfig?.blended_day_rate_override ?? 0) / 100}
         periodWorkingDays={workingDays}
       />
@@ -1483,6 +1589,24 @@ function byDisplayOrder(a: ScheduleAllocation, b: ScheduleAllocation): number {
 
 type AllocationUpdates = Partial<Pick<ScheduleAllocation, 'role_title' | 'day_rate' | 'capacity_days' | 'utilisation_percent' | 'planview_code' | 'vat_applies' | 'is_chargeable' | 'is_confirmed' | 'resource_location'>>
 
+/**
+ * Everything the per-row monthly breakdown needs, bundled into one prop so
+ * the period months, holiday data and write handlers travel together through
+ * ScheduleTable → SupplierSection → AllocationRow instead of as seven
+ * separate props at each level.
+ */
+interface MonthlyDaysContext {
+  months: PeriodMonth[]
+  periodStart: Date
+  periodEnd: Date
+  holidays: Date[]
+  /** Years in this period with no seeded bank-holiday data — non-empty means
+   *  "Populate working days" is disabled rather than silently unadjusted. */
+  missingHolidayYears: number[]
+  onSet: (allocationId: string, months: string[], days: (number | null)[]) => Promise<void>
+  onClear: (allocationId: string) => Promise<void>
+}
+
 function ScheduleTable({
   groups,
   expandedMap,
@@ -1511,6 +1635,7 @@ function ScheduleTable({
   onEditTeams,
   onAddAllocation,
   onReorder,
+  monthlyDays,
   blendedDayRate,
   periodWorkingDays,
 }: {
@@ -1541,6 +1666,7 @@ function ScheduleTable({
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
+  monthlyDays: MonthlyDaysContext
   blendedDayRate: number
   periodWorkingDays: number
 }) {
@@ -1580,8 +1706,16 @@ function ScheduleTable({
 
   return (
     <div className={styles.tableScroller}>
-      <div className={styles.tableInner}>
-        <HeaderRow sort={sort} onSort={onSort} locked={locked} />
+      {/* One column template for the whole table, published as a custom
+          property so the header, supplier bands, allocation rows, ad-hoc/ETP
+          cost rows and the footer bar all shift together when edit mode opens
+          the monthly-breakdown column — without threading a prop through
+          every one of them. */}
+      <div
+        className={styles.tableInner}
+        style={{ '--schedule-cols': editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS } as React.CSSProperties}
+      >
+        <HeaderRow sort={sort} onSort={onSort} locked={locked} editingSchedule={editingSchedule} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
@@ -1623,6 +1757,7 @@ function ScheduleTable({
               onEditTeams={onEditTeams}
               onAddAllocation={onAddAllocation}
               onReorder={onReorder}
+              monthlyDays={monthlyDays}
             />
           )
         })}
@@ -1653,7 +1788,7 @@ function ScheduleTable({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: RESOURCE_TABLE_COLS,
+            gridTemplateColumns: 'var(--schedule-cols)',
             padding: COL_PADDING,
             background: '#F5F5F5',
             borderTop: '2px solid #E0E0E0',
@@ -1661,20 +1796,20 @@ function ScheduleTable({
         >
           <div
             className={styles.bandLeft}
-            style={{ gridColumn: '1 / span 8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
+            style={{ gridColumn: '1 / span 9', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#404044' }}
           >
             {footerLabel}
           </div>
-          <div style={{ gridColumn: 9 }}>
+          <div style={{ gridColumn: 10 }}>
             <BandTotal label="Days" value={formatDaysTotal(footerDays)} />
           </div>
-          <div style={{ gridColumn: 11 }}>
+          <div style={{ gridColumn: 12 }}>
             <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />
           </div>
-          <div style={{ gridColumn: 12 }}>
+          <div style={{ gridColumn: 13 }}>
             <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
-          <div style={{ gridColumn: 13 }}>
+          <div style={{ gridColumn: 14 }}>
             <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
           </div>
         </div>
@@ -1791,10 +1926,12 @@ function HeaderRow({
   sort,
   onSort,
   locked,
+  editingSchedule,
 }: {
   sort: SortState
   onSort: (col: SortableCol) => void
   locked: boolean
+  editingSchedule: boolean
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -1803,7 +1940,7 @@ function HeaderRow({
       className={styles.header}
       style={{
         display: 'grid',
-        gridTemplateColumns: RESOURCE_TABLE_COLS,
+        gridTemplateColumns: 'var(--schedule-cols)',
         padding: COL_PADDING,
         background: '#EFEFEF',
         borderBottom: '2px solid #E0E0E0',
@@ -1822,6 +1959,14 @@ function HeaderRow({
       <Th label="Plan" col="plan" sort={sort} onSort={onSort} />
       <Th label="Chargeable" col="chargeable" sort={sort} onSort={onSort} />
       <Th label="Location" col="location" sort={sort} onSort={onSort} />
+      {/* 9 Monthly breakdown — a zero-width placeholder outside edit mode, so
+          the column count (and therefore every gridColumn index below) stays
+          identical in both modes. */}
+      {editingSchedule ? (
+        <Th label="Monthly days" col={null} sort={sort} onSort={onSort} />
+      ) : (
+        <div />
+      )}
       <Th label="Days" col="days" sort={sort} onSort={onSort} align="right" />
       <Th
         label="Day Rate"
@@ -1930,6 +2075,7 @@ function SupplierSection({
   onEditTeams,
   onAddAllocation,
   onReorder,
+  monthlyDays,
 }: {
   name: string | null
   colour: string
@@ -1952,6 +2098,7 @@ function SupplierSection({
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
   onAddAllocation: (supplierId: string | null, supplierName: string | null, supplierColour: string) => Promise<void>
   onReorder: (orderedIds: string[]) => Promise<void>
+  monthlyDays: MonthlyDaysContext
 }) {
   const isRMG = name === RMG_SUPPLIER_NAME
   const tint = isRMG ? withAlpha(colour, '08') : withAlpha(colour, '0F')
@@ -1987,13 +2134,13 @@ function SupplierSection({
         onClick={onToggle}
         style={{
           display: 'grid',
-          gridTemplateColumns: RESOURCE_TABLE_COLS,
+          gridTemplateColumns: 'var(--schedule-cols)',
           padding: COL_PADDING,
           background: tint,
           cursor: 'pointer',
         }}
       >
-        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 9' }}>
+        <div className={styles.bandLeft} style={{ gridColumn: '1 / span 10' }}>
           <span
             style={{
               transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -2023,7 +2170,7 @@ function SupplierSection({
         </div>
         <div
           style={{
-            gridColumn: 10,
+            gridColumn: 11,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
@@ -2046,7 +2193,7 @@ function SupplierSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2062,7 +2209,7 @@ function SupplierSection({
           </div>
           <div
             style={{
-              gridColumn: 12,
+              gridColumn: 13,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2078,7 +2225,7 @@ function SupplierSection({
           </div>
           <div
             style={{
-              gridColumn: 13,
+              gridColumn: 14,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2133,6 +2280,7 @@ function SupplierSection({
                       onOpenAssignWizard={onOpenAssignWizard}
                       onUnassignResource={onUnassignResource}
                       onEditTeams={onEditTeams}
+                      monthlyDays={monthlyDays}
                       dragHandleSlot={dragHandleSlot}
                     />
                   )}
@@ -2154,6 +2302,7 @@ function SupplierSection({
               onOpenAssignWizard={onOpenAssignWizard}
               onUnassignResource={onUnassignResource}
               onEditTeams={onEditTeams}
+              monthlyDays={monthlyDays}
               dragHandleSlot={null}
             />
           ))
@@ -2230,7 +2379,7 @@ function AdHocSection({
         className={styles.bandRow}
         style={{
           display: 'grid',
-          gridTemplateColumns: SCHEDULE_COLS,
+          gridTemplateColumns: 'var(--schedule-cols)',
           padding: COL_PADDING,
           background: '#F3F4F6',
           cursor: 'pointer',
@@ -2238,7 +2387,7 @@ function AdHocSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 9' }}
+          style={{ gridColumn: '1 / span 10' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -2291,7 +2440,7 @@ function AdHocSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2307,7 +2456,7 @@ function AdHocSection({
           </div>
           <div
             style={{
-              gridColumn: 12,
+              gridColumn: 13,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2339,12 +2488,12 @@ function AdHocSection({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: SCHEDULE_COLS,
+            gridTemplateColumns: 'var(--schedule-cols)',
             padding: COL_PADDING,
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 14', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -2411,7 +2560,7 @@ function EtpSsSection({
         className={styles.bandRow}
         style={{
           display: 'grid',
-          gridTemplateColumns: SCHEDULE_COLS,
+          gridTemplateColumns: 'var(--schedule-cols)',
           padding: COL_PADDING,
           background: '#F3F4F6',
           cursor: 'pointer',
@@ -2419,7 +2568,7 @@ function EtpSsSection({
       >
         <div
           className={styles.bandLeft}
-          style={{ gridColumn: '1 / span 9' }}
+          style={{ gridColumn: '1 / span 10' }}
           onClick={() => setExpanded((v) => !v)}
         >
           <span
@@ -2472,7 +2621,7 @@ function EtpSsSection({
         <div className={styles.bandMobileRow}>
           <div
             style={{
-              gridColumn: 11,
+              gridColumn: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2488,7 +2637,7 @@ function EtpSsSection({
           </div>
           <div
             style={{
-              gridColumn: 12,
+              gridColumn: 13,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'flex-end',
@@ -2529,12 +2678,12 @@ function EtpSsSection({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: SCHEDULE_COLS,
+            gridTemplateColumns: 'var(--schedule-cols)',
             padding: COL_PADDING,
             borderTop: '1px solid #EEEEEE',
           }}
         >
-          <div style={{ gridColumn: '1 / span 12', padding: '8px 0' }}>
+          <div style={{ gridColumn: '1 / span 14', padding: '8px 0' }}>
             <button
               type="button"
               onClick={onAdd}
@@ -2577,7 +2726,7 @@ function EtpSsEditRow({
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: SCHEDULE_COLS,
+        gridTemplateColumns: 'var(--schedule-cols)',
         padding: COL_PADDING,
         borderTop: '1px solid #EEEEEE',
         background: 'rgba(90,90,94,0.03)',
@@ -2621,7 +2770,7 @@ function EtpSsEditRow({
           ))}
         </select>
       </div>
-      <div style={{ gridColumn: '9 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '10 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -2644,7 +2793,7 @@ function EtpSsEditRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -2692,7 +2841,7 @@ function AdHocRow({
 
   if (!editing) {
     return (
-      <div className={styles.allocationRow} style={{ gridTemplateColumns: SCHEDULE_COLS }}>
+      <div className={styles.allocationRow} style={{ gridTemplateColumns: 'var(--schedule-cols)' }}>
         <Cell><span /></Cell>
         <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
         <Cell><span /></Cell>
@@ -2721,7 +2870,7 @@ function AdHocRow({
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: SCHEDULE_COLS,
+        gridTemplateColumns: 'var(--schedule-cols)',
         padding: COL_PADDING,
         borderTop: '1px solid #EEEEEE',
         background: 'rgba(243,146,13,0.03)',
@@ -2745,7 +2894,7 @@ function AdHocRow({
           }}
         />
       </div>
-      <div style={{ gridColumn: '7 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ gridColumn: '7 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
         <input
           type="number"
@@ -2776,7 +2925,7 @@ function AdHocRow({
           +VAT
         </label>
       </div>
-      <div style={{ gridColumn: 12, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+      <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <button
           type="button"
           onClick={() => onDelete(item.cost_item_id)}
@@ -2944,6 +3093,7 @@ function AllocationRow({
   onOpenAssignWizard,
   onUnassignResource,
   onEditTeams,
+  monthlyDays,
   dragHandleSlot,
 }: {
   row: Allocation
@@ -2956,6 +3106,7 @@ function AllocationRow({
   onOpenAssignWizard: (allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }) => void
   onUnassignResource: (allocationId: string) => Promise<void>
   onEditTeams: (allocationId: string, resourceId: string | null, resourceName: string, currentTeams: TeamAssignment[]) => void
+  monthlyDays: MonthlyDaysContext
   dragHandleSlot?: React.ReactNode
 }) {
   const { isPrivate } = usePrivacyMode()
@@ -2974,6 +3125,65 @@ function AllocationRow({
   useEffect(() => { setDayRateValue(String(row.day_rate / 100)) }, [row.day_rate])
   useEffect(() => { setDaysValue(String(row.capacity_days ?? 0)) }, [row.capacity_days])
   useEffect(() => { setUtilValue(String(row.utilisation_percent)) }, [row.utilisation_percent])
+
+  /* ── Monthly day breakdown ──────────────────────────────────────
+     The breakdown is "on" as soon as any month carries a value; that is what
+     locks the total to the sum. Drafts are kept as strings so a field can be
+     mid-edit (or blank) without being coerced to 0. */
+  const monthKeyDrafts = (): Record<string, string> =>
+    Object.fromEntries(
+      monthlyDays.months.map((m) => {
+        const v = row.monthly_days[m.key]
+        return [m.key, v === undefined ? '' : String(v)]
+      }),
+    )
+  const [monthDrafts, setMonthDrafts] = useState<Record<string, string>>(monthKeyDrafts)
+  useEffect(
+    () => { setMonthDrafts(monthKeyDrafts()) },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [row.monthly_days, monthlyDays.months],
+  )
+
+  const inMonthlyMode = hasAnyMonthlyValue(row.monthly_days)
+  const monthlyTotal = sumMonthlyDays(row.monthly_days)
+
+  // Disabled whenever any year the period touches has no seeded holiday data —
+  // populating an unadjusted figure would silently over-count working days.
+  const missingYears = monthlyDays.missingHolidayYears
+  const populateDisabled = missingYears.length > 0
+  const populateTitle = populateDisabled
+    ? `No bank holiday data available for ${missingYears.join(', ')} yet.`
+    : 'Populate each month with its working days (weekdays minus bank holidays)'
+
+  /** Commit one month field: blank clears the month, a number upserts it. */
+  function commitMonth(monthKey: string) {
+    const raw = (monthDrafts[monthKey] ?? '').trim()
+    const existing = row.monthly_days[monthKey]
+    if (raw === '') {
+      if (existing === undefined) return
+      void monthlyDays.onSet(row.allocation_id, [monthKey], [null])
+      return
+    }
+    const parsed = Math.max(0, parseFloat(raw) || 0)
+    if (existing !== undefined && parsed === existing) return
+    void monthlyDays.onSet(row.allocation_id, [monthKey], [parsed])
+  }
+
+  /** Fill every month at once, in a single write. */
+  function populateWorkingDays() {
+    if (populateDisabled) return
+    const keys = monthlyDays.months.map((m) => m.key)
+    const values = monthlyDays.months.map((m) =>
+      calculateWorkingDaysInMonth(
+        m.monthStart,
+        m.monthEnd,
+        monthlyDays.periodStart,
+        monthlyDays.periodEnd,
+        monthlyDays.holidays,
+      ),
+    )
+    void monthlyDays.onSet(row.allocation_id, keys, values)
+  }
 
   const plan = row.planview_code
   const isFGov = plan === 'F_Gov'
@@ -3008,7 +3218,7 @@ function AllocationRow({
     return (
       <div
         className={styles.allocationRow}
-        style={{ gridTemplateColumns: RESOURCE_TABLE_COLS, background: '#FFF5F5' }}
+        style={{ gridTemplateColumns: 'var(--schedule-cols)', background: '#FFF5F5' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
         <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
@@ -3038,7 +3248,7 @@ function AllocationRow({
     return (
       <div
         className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
-        style={{ gridTemplateColumns: RESOURCE_TABLE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
+        style={{ gridTemplateColumns: 'var(--schedule-cols)', background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
         <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
@@ -3180,21 +3390,122 @@ function AllocationRow({
             <option value="offshore">Offshore</option>
           </select>
         </Cell>
-        {/* 8 Days */}
-        <Cell align="right">
-          <input
-            type="number"
-            value={daysValue}
-            min="0"
-            onChange={(e) => setDaysValue(e.target.value)}
-            onBlur={() => {
-              const v = Math.max(0, parseFloat(daysValue) || 0)
-              if (v !== (row.capacity_days ?? 0)) onUpdate(row.allocation_id, { capacity_days: v })
-            }}
-            style={{ ...editInputStyle, width: '52px', textAlign: 'right' }}
-          />
+        {/* 8 Monthly day breakdown — optional; populating any month locks the
+            total below to their sum. */}
+        <Cell dataLabel="Monthly days">
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, width: '100%' }}>
+            {monthlyDays.months.map((m) => (
+              <label
+                key={m.key}
+                style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}
+              >
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: 'var(--rmg-color-grey-1)',
+                  }}
+                >
+                  {m.label}
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  aria-label={`${m.label} ${m.year} days`}
+                  value={monthDrafts[m.key] ?? ''}
+                  onChange={(e) =>
+                    setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
+                  }
+                  onBlur={() => commitMonth(m.key)}
+                  style={{ ...editInputStyle, width: 36, textAlign: 'right', padding: '2px 4px' }}
+                />
+              </label>
+            ))}
+            <button
+              type="button"
+              onClick={populateWorkingDays}
+              disabled={populateDisabled}
+              title={populateTitle}
+              aria-label="Populate working days"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                width: 22,
+                height: 22,
+                border: '1px solid var(--rmg-color-grey-2)',
+                borderRadius: 'var(--rmg-radius-xs)',
+                background: 'var(--rmg-color-surface-white)',
+                color: populateDisabled ? 'var(--rmg-color-grey-1)' : 'var(--rmg-color-text-body)',
+                cursor: populateDisabled ? 'not-allowed' : 'pointer',
+                opacity: populateDisabled ? 0.5 : 1,
+              }}
+            >
+              <CalendarRange size={12} aria-hidden />
+            </button>
+          </div>
         </Cell>
-        {/* 9 Day Rate */}
+        {/* 9 Days — the authoritative total. Freely editable until the
+            monthly breakdown is in use, at which point it mirrors the sum and
+            the adjacent clear button is the way back to manual entry. */}
+        <Cell align="right">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, width: '100%' }}>
+            {inMonthlyMode ? (
+              <>
+                <input
+                  type="number"
+                  value={monthlyTotal}
+                  readOnly
+                  aria-readonly="true"
+                  title="Total is the sum of the monthly breakdown — clear it to type a total directly"
+                  style={{
+                    ...editInputStyle,
+                    width: '46px',
+                    textAlign: 'right',
+                    background: 'var(--rmg-color-grey-3)',
+                    color: 'var(--rmg-color-grey-1)',
+                    cursor: 'not-allowed',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void monthlyDays.onClear(row.allocation_id)}
+                  title="Clear the monthly breakdown and enter a total directly"
+                  aria-label="Clear monthly breakdown"
+                  style={{
+                    flexShrink: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--rmg-color-grey-1)',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    lineHeight: 1,
+                    padding: '0 2px',
+                  }}
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <input
+                type="number"
+                value={daysValue}
+                min="0"
+                onChange={(e) => setDaysValue(e.target.value)}
+                onBlur={() => {
+                  const v = Math.max(0, parseFloat(daysValue) || 0)
+                  if (v !== (row.capacity_days ?? 0)) onUpdate(row.allocation_id, { capacity_days: v })
+                }}
+                style={{ ...editInputStyle, width: '52px', textAlign: 'right' }}
+              />
+            )}
+          </div>
+        </Cell>
+        {/* 10 Day Rate */}
         <Cell align="right">
           <input
             type="number"
@@ -3209,13 +3520,13 @@ function AllocationRow({
             style={{ ...editInputStyle, width: '72px', textAlign: 'right' }}
           />
         </Cell>
-        {/* 10 Base — computed */}
+        {/* 11 Base — computed */}
         <Cell align="right" dataLabel="Base">
           <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#8F9495' }}>
             {formatMoney(displayBase)}
           </span>
         </Cell>
-        {/* 11 +VAT — checkbox + computed */}
+        {/* 12 +VAT — checkbox + computed */}
         <Cell align="right" dataLabel="+VAT">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
             <input
@@ -3229,7 +3540,7 @@ function AllocationRow({
             </span>
           </div>
         </Cell>
-        {/* 12 Confirmed — checkbox */}
+        {/* 13 Confirmed — checkbox */}
         <Cell align="right" dataLabel="Confirmed">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
             <input
@@ -3248,7 +3559,7 @@ function AllocationRow({
     <div
       className={styles.allocationRow}
       style={{
-        gridTemplateColumns: RESOURCE_TABLE_COLS,
+        gridTemplateColumns: 'var(--schedule-cols)',
         background: rowBg,
       }}
     >
@@ -3408,7 +3719,11 @@ function AllocationRow({
         )}
       </Cell>
 
-      {/* 8 Days */}
+      {/* 8 Monthly breakdown — zero-width placeholder; view mode shows only
+          the single total, exactly as before this column existed. */}
+      <div />
+
+      {/* 9 Days */}
       <Cell align="right">
         {!isProportional && row.capacity_days === null ? (
           <span style={nullStyle}>—</span>
@@ -3419,14 +3734,14 @@ function AllocationRow({
         )}
       </Cell>
 
-      {/* 9 Day Rate */}
+      {/* 10 Day Rate */}
       <Cell align="right" dataLabel="Day Rate">
         <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
           {formatMoney(row.day_rate, { decimals: 2 })}
         </span>
       </Cell>
 
-      {/* 10 Base */}
+      {/* 11 Base */}
       <Cell align="right" dataLabel="Base">
         <span
           style={{
@@ -3442,7 +3757,7 @@ function AllocationRow({
         </span>
       </Cell>
 
-      {/* 11 +VAT */}
+      {/* 12 +VAT */}
       <Cell align="right" dataLabel="+VAT">
         <span
           style={{
@@ -3458,7 +3773,7 @@ function AllocationRow({
         </span>
       </Cell>
 
-      {/* 12 Confirmed — read-only status icon */}
+      {/* 13 Confirmed — read-only status icon */}
       <Cell align="right" dataLabel="Confirmed">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
           <ConfirmedStatusIcon
