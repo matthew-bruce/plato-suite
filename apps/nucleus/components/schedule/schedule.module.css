@@ -107,6 +107,10 @@
 .monthDayInput {
   -moz-appearance: textfield;
 }
+.monthDayInput::placeholder {
+  color: var(--rmg-color-grey-1);
+  opacity: 1; /* Firefox dims placeholders by default; match Chromium. */
+}
 
 /* ── Tablet 640px–999px ─────────────────────────────────────────── */
 

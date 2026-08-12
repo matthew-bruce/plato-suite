@@ -111,11 +111,18 @@ type Props = { data: SchedulePageData }
 // merge, not a structural one — and the data rows just left-align track
 // 10's content so it reads as continuing straight on from track 9.
 //
-// Columns 2-8 and 10-13 hold free-flowing text or a dropdown; their relative
-// proportions (13:13:9:8:6:7:8:5:7:8:8 in view mode, 8:8:6:8:5:8:6:6:7:7:7 in
-// edit mode) are the ORIGINAL, hand-tuned values and should not be
-// re-derived — if one ever needs to change, adjust it in place and
-// re-verify the full-width fill, don't re-balance the set.
+// Columns 2-8 and 10-13 hold free-flowing text or a dropdown and share the
+// row as `fr`, not `%`. `%` only accounts for a share of the *container*,
+// not of "whatever the fixed-px columns didn't already take" — so at some
+// container widths a `%`+`px` mix leaves a dead gap after the last column,
+// and at others it overflows, because the leftover between the two isn't
+// constant. `fr` tracks always divide exactly what's left after the `px`
+// columns, so the row fills completely — no dead space, no overflow — at
+// any container width. Both templates learned this the same way: view
+// mode's Confirmed-only `px` column made the mismatch small enough to be
+// easy to miss (a few px either way); edit mode's much bigger Monthly-days
+// `px` column made it obvious (a dead gap up to 130px at 1600px, before
+// that got fixed). Don't go back to `%` for either.
 //
 // Columns 9 (Monthly days) and 14 (Confirmed) are the exception: both hold a
 // fixed-size control (three small day inputs + a populate button; a
@@ -126,25 +133,14 @@ type Props = { data: SchedulePageData }
 // is edit-only (0 in view mode, where the breakdown doesn't render); track
 // 14 is the same fixed width in both modes.
 //
-// View mode's flexible columns stay `%`: Confirmed is its only fixed-px
-// column, and that's a small enough slice of the row that a `%`-only layout
-// still fills it with nothing worth noticing left over or short.
-//
-// Edit mode's flexible columns are `fr`, not `%`: Monthly days' 170px is a
-// much bigger, viewport-independent bite out of the row, and a `%` split
-// only accounts for a share of the *container*, not of "whatever the fixed
-// columns didn't already take" — so at any container wider than ~1060px the
-// leftover between the two grew into a dead gap after Confirmed (up to
-// 130px at 1600px), and the same mismatch on the low end starved Team and
-// its neighbours of the padding everything else had. `fr` tracks always
-// divide exactly what's left after the `px` columns, so the row fills
-// completely and every gap stays even, at any container width. When adding
-// a column, classify it the same way: free-flowing text/dropdown → give it
-// a share of whichever unit its row already uses (`%` in SCHEDULE_COLS,
-// `fr` in EDIT_SCHEDULE_COLS); a fixed-size control → give it a `px` width
-// and leave every other column alone.
-//                     1     2   3   4  5  6  7  8  9(mo)  10 11 12 13 14
-const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0     5% 7% 8% 8% 80px'
+// The `fr` weights below (13:13:11:8:6:7:6:5:7:8:8 in view mode,
+// 8:8:6:8:5:8:6:6:7:7:7 in edit mode) are hand-tuned, same as the `px`
+// figures — re-verify the full-width fill if one changes, don't re-derive
+// the set from scratch. When adding a column, classify it the same way:
+// free-flowing text/dropdown → a share of `fr`; a fixed-size control → a
+// `px` width sized to it, leaving every other column alone.
+//                     1     2    3    4    5   6   7   8   9(mo)  10  11  12  13  14
+const SCHEDULE_COLS = '24px 13fr 13fr 11fr 8fr 6fr 7fr 6fr 0     5fr 7fr 8fr 8fr 80px'
 const EDIT_SCHEDULE_COLS = '24px 8fr 8fr 6fr 8fr 5fr 8fr 6fr 170px 6fr 7fr 7fr 7fr 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
@@ -3479,39 +3475,38 @@ function AllocationRow({
           </select>
         </Cell>
         {/* 8 Monthly day breakdown — optional; populating any month locks the
-            total below to their sum. */}
+            total below to their sum. The month abbreviation is placeholder
+            text inside each input, not a label stacked above it: a label
+            row adds height nothing else in this row has, which pushed this
+            cell (and therefore the whole row, since flex/grid rows share
+            one cross-axis) taller than rows without a monthly breakdown.
+            Placeholder text costs no extra height and needs no layout code
+            to disappear once a value exists — it already does. */}
         <Cell dataLabel="Monthly days">
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
             {monthlyDays.months.map((m) => (
-              <label
+              <input
                 key={m.key}
-                style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}
-              >
-                <span
-                  style={{
-                    fontSize: 8,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    color: 'var(--rmg-color-grey-1)',
-                  }}
-                >
-                  {m.label}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  aria-label={`${m.label} ${m.year} days`}
-                  value={monthDrafts[m.key] ?? ''}
-                  onChange={(e) =>
-                    setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
-                  }
-                  onBlur={() => commitMonth(m.key)}
-                  className={styles.monthDayInput}
-                  style={{ ...editInputStyle, width: 42, textAlign: 'right', padding: '2px 4px' }}
-                />
-              </label>
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder={m.label}
+                aria-label={`${m.label} ${m.year} days`}
+                value={monthDrafts[m.key] ?? ''}
+                onChange={(e) =>
+                  setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
+                }
+                onBlur={() => commitMonth(m.key)}
+                className={styles.monthDayInput}
+                style={{
+                  ...editInputStyle,
+                  width: 42,
+                  textAlign: 'right',
+                  padding: '2px 4px',
+                  textTransform: 'uppercase',
+                  flexShrink: 0,
+                }}
+              />
             ))}
             <button
               type="button"
@@ -3577,7 +3572,7 @@ function AllocationRow({
                   title="Total is the sum of the monthly breakdown — clear it to type a total directly"
                   style={{
                     ...editInputStyle,
-                    width: '46px',
+                    width: '52px',
                     textAlign: 'right',
                     background: 'var(--rmg-color-grey-3)',
                     color: 'var(--rmg-color-grey-1)',
