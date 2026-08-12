@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle, Pencil, Copy } from 'lucide-react'
+import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -82,17 +82,21 @@ import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
 
+// 12-column layout. Confirmed is now visible in both view and edit mode
+// (a read-only status icon in view mode, an editable checkbox in edit
+// mode), so the whole resource-allocation table — header, supplier band
+// rows, allocation rows, and the footer bar — always uses the 13-column
+// RESOURCE_TABLE_COLS below instead. SCHEDULE_COLS survives only because
+// the unrelated AdHoc/ETP-SS cost-item sections still use it — those have
+// no Confirmed column and were never part of this feature.
 const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
 
-// Edit-mode-only variant: adds a 13th "Confirmed" column at the end. Column
-// indices 1-12 (Handle..+VAT) are unchanged from SCHEDULE_COLS, so every
-// existing `gridColumn: N` reference in the band/footer rows still lines up
-// — only the widths shift slightly to make room for column 13. Used by the
-// header, supplier band rows, allocation rows, and the footer bar whenever
-// editingSchedule is true, so the whole table's columns stay aligned; the
-// read-only view keeps SCHEDULE_COLS unconditionally (Confirmed never shows
-// outside edit mode).
-const EDIT_SCHEDULE_COLS = '24px 12% 12% 8% 7% 6% 7% 7% 5% 11% 7% 7% 7%'
+// The one column definition for the resource-allocation table, used
+// unconditionally by both view and edit mode so the two can never drift
+// apart again the way they briefly did when Confirmed was edit-mode-only.
+// Column indices 1-12 (Handle..+VAT) match SCHEDULE_COLS's order, with
+// widths trimmed slightly to make room for column 13 (Confirmed).
+const RESOURCE_TABLE_COLS = '24px 12% 12% 8% 7% 6% 7% 7% 5% 8% 7% 7% 8%'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -1573,7 +1577,7 @@ function ScheduleTable({
   return (
     <div className={styles.tableScroller}>
       <div className={styles.tableInner}>
-        <HeaderRow sort={sort} onSort={onSort} locked={locked} editingSchedule={editingSchedule} />
+        <HeaderRow sort={sort} onSort={onSort} locked={locked} />
         {groups.map((g) => {
           const expanded = expandedMap[g.name ?? ''] !== false
           const base = g.rows.reduce((s, r) => {
@@ -1645,7 +1649,7 @@ function ScheduleTable({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
+            gridTemplateColumns: RESOURCE_TABLE_COLS,
             padding: COL_PADDING,
             background: '#F5F5F5',
             borderTop: '2px solid #E0E0E0',
@@ -1666,11 +1670,9 @@ function ScheduleTable({
           <div style={{ gridColumn: 12 }}>
             <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
           </div>
-          {editingSchedule && (
-            <div style={{ gridColumn: 13 }}>
-              <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
-            </div>
-          )}
+          <div style={{ gridColumn: 13 }}>
+            <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
+          </div>
         </div>
         {activeTeamFilter && (
           <TeamRunRateBar
@@ -1785,12 +1787,10 @@ function HeaderRow({
   sort,
   onSort,
   locked,
-  editingSchedule,
 }: {
   sort: SortState
   onSort: (col: SortableCol) => void
   locked: boolean
-  editingSchedule: boolean
 }) {
   const { isPrivate } = usePrivacyMode()
 
@@ -1799,7 +1799,7 @@ function HeaderRow({
       className={styles.header}
       style={{
         display: 'grid',
-        gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
+        gridTemplateColumns: RESOURCE_TABLE_COLS,
         padding: COL_PADDING,
         background: '#EFEFEF',
         borderBottom: '2px solid #E0E0E0',
@@ -1830,9 +1830,7 @@ function HeaderRow({
       />
       <Th label="Base" col="total" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
       <Th label="+VAT" col="vat" sort={sort} onSort={onSort} align="right" privacyIcon={isPrivate} />
-      {editingSchedule && (
-        <Th label="Confirmed" col={null} sort={sort} onSort={onSort} align="right" />
-      )}
+      <Th label="Confirmed" col={null} sort={sort} onSort={onSort} align="right" />
     </div>
   )
 }
@@ -1985,7 +1983,7 @@ function SupplierSection({
         onClick={onToggle}
         style={{
           display: 'grid',
-          gridTemplateColumns: editingSchedule ? EDIT_SCHEDULE_COLS : SCHEDULE_COLS,
+          gridTemplateColumns: RESOURCE_TABLE_COLS,
           padding: COL_PADDING,
           background: tint,
           cursor: 'pointer',
@@ -2025,28 +2023,9 @@ function SupplierSection({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
-            gap: 6,
             padding: '10px 8px 10px 0',
           }}
         >
-          {editingSchedule && (
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                flexShrink: 0,
-                borderRadius: '100px',
-                padding: '2px 8px',
-                fontSize: 10,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                background: '#EEEEEE',
-                color: '#8F9495',
-              }}
-            >
-              {supplierConfirmed.confirmed}/{supplierConfirmed.total} confirmed
-            </span>
-          )}
           {days > 0 ? (
             <>
               <span style={{ fontSize: '10px', fontWeight: 400, color: 'var(--rmg-color-grey-1)', marginRight: '4px', ...blurStyle }}>
@@ -2092,6 +2071,32 @@ function SupplierSection({
             }}
           >
             {formatMoney(vat)}
+          </div>
+          <div
+            style={{
+              gridColumn: 13,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              padding: '10px 8px 10px 0',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                flexShrink: 0,
+                borderRadius: '100px',
+                padding: '2px 8px',
+                fontSize: 10,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                background: '#EEEEEE',
+                color: '#8F9495',
+              }}
+            >
+              {supplierConfirmed.confirmed}/{supplierConfirmed.total}
+            </span>
           </div>
         </div>
       </div>
@@ -2903,6 +2908,27 @@ function UnallocatedWarning({ pct, name }: { pct: number; name: string }) {
   )
 }
 
+// View-mode-only read-only status indicator — editing is exclusively via the
+// edit-mode checkbox (see the 12 Confirmed cell in the editingSchedule
+// branch above). No click handler, no write.
+function ConfirmedStatusIcon({ isConfirmed, name }: { isConfirmed: boolean; name: string }) {
+  return isConfirmed ? (
+    <CircleCheck
+      size={18}
+      color="var(--rmg-color-green-contrast)"
+      role="img"
+      aria-label={`${name} confirmed`}
+    />
+  ) : (
+    <AlertTriangle
+      size={18}
+      color="var(--rmg-color-orange)"
+      role="img"
+      aria-label={`${name} not yet confirmed`}
+    />
+  )
+}
+
 function AllocationRow({
   row,
   vatPct,
@@ -2978,7 +3004,7 @@ function AllocationRow({
     return (
       <div
         className={styles.allocationRow}
-        style={{ gridTemplateColumns: EDIT_SCHEDULE_COLS, background: '#FFF5F5' }}
+        style={{ gridTemplateColumns: RESOURCE_TABLE_COLS, background: '#FFF5F5' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
         <div style={{ gridColumn: '2 / -1', display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
@@ -3008,7 +3034,7 @@ function AllocationRow({
     return (
       <div
         className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
-        style={{ gridTemplateColumns: EDIT_SCHEDULE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
+        style={{ gridTemplateColumns: RESOURCE_TABLE_COLS, background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
         <Cell><span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</span></Cell>
@@ -3218,7 +3244,7 @@ function AllocationRow({
     <div
       className={styles.allocationRow}
       style={{
-        gridTemplateColumns: SCHEDULE_COLS,
+        gridTemplateColumns: RESOURCE_TABLE_COLS,
         background: rowBg,
       }}
     >
@@ -3426,6 +3452,16 @@ function AllocationRow({
         >
           {formatMoney(displayVat)}
         </span>
+      </Cell>
+
+      {/* 12 Confirmed — read-only status icon */}
+      <Cell align="right" dataLabel="Confirmed">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
+          <ConfirmedStatusIcon
+            isConfirmed={row.is_confirmed}
+            name={row.resource_name ?? row.role_title ?? 'This row'}
+          />
+        </div>
       </Cell>
     </div>
   )
