@@ -102,39 +102,26 @@ type Props = { data: SchedulePageData }
 // the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
 // correct value rather than one per mode that could drift apart.
 //
-// Fixed vs. flexible, and why: a column's content is either a fixed-size
-// control (checkbox, status icon/badge, small numeric input, icon button —
-// its rendered size doesn't depend on the data) or variable-length text
-// (a name, title, or free-form list — it needs room to grow). Sizing the
-// first group with `%`/`fr` either strands dead space around a small
-// control or starves it, and it's the reason this table's column widths
-// have needed rebalancing more than once. The fix is to size each group
-// with the CSS unit that actually matches its content:
+// Columns 2-8 and 10-13 are `%` of the row, tuned by hand so the table fills
+// its width with no dead gaps (both templates total 97%, leaving Handle's
+// 24px plus a small margin) — these are the ORIGINAL, correct proportions
+// and should not be re-derived; if one ever needs to change, adjust it
+// in place and re-verify the full-width fill, don't re-balance the set.
 //
-//   Fixed-width (px, sized to the control + padding — never grows):
-//     1 Handle, 5 Utilisation, 7 Chargeable, 9 Monthly days, 10 Days,
-//     11 Day Rate, 12 Base, 13 +VAT, 14 Confirmed
-//   Flexible (fr, shares whatever width the fixed columns don't use):
-//     2 Resource, 3 Role, 4 Team, 6 Plan (dropdown in edit mode),
-//     8 Location (dropdown in edit mode)
-//
-// `fr` tracks always consume exactly the remaining row width, so the
-// flexible columns fill the table with no dead gaps by construction —
-// unlike `%`, which only sums to a full row if every column's percentage is
-// re-tuned by hand whenever one changes. When adding or removing a column,
-// classify it into one of the two groups above and follow its unit
-// (fixed px sized to the control, or a share of `fr`); don't reach for `%`.
-//
-// Only track 9 (Monthly days) differs between the two templates: it's a
-// real edit-only affordance in edit mode and a zero-width placeholder in
-// view mode, so the index stays 9 either way. Every fixed-px figure below is
-// sized to its header label plus sort icon (the widest thing that ever has
-// to fit that track) or, if larger, its control — not to the data, which
-// ellipsizes gracefully (Th, Cell) if a narrow viewport ever squeezes it
-// below that.
-//                     1     2    3    4    5    6    7    8     9(mo)  10   11    12   13    14
-const SCHEDULE_COLS = '24px 13fr 13fr 7fr 90px 6fr 96px 10fr 0     80px 100px 90px 105px 80px'
-const EDIT_SCHEDULE_COLS = '24px 13fr 13fr 7fr 90px 6fr 96px 10fr 160px 80px 100px 90px 105px 80px'
+// Columns 9 (Monthly days) and 14 (Confirmed) are the exception: both hold a
+// fixed-size control (three small day inputs + a populate button; a
+// checkbox/status icon) whose rendered size doesn't depend on the data, so
+// they get a `px` width sized to that control/header plus padding instead of
+// a `%` share — a `%` share either strands dead space around them or starves
+// them, which is what made this table's width need re-tuning repeatedly.
+// Track 9 is edit-only (0 in view mode, where the breakdown doesn't render);
+// track 14 is the same fixed width in both modes. When adding a column,
+// classify it the same way: free-flowing text/dropdown → tune its `%` share
+// against the total; a fixed-size control → give it a `px` width and leave
+// every other column's `%` alone.
+//                     1     2   3   4  5  6  7  8  9(mo)  10 11 12 13 14
+const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0     5% 7% 8% 8% 80px'
+const EDIT_SCHEDULE_COLS = '24px 8% 8% 6% 8% 5% 8% 6% 150px 6% 7% 7% 7% 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
