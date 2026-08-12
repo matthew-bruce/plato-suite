@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy, CalendarRange } from 'lucide-react'
+import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy, CalendarCheck } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -102,6 +102,15 @@ type Props = { data: SchedulePageData }
 // the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
 // correct value rather than one per mode that could drift apart.
 //
+// Tracks 9 and 10 stay two separate DOM cells (never merge them into one)
+// even though edit mode shows them as a single "Days" concept: mobile
+// re-lays out this same row's children purely by nth-child index
+// (schedule.module.css), so collapsing two cells into one would silently
+// renumber every column after it there. Instead the *header* cell for
+// track 10 spans both tracks in edit mode (see HeaderRow) — a visual
+// merge, not a structural one — and the data rows just left-align track
+// 10's content so it reads as continuing straight on from track 9.
+//
 // Columns 2-8 and 10-13 hold free-flowing text or a dropdown; their relative
 // proportions (13:13:9:8:6:7:8:5:7:8:8 in view mode, 8:8:6:8:5:8:6:6:7:7:7 in
 // edit mode) are the ORIGINAL, hand-tuned values and should not be
@@ -121,7 +130,7 @@ type Props = { data: SchedulePageData }
 // column, and that's a small enough slice of the row that a `%`-only layout
 // still fills it with nothing worth noticing left over or short.
 //
-// Edit mode's flexible columns are `fr`, not `%`: Monthly days' 150px is a
+// Edit mode's flexible columns are `fr`, not `%`: Monthly days' 170px is a
 // much bigger, viewport-independent bite out of the row, and a `%` split
 // only accounts for a share of the *container*, not of "whatever the fixed
 // columns didn't already take" — so at any container wider than ~1060px the
@@ -136,7 +145,7 @@ type Props = { data: SchedulePageData }
 // and leave every other column alone.
 //                     1     2   3   4  5  6  7  8  9(mo)  10 11 12 13 14
 const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0     5% 7% 8% 8% 80px'
-const EDIT_SCHEDULE_COLS = '24px 8fr 8fr 6fr 8fr 5fr 8fr 6fr 150px 6fr 7fr 7fr 7fr 80px'
+const EDIT_SCHEDULE_COLS = '24px 8fr 8fr 6fr 8fr 5fr 8fr 6fr 170px 6fr 7fr 7fr 7fr 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -1984,15 +1993,20 @@ function HeaderRow({
       <Th label="Plan" col="plan" sort={sort} onSort={onSort} />
       <Th label="Chargeable" col="chargeable" sort={sort} onSort={onSort} />
       <Th label="Location" col="location" sort={sort} onSort={onSort} />
-      {/* 9 Monthly breakdown — a zero-width placeholder outside edit mode, so
-          the column count (and therefore every gridColumn index below) stays
-          identical in both modes. */}
-      {editingSchedule ? (
-        <Th label="Monthly days" col={null} sort={sort} onSort={onSort} />
-      ) : (
-        <div />
-      )}
-      <Th label="Days" col="days" sort={sort} onSort={onSort} align="right" />
+      {/* 9 Monthly breakdown — never its own header. In edit mode the Days
+          header below spans this track too (the month inputs and the total
+          are one "Days" concept, not two); in view mode this stays the
+          zero-width placeholder it's always been, so the column count is
+          identical in both modes either way. */}
+      {editingSchedule ? null : <div />}
+      <Th
+        label="Days"
+        col="days"
+        sort={sort}
+        onSort={onSort}
+        align={editingSchedule ? undefined : 'right'}
+        gridColumn={editingSchedule ? '9 / span 2' : undefined}
+      />
       <Th
         label="Day Rate"
         col="dayRate"
@@ -2017,6 +2031,7 @@ function Th({
   align,
   trailing,
   privacyIcon,
+  gridColumn,
 }: {
   label: string
   col: SortableCol | null
@@ -2025,6 +2040,10 @@ function Th({
   align?: 'right'
   trailing?: React.ReactNode
   privacyIcon?: boolean
+  /** Overrides auto-placement so this header can span tracks another mode
+   *  renders as separate columns (e.g. Days spanning Monthly days + Days
+   *  in edit mode) — normally left unset. */
+  gridColumn?: string
 }) {
   const active = col !== null && sort.col === col
   const clickable = col !== null
@@ -2035,6 +2054,7 @@ function Th({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        gridColumn,
         padding: '9px 8px 9px 0',
         fontSize: 11,
         fontWeight: 700,
@@ -3488,7 +3508,8 @@ function AllocationRow({
                     setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
                   }
                   onBlur={() => commitMonth(m.key)}
-                  style={{ ...editInputStyle, width: 36, textAlign: 'right', padding: '2px 4px' }}
+                  className={styles.monthDayInput}
+                  style={{ ...editInputStyle, width: 42, textAlign: 'right', padding: '2px 4px' }}
                 />
               </label>
             ))}
@@ -3513,15 +3534,39 @@ function AllocationRow({
                 opacity: populateDisabled ? 0.5 : 1,
               }}
             >
-              <CalendarRange size={12} aria-hidden />
+              <CalendarCheck size={14} strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </Cell>
         {/* 9 Days — the authoritative total. Freely editable until the
             monthly breakdown is in use, at which point it mirrors the sum and
-            the adjacent clear button is the way back to manual entry. */}
-        <Cell align="right">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, width: '100%' }}>
+            the adjacent clear button is the way back to manual entry.
+            Desktop left-aligns this cell (styles.editDaysCell, not the
+            align="right" every other numeric column uses) so the total sits
+            right after the month inputs/populate button in the previous
+            cell, reading as one "Days" group rather than two — and so the
+            total's own position never shifts depending on whether the clear
+            button after it is shown, since it's always the first flex item.
+            That has to be a CSS class rather than Cell's align prop: mobile
+            still wants this cell right-aligned (nth-child(10) in
+            schedule.module.css, pairing it with Plan), and an inline
+            justifyContent can't be overridden by a media query — only
+            another CSS rule can win at a narrower viewport. Not <Cell>
+            (which always sets justifyContent inline) for the same reason. */}
+        <div
+          data-label="Days"
+          className={`${styles.cell} ${styles.editDaysCell}`}
+          style={{
+            padding: '9px 8px 9px 0',
+            display: 'flex',
+            alignItems: 'center',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             {inMonthlyMode ? (
               <>
                 <input
@@ -3559,7 +3604,7 @@ function AllocationRow({
               />
             )}
           </div>
-        </Cell>
+        </div>
         {/* 10 Day Rate */}
         <Cell align="right">
           <input

@@ -80,6 +80,34 @@
   min-height: 44px;
 }
 
+/* Edit mode's Days total: left-aligned on desktop so it sits right after
+   the month inputs/populate button in the previous column, reading as one
+   group. Mobile stacks these two cells apart from each other and wants
+   this one right-aligned (paired with Plan) — see
+   `.allocationRow > :nth-child(10)` below, which overrides this at
+   <640px. That rule needs to win there, which is exactly why this is a
+   class instead of an inline justifyContent: an inline style can't be
+   overridden by a media query. */
+.editDaysCell {
+  justify-content: flex-start;
+}
+
+/* The Oct/Nov/Dec day inputs are only wide enough for their digits, not
+   digits plus Chromium/Safari's native spin-button UI — with the spinner
+   left in, it eats into that width and clips a two-digit value. Hiding it
+   is pure inline style (::-webkit-inner-spin-button isn't a real property,
+   so it can't go in a style object) and costs nothing: the populate button
+   already covers the "fill this in" case these spinners would otherwise be
+   for. */
+.monthDayInput::-webkit-outer-spin-button,
+.monthDayInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.monthDayInput {
+  -moz-appearance: textfield;
+}
+
 /* ── Tablet 640px–999px ─────────────────────────────────────────── */
 
 @media (max-width: 999px) {
