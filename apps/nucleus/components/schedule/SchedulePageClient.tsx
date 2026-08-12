@@ -94,9 +94,13 @@ const SCHEDULE_COLS = '24px 14% 14% 10% 8% 6% 8% 8% 5% 8% 8% 8%'
 // The one column definition for the resource-allocation table, used
 // unconditionally by both view and edit mode so the two can never drift
 // apart again the way they briefly did when Confirmed was edit-mode-only.
-// Column indices 1-12 (Handle..+VAT) match SCHEDULE_COLS's order, with
-// widths trimmed slightly to make room for column 13 (Confirmed).
-const RESOURCE_TABLE_COLS = '24px 12% 12% 8% 7% 6% 7% 7% 5% 8% 7% 7% 8%'
+// Column indices 1-12 (Handle..+VAT) match SCHEDULE_COLS's order. Confirmed
+// (13) only ever holds a checkbox or an 18px status icon, so it's sized
+// narrow like Days (9) rather than given a proportional share — the other
+// columns are trimmed by ~1% each (not shrunk to make room, which is what
+// left this whole row under-filled and Confirmed itself oversized before)
+// so the total stays at 97%, matching SCHEDULE_COLS's own fill exactly.
+const RESOURCE_TABLE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 5% 7% 8% 8% 5%'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
