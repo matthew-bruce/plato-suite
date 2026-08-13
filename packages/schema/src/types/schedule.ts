@@ -82,4 +82,5 @@ export type PlatformCostItem = {
   sort_order: number
   notes: string | null
   cost_item_category: string
+  is_confirmed: boolean
 }

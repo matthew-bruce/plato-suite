@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy, CalendarRange } from 'lucide-react'
+import { EyeOff, AlertTriangle, CircleCheck, Pencil, Copy, CalendarCheck } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -100,19 +100,48 @@ type Props = { data: SchedulePageData }
 // Both templates declare all 14 tracks so column indices are identical in
 // view and edit mode — every `gridColumn: N` on this page (supplier bands,
 // the footer bar, the ad-hoc/ETP cost rows) therefore has exactly one
-// correct value rather than one per mode that could drift apart. Only the
-// widths differ: view mode collapses the monthly-days track to zero and
-// renders an empty placeholder cell there, since the breakdown is an
-// edit-only affordance while Confirmed shows in both modes (icon vs
-// checkbox). Both total 97%, matching the table's original fill.
+// correct value rather than one per mode that could drift apart.
 //
-// Edit mode buys the monthly column's width from Resource/Role/Team, which
-// hold free-flowing text and tolerate it. The narrow header labels
-// (UTILISATION / CHARGEABLE / CONFIRMED) keep enough width that the header
-// text does not collide.
-//                     1     2   3   4  5  6  7  8  9(mo) 10 11 12 13 14
-const SCHEDULE_COLS = '24px 13% 13% 9% 8% 6% 7% 8% 0 5% 7% 8% 8% 5%'
-const EDIT_SCHEDULE_COLS = '24px 8% 8% 6% 8% 5% 8% 6% 15% 6% 7% 7% 7% 6%'
+// Tracks 9 and 10 stay two separate DOM cells (never merge them into one)
+// even though edit mode shows them as a single "Days" concept: mobile
+// re-lays out this same row's children purely by nth-child index
+// (schedule.module.css), so collapsing two cells into one would silently
+// renumber every column after it there. Instead the *header* cell for
+// track 10 spans both tracks in edit mode (see HeaderRow) — a visual
+// merge, not a structural one — and the data rows just left-align track
+// 10's content so it reads as continuing straight on from track 9.
+//
+// Columns 2-8 and 10-13 hold free-flowing text or a dropdown and share the
+// row as `fr`, not `%`. `%` only accounts for a share of the *container*,
+// not of "whatever the fixed-px columns didn't already take" — so at some
+// container widths a `%`+`px` mix leaves a dead gap after the last column,
+// and at others it overflows, because the leftover between the two isn't
+// constant. `fr` tracks always divide exactly what's left after the `px`
+// columns, so the row fills completely — no dead space, no overflow — at
+// any container width. Both templates learned this the same way: view
+// mode's Confirmed-only `px` column made the mismatch small enough to be
+// easy to miss (a few px either way); edit mode's much bigger Monthly-days
+// `px` column made it obvious (a dead gap up to 130px at 1600px, before
+// that got fixed). Don't go back to `%` for either.
+//
+// Columns 9 (Monthly days) and 14 (Confirmed) are the exception: both hold a
+// fixed-size control (three small day inputs + a populate button; a
+// checkbox/status icon) whose rendered size doesn't depend on the data, so
+// they get a `px` width sized to that control/header plus padding — a
+// proportional share either strands dead space around them or starves them,
+// which is what made this table's width need re-tuning repeatedly. Track 9
+// is edit-only (0 in view mode, where the breakdown doesn't render); track
+// 14 is the same fixed width in both modes.
+//
+// The `fr` weights below (13:13:11:8:6:7:6:5:7:8:8 in view mode,
+// 8:8:6:8:5:8:6:6:7:7:7 in edit mode) are hand-tuned, same as the `px`
+// figures — re-verify the full-width fill if one changes, don't re-derive
+// the set from scratch. When adding a column, classify it the same way:
+// free-flowing text/dropdown → a share of `fr`; a fixed-size control → a
+// `px` width sized to it, leaving every other column alone.
+//                     1     2    3    4    5   6   7   8   9(mo)  10  11  12  13  14
+const SCHEDULE_COLS = '24px 13fr 13fr 11fr 8fr 6fr 7fr 6fr 0     5fr 7fr 8fr 8fr 80px'
+const EDIT_SCHEDULE_COLS = '24px 8fr 8fr 6fr 8fr 5fr 8fr 6fr 170px 6fr 7fr 7fr 7fr 80px'
 
 // Matches HEADER_HEIGHT in packages/ui/components/shell/PlatoShell.tsx —
 // the fixed global header the sticky toolbar must clear.
@@ -462,7 +491,7 @@ export function SchedulePageClient({ data }: Props) {
     const supabase = getSupabaseBrowserClient()
     const { data } = await supabase
       .from('platform_cost_items')
-      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category')
+      .select('cost_item_id, label, amount_pence, vat_applies, sort_order, notes, cost_item_category, is_confirmed')
       .eq('period_id', period.period_id)
       .is('deleted_at', null)
       .order('sort_order')
@@ -471,11 +500,17 @@ export function SchedulePageClient({ data }: Props) {
 
   async function handleUpdateCostItem(
     id: string,
-    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>,
+    updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>,
   ) {
+    const previous = localCostItems
     setLocalCostItems((prev) => prev.map((item) => item.cost_item_id === id ? { ...item, ...updates } : item))
     const supabase = getSupabaseBrowserClient()
-    await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+    const { error } = await supabase.from('platform_cost_items').update(updates).eq('cost_item_id', id)
+    if (error) {
+      // Revert optimistic state and tell the user — same pattern as handleUpdateAllocation.
+      setLocalCostItems(previous)
+      setAllocationError(error.message || 'Could not save the change. Please try again.')
+    }
   }
 
   async function handleDeleteCostItem(id: string) {
@@ -1654,7 +1689,7 @@ function ScheduleTable({
   onToggleEditAdHoc: () => void
   editingEtpSs: boolean
   onToggleEditEtpSs: () => void
-  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdateCostItem: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDeleteCostItem: (id: string) => Promise<void>
   onAddCostItem: () => Promise<void>
   onAddEtpSsItem: () => Promise<void>
@@ -1691,7 +1726,14 @@ function ScheduleTable({
   }, 0)
 
   const footerDays = sumFilteredDays(groups, activeTeamFilter)
-  const footerConfirmed = calculateConfirmedCount(groups.flatMap((g) => g.rows))
+  // Cost items aren't part of any team/search/planview/location filter (they
+  // don't belong to a resource), so — same as costItemsBase/costItemsVat
+  // above — they only count when the view is otherwise unfiltered; folding
+  // them in while a filter is active would overstate what's actually shown.
+  const footerConfirmed = calculateConfirmedCount([
+    ...groups.flatMap((g) => g.rows),
+    ...(isUnfiltered ? costItems : []),
+  ])
 
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
@@ -1786,6 +1828,7 @@ function ScheduleTable({
           onAdd={onAddEtpSsItem}
         />}
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -1937,7 +1980,7 @@ function HeaderRow({
 
   return (
     <div
-      className={styles.header}
+      className={`${styles.header} ${styles.scheduleRow}`}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -1959,15 +2002,20 @@ function HeaderRow({
       <Th label="Plan" col="plan" sort={sort} onSort={onSort} />
       <Th label="Chargeable" col="chargeable" sort={sort} onSort={onSort} />
       <Th label="Location" col="location" sort={sort} onSort={onSort} />
-      {/* 9 Monthly breakdown — a zero-width placeholder outside edit mode, so
-          the column count (and therefore every gridColumn index below) stays
-          identical in both modes. */}
-      {editingSchedule ? (
-        <Th label="Monthly days" col={null} sort={sort} onSort={onSort} />
-      ) : (
-        <div />
-      )}
-      <Th label="Days" col="days" sort={sort} onSort={onSort} align="right" />
+      {/* 9 Monthly breakdown — never its own header. In edit mode the Days
+          header below spans this track too (the month inputs and the total
+          are one "Days" concept, not two); in view mode this stays the
+          zero-width placeholder it's always been, so the column count is
+          identical in both modes either way. */}
+      {editingSchedule ? null : <div />}
+      <Th
+        label="Days"
+        col="days"
+        sort={sort}
+        onSort={onSort}
+        align={editingSchedule ? undefined : 'right'}
+        gridColumn={editingSchedule ? '9 / span 2' : undefined}
+      />
       <Th
         label="Day Rate"
         col="dayRate"
@@ -1992,6 +2040,7 @@ function Th({
   align,
   trailing,
   privacyIcon,
+  gridColumn,
 }: {
   label: string
   col: SortableCol | null
@@ -2000,6 +2049,10 @@ function Th({
   align?: 'right'
   trailing?: React.ReactNode
   privacyIcon?: boolean
+  /** Overrides auto-placement so this header can span tracks another mode
+   *  renders as separate columns (e.g. Days spanning Monthly days + Days
+   *  in edit mode) — normally left unset. */
+  gridColumn?: string
 }) {
   const active = col !== null && sort.col === col
   const clickable = col !== null
@@ -2010,6 +2063,7 @@ function Th({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        gridColumn,
         padding: '9px 8px 9px 0',
         fontSize: 11,
         fontWeight: 700,
@@ -2027,13 +2081,24 @@ function Th({
         gap: 4,
         justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
         transition: 'color 120ms',
+        minWidth: 0,
+        overflow: 'hidden',
       }}
     >
-      {privacyIcon && <EyeOff size={11} />}
-      {label}
-      {trailing}
+      {privacyIcon && <span style={{ flexShrink: 0, display: 'inline-flex' }}><EyeOff size={11} /></span>}
+      {/* A column narrower than its own label (e.g. a flexible text column
+          squeezed by its neighbours at a small viewport) ellipsizes here
+          instead of overflowing into the next header — the same defence
+          Cell uses for row data. The trailing icon and sort arrow keep
+          flexShrink: 0 so they're never what gives way. */}
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      {trailing && <span style={{ flexShrink: 0, display: 'inline-flex' }}>{trailing}</span>}
       {clickable && (
-        <SortIcon active={active} dir={active ? sort.dir : null} />
+        <span style={{ flexShrink: 0, display: 'inline-flex' }}>
+          <SortIcon active={active} dir={active ? sort.dir : null} />
+        </span>
       )}
     </div>
   )
@@ -2130,7 +2195,7 @@ function SupplierSection({
   return (
     <div style={{ borderLeft: `4px solid ${colour}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         onClick={onToggle}
         style={{
           display: 'grid',
@@ -2359,7 +2424,7 @@ function AdHocSection({
   items: PlatformCostItem[]
   editingAdHoc: boolean
   onToggleEditAdHoc: () => void
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
   vatPct: number
@@ -2376,7 +2441,7 @@ function AdHocSection({
   return (
     <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         style={{
           display: 'grid',
           gridTemplateColumns: 'var(--schedule-cols)',
@@ -2486,6 +2551,7 @@ function AdHocSection({
 
       {expanded && editingAdHoc && (
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -2542,7 +2608,7 @@ function EtpSsSection({
   locked: boolean
   editingEtpSs: boolean
   onToggleEditEtpSs: () => void
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
 }) {
@@ -2557,7 +2623,7 @@ function EtpSsSection({
   return (
     <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
       <div
-        className={styles.bandRow}
+        className={`${styles.bandRow} ${styles.scheduleRow}`}
         style={{
           display: 'grid',
           gridTemplateColumns: 'var(--schedule-cols)',
@@ -2676,6 +2742,7 @@ function EtpSsSection({
 
       {expanded && editingEtpSs && (
         <div
+          className={styles.scheduleRow}
           style={{
             display: 'grid',
             gridTemplateColumns: 'var(--schedule-cols)',
@@ -2714,7 +2781,7 @@ function EtpSsEditRow({
   onDelete,
 }: {
   item: PlatformCostItem
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'cost_item_category' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
   const [labelValue, setLabelValue] = useState(item.label)
@@ -2724,6 +2791,7 @@ function EtpSsEditRow({
 
   return (
     <div
+      className={styles.scheduleRow}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -2733,14 +2801,15 @@ function EtpSsEditRow({
       }}
     >
       <div style={{ gridColumn: 1 }} />
-      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '2 / span 4', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
           value={labelValue}
           onChange={(e) => setLabelValue(e.target.value)}
           onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
           style={{
-            width: '100%',
+            flex: 1,
+            minWidth: 0,
             border: '1px solid #D5D5D5',
             borderRadius: 6,
             padding: '4px 8px',
@@ -2749,6 +2818,7 @@ function EtpSsEditRow({
             color: '#2A2A2D',
           }}
         />
+        <RedXButton onClick={() => onDelete(item.cost_item_id)} title="Remove item" ariaLabel="Remove item" />
       </div>
       <div style={{ gridColumn: '6 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
         <select
@@ -2794,22 +2864,12 @@ function EtpSsEditRow({
         />
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => onDelete(item.cost_item_id)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#DA202A',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            fontFamily: 'var(--rmg-font-body)',
-            padding: '2px 6px',
-          }}
-        >
-          Remove
-        </button>
+        <input
+          type="checkbox"
+          checked={item.is_confirmed}
+          onChange={(e) => onUpdate(item.cost_item_id, { is_confirmed: e.target.checked })}
+          style={{ flexShrink: 0, cursor: 'pointer' }}
+        />
       </div>
     </div>
   )
@@ -2825,7 +2885,7 @@ function AdHocRow({
   item: PlatformCostItem
   editing: boolean
   vatPct: number
-  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes'>>) => Promise<void>
+  onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
   const [labelValue, setLabelValue] = useState(item.label)
@@ -2841,7 +2901,7 @@ function AdHocRow({
 
   if (!editing) {
     return (
-      <div className={styles.allocationRow} style={{ gridTemplateColumns: 'var(--schedule-cols)' }}>
+      <div className={`${styles.allocationRow} ${styles.scheduleRow}`} style={{ gridTemplateColumns: 'var(--schedule-cols)' }}>
         <Cell><span /></Cell>
         <Cell><span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>{item.label}</span></Cell>
         <Cell><span /></Cell>
@@ -2850,6 +2910,11 @@ function AdHocRow({
         <Cell><span /></Cell>
         <Cell><span /></Cell>
         <Cell><span /></Cell>
+        {/* 9 Monthly days, 10 Days, 11 Day Rate — cost items have none of
+            these, so all three are empty placeholders. Without the third
+            (11), Base/+VAT below would auto-place one track early and land
+            under the Day Rate/Base headers instead of their own. */}
+        <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right"><span /></Cell>
         <Cell align="right" dataLabel="Base">
@@ -2862,12 +2927,21 @@ function AdHocRow({
             {formatMoney(vatTotal)}
           </span>
         </Cell>
+        <Cell align="right" dataLabel="Confirmed">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '100%' }}>
+            <ConfirmedStatusIcon
+              isConfirmed={item.is_confirmed}
+              name={item.label || 'This item'}
+            />
+          </div>
+        </Cell>
       </div>
     )
   }
 
   return (
     <div
+      className={styles.scheduleRow}
       style={{
         display: 'grid',
         gridTemplateColumns: 'var(--schedule-cols)',
@@ -2877,14 +2951,15 @@ function AdHocRow({
       }}
     >
       <div style={{ gridColumn: 1 }} />
-      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center' }}>
+      <div style={{ gridColumn: '2 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
           type="text"
           value={labelValue}
           onChange={(e) => setLabelValue(e.target.value)}
           onBlur={() => { if (labelValue !== item.label) onUpdate(item.cost_item_id, { label: labelValue }) }}
           style={{
-            width: '100%',
+            flex: 1,
+            minWidth: 0,
             border: '1px solid #D5D5D5',
             borderRadius: 6,
             padding: '4px 8px',
@@ -2893,6 +2968,7 @@ function AdHocRow({
             color: '#2A2A2D',
           }}
         />
+        <RedXButton onClick={() => onDelete(item.cost_item_id)} title="Remove item" ariaLabel="Remove item" />
       </div>
       <div style={{ gridColumn: '7 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
@@ -2926,22 +3002,12 @@ function AdHocRow({
         </label>
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => onDelete(item.cost_item_id)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#DA202A',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontWeight: 600,
-            fontFamily: 'var(--rmg-font-body)',
-            padding: '2px 6px',
-          }}
-        >
-          Remove
-        </button>
+        <input
+          type="checkbox"
+          checked={item.is_confirmed}
+          onChange={(e) => onUpdate(item.cost_item_id, { is_confirmed: e.target.checked })}
+          style={{ flexShrink: 0, cursor: 'pointer' }}
+        />
       </div>
     </div>
   )
@@ -3016,6 +3082,41 @@ function UserPlusIcon() {
       <line x1="19" y1="8" x2="19" y2="14" />
       <line x1="22" y1="11" x2="16" y2="11" />
     </svg>
+  )
+}
+
+/** Small transparent red "✕" button — the shared visual treatment for a
+ *  destructive/reset action on a row (deleting it, or clearing a locked
+ *  field back to manual entry). Not for confirmed multi-step deletes,
+ *  which use their own inline Yes/Cancel controls. */
+function RedXButton({
+  onClick,
+  title,
+  ariaLabel,
+}: {
+  onClick: () => void
+  title: string
+  ariaLabel: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+      style={{
+        flexShrink: 0,
+        background: 'transparent',
+        border: 'none',
+        color: '#DA202A',
+        cursor: 'pointer',
+        fontSize: 14,
+        lineHeight: 1,
+        padding: '0 2px',
+      }}
+    >
+      ✕
+    </button>
   )
 }
 
@@ -3217,7 +3318,7 @@ function AllocationRow({
   if (editingSchedule && pendingDelete) {
     return (
       <div
-        className={styles.allocationRow}
+        className={`${styles.allocationRow} ${styles.scheduleRow}`}
         style={{ gridTemplateColumns: 'var(--schedule-cols)', background: '#FFF5F5' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dragHandleSlot}</div>
@@ -3247,7 +3348,7 @@ function AllocationRow({
   if (editingSchedule) {
     return (
       <div
-        className={`${styles.allocationRow} ${styles.allocationRowEditing}`}
+        className={`${styles.allocationRow} ${styles.allocationRowEditing} ${styles.scheduleRow}`}
         style={{ gridTemplateColumns: 'var(--schedule-cols)', background: rowBg, outline: '1px solid #E8E8E8' }}
       >
         {/* Handle */}
@@ -3277,14 +3378,7 @@ function AllocationRow({
                   <button type="button" onClick={() => setUnassignConfirm(true)} title="Remove resource" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0, display: 'flex', alignItems: 'center' }}><UserMinusIcon /></button>
                 </>
               )}
-              <button
-                type="button"
-                onClick={() => setPendingDelete(true)}
-                title="Delete row"
-                style={{ background: 'transparent', border: 'none', color: '#DA202A', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
-              >
-                ✕
-              </button>
+              <RedXButton onClick={() => setPendingDelete(true)} title="Delete row" ariaLabel="Delete row" />
             </div>
           )}
         </Cell>
@@ -3391,38 +3485,38 @@ function AllocationRow({
           </select>
         </Cell>
         {/* 8 Monthly day breakdown — optional; populating any month locks the
-            total below to their sum. */}
+            total below to their sum. The month abbreviation is placeholder
+            text inside each input, not a label stacked above it: a label
+            row adds height nothing else in this row has, which pushed this
+            cell (and therefore the whole row, since flex/grid rows share
+            one cross-axis) taller than rows without a monthly breakdown.
+            Placeholder text costs no extra height and needs no layout code
+            to disappear once a value exists — it already does. */}
         <Cell dataLabel="Monthly days">
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, width: '100%' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
             {monthlyDays.months.map((m) => (
-              <label
+              <input
                 key={m.key}
-                style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}
-              >
-                <span
-                  style={{
-                    fontSize: 8,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    color: 'var(--rmg-color-grey-1)',
-                  }}
-                >
-                  {m.label}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  aria-label={`${m.label} ${m.year} days`}
-                  value={monthDrafts[m.key] ?? ''}
-                  onChange={(e) =>
-                    setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
-                  }
-                  onBlur={() => commitMonth(m.key)}
-                  style={{ ...editInputStyle, width: 36, textAlign: 'right', padding: '2px 4px' }}
-                />
-              </label>
+                type="number"
+                min="0"
+                step="0.5"
+                placeholder={m.label}
+                aria-label={`${m.label} ${m.year} days`}
+                value={monthDrafts[m.key] ?? ''}
+                onChange={(e) =>
+                  setMonthDrafts((prev) => ({ ...prev, [m.key]: e.target.value }))
+                }
+                onBlur={() => commitMonth(m.key)}
+                className={styles.monthDayInput}
+                style={{
+                  ...editInputStyle,
+                  width: 42,
+                  textAlign: 'right',
+                  padding: '2px 4px',
+                  textTransform: 'uppercase',
+                  flexShrink: 0,
+                }}
+              />
             ))}
             <button
               type="button"
@@ -3445,15 +3539,39 @@ function AllocationRow({
                 opacity: populateDisabled ? 0.5 : 1,
               }}
             >
-              <CalendarRange size={12} aria-hidden />
+              <CalendarCheck size={14} strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </Cell>
         {/* 9 Days — the authoritative total. Freely editable until the
             monthly breakdown is in use, at which point it mirrors the sum and
-            the adjacent clear button is the way back to manual entry. */}
-        <Cell align="right">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, width: '100%' }}>
+            the adjacent clear button is the way back to manual entry.
+            Desktop left-aligns this cell (styles.editDaysCell, not the
+            align="right" every other numeric column uses) so the total sits
+            right after the month inputs/populate button in the previous
+            cell, reading as one "Days" group rather than two — and so the
+            total's own position never shifts depending on whether the clear
+            button after it is shown, since it's always the first flex item.
+            That has to be a CSS class rather than Cell's align prop: mobile
+            still wants this cell right-aligned (nth-child(10) in
+            schedule.module.css, pairing it with Plan), and an inline
+            justifyContent can't be overridden by a media query — only
+            another CSS rule can win at a narrower viewport. Not <Cell>
+            (which always sets justifyContent inline) for the same reason. */}
+        <div
+          data-label="Days"
+          className={`${styles.cell} ${styles.editDaysCell}`}
+          style={{
+            padding: '9px 8px 9px 0',
+            display: 'flex',
+            alignItems: 'center',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             {inMonthlyMode ? (
               <>
                 <input
@@ -3464,31 +3582,18 @@ function AllocationRow({
                   title="Total is the sum of the monthly breakdown — clear it to type a total directly"
                   style={{
                     ...editInputStyle,
-                    width: '46px',
+                    width: '52px',
                     textAlign: 'right',
                     background: 'var(--rmg-color-grey-3)',
                     color: 'var(--rmg-color-grey-1)',
                     cursor: 'not-allowed',
                   }}
                 />
-                <button
-                  type="button"
+                <RedXButton
                   onClick={() => void monthlyDays.onClear(row.allocation_id)}
                   title="Clear the monthly breakdown and enter a total directly"
-                  aria-label="Clear monthly breakdown"
-                  style={{
-                    flexShrink: 0,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--rmg-color-grey-1)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    lineHeight: 1,
-                    padding: '0 2px',
-                  }}
-                >
-                  ×
-                </button>
+                  ariaLabel="Clear monthly breakdown"
+                />
               </>
             ) : (
               <input
@@ -3504,7 +3609,7 @@ function AllocationRow({
               />
             )}
           </div>
-        </Cell>
+        </div>
         {/* 10 Day Rate */}
         <Cell align="right">
           <input
@@ -3557,7 +3662,7 @@ function AllocationRow({
 
   return (
     <div
-      className={styles.allocationRow}
+      className={`${styles.allocationRow} ${styles.scheduleRow}`}
       style={{
         gridTemplateColumns: 'var(--schedule-cols)',
         background: rowBg,
@@ -3571,7 +3676,7 @@ function AllocationRow({
         {tbc ? (
           <span style={nullStyle}>TBC</span>
         ) : (
-          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D' }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#2A2A2D', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {highlightMatch(row.resource_name!, searchQuery)}
           </span>
         )}
@@ -3580,7 +3685,7 @@ function AllocationRow({
       {/* 2 Role */}
       <Cell>
         {row.role_title ? (
-          <span style={{ fontSize: 13, color: '#333' }}>
+          <span style={{ fontSize: 13, color: '#333', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {highlightMatch(row.role_title, searchQuery)}
           </span>
         ) : (
