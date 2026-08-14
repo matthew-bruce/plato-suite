@@ -201,6 +201,7 @@ export function SchedulePageClient({ data }: Props) {
   const [planviewFilter, setPlanviewFilter] = useState<string>('all')
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [teamFilter, setTeamFilter] = useState<string>('all')
+  const [confirmedFilter, setConfirmedFilter] = useState<string>('all')
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({})
   // Default sort is null so rows render in their persisted display_order on load.
   // Clicking a column header applies a session-only sort (never written to DB).
@@ -334,9 +335,22 @@ export function SchedulePageClient({ data }: Props) {
       } else if (teamFilter !== 'all') {
         if (!(a.teams ?? []).some((t) => t.teamName === teamFilter || t.teamId === teamFilter)) return false
       }
+      if (confirmedFilter !== 'all' && a.is_confirmed !== (confirmedFilter === 'confirmed')) return false
       return true
     })
-  }, [localAllocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter])
+  }, [localAllocations, search, selectedSuppliers, planviewFilter, locationFilter, teamFilter, confirmedFilter])
+
+  // Cost items (Ad-Hoc/ETP/Shared Services) carry no resource/team/planview/
+  // location/search-matchable fields, so those filters correctly hide them
+  // entirely (via isUnfiltered, below) rather than trying to partially apply.
+  // Confirmed is different: cost items have their own is_confirmed, so it's
+  // a real per-item filter here, same as it is for allocations above — not
+  // gated by isUnfiltered, since filtering to Unconfirmed should still show
+  // the (now smaller) set of unconfirmed cost items, not hide the section.
+  const filteredCostItems = useMemo(() => {
+    if (confirmedFilter === 'all') return localCostItems
+    return localCostItems.filter((i) => i.is_confirmed === (confirmedFilter === 'confirmed'))
+  }, [localCostItems, confirmedFilter])
 
   const groupedBySupplier = useMemo(() => {
     const groups = new Map<string | null, Allocation[]>()
@@ -927,6 +941,16 @@ export function SchedulePageClient({ data }: Props) {
                   ...teamOptions.map((t) => ({ value: t, label: t })),
                 ]}
               />
+              <CustomSelect
+                label="Confirmed"
+                value={confirmedFilter}
+                onChange={setConfirmedFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'confirmed', label: 'Confirmed' },
+                  { value: 'unconfirmed', label: 'Unconfirmed' },
+                ]}
+              />
               <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>
                   {filtered.length} resources
@@ -1011,7 +1035,7 @@ export function SchedulePageClient({ data }: Props) {
         locked={isLocked}
         activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
         searchQuery={search}
-        costItems={localCostItems}
+        costItems={filteredCostItems}
         isUnfiltered={isUnfiltered}
         editingAdHoc={editingAdHoc}
         onToggleEditAdHoc={() => setEditingAdHoc((v) => !v)}
