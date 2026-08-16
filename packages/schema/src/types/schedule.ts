@@ -1,7 +1,10 @@
 // Schedule page types — Platform Schedule (Nucleus / Finance)
 // Money fields are stored as integer pence per ADR-029.
 
-export type PlanviewCode = 'PR' | 'F_Gov' | 'BAU' | 'ETP'
+// 'NPC' (non-productive cover / hypercare) has always been permitted by the
+// resource_period_allocations_planview_code_check constraint; it was missing
+// here, so Q3 hypercare allocations typed as an invalid code.
+export type PlanviewCode = 'PR' | 'F_Gov' | 'BAU' | 'ETP' | 'NPC'
 export type PeriodStatus = 'draft' | 'active' | 'historic'
 export type ResourceLocation = 'onshore' | 'nearshore' | 'offshore'
 

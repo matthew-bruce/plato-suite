@@ -36,6 +36,26 @@ export type {
 export type { PeriodSummary, AttentionItem, HomepageData } from './types/homepage'
 
 export type {
+  ResourceTimelineData,
+  TimelineResource,
+  TimelineSegment,
+  TimelineSupplier,
+  TimelineTeam,
+  TransitionCategory,
+  TransitionStatus,
+  CoverageGap,
+  IsoDate,
+} from './types/resourceTimeline'
+
+export {
+  CATEGORY_ORDER,
+  NOT_IN_TRANSITION_LABEL,
+  deriveGaps,
+  deriveSegments,
+  classifyTransition,
+} from './lib/resource-timeline/deriveSegments'
+
+export type {
   ResourceFunction,
   DirectoryResource,
   PeopleDirectoryData,

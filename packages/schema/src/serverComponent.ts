@@ -10,6 +10,7 @@
 export { createServerSupabaseClient as getSupabaseServerComponentClient } from '@plato/auth/server'
 
 export { getSchedulePageData } from './queries/schedule'
+export { getResourceTimelineData } from './queries/resourceTimeline'
 export { getRatesPageData } from './queries/rates'
 export { getHomepageData } from './queries/homepage'
 export {

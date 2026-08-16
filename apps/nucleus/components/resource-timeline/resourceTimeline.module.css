@@ -1,0 +1,759 @@
+/* Resource Timeline (Nucleus / Finance) — Gantt-style supplier coverage.
+   Follows PLATO-DESIGN-SYSTEM.md §3 (badges & pills), §7 (page layout),
+   §17 (Gantt / roadmap) and §19 (spacing & radius). Every colour resolves to
+   an --rmg-* token except the per-supplier accents, which are set inline from
+   suppliers.supplier_colour (the DB is the source of truth, §2).
+
+   Per-segment custom properties, set inline:
+     --sc   supplier colour, full strength (left border, label text)
+     --sct  ~18% tint of the same colour (bar fill)
+     --sc2  ~28% tint (hypercare diagonal stripe) */
+
+.page {
+  background-color: var(--rmg-color-surface-light);
+  min-height: 100vh;
+  padding-bottom: var(--rmg-spacing-08);
+}
+
+.titleRow {
+  padding: var(--rmg-spacing-05) var(--rmg-spacing-06) 0;
+}
+
+.title {
+  font-family: var(--rmg-font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--rmg-color-text-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--rmg-color-text-light);
+  margin-top: 4px;
+}
+
+/* ── Controls ─────────────────────────────────────────────────────── */
+
+.controls {
+  padding: var(--rmg-spacing-03) var(--rmg-spacing-06) var(--rmg-spacing-01);
+}
+
+.controlsInner {
+  background: var(--rmg-color-surface-white);
+  border-radius: var(--rmg-radius-m);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: var(--rmg-spacing-03) var(--rmg-spacing-04);
+}
+
+.controlsRow {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.controlsRow + .controlsRow {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rmg-color-grey-4);
+}
+
+.ctlLabel {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--rmg-color-grey-1);
+  white-space: nowrap;
+}
+
+/* Segmented toggle — dark active pill, matching the shell's active nav state. */
+.pillToggle {
+  display: flex;
+  background: var(--rmg-color-grey-4);
+  border-radius: var(--rmg-radius-s);
+  padding: 3px;
+  gap: 2px;
+}
+
+.pillToggle button {
+  border: none;
+  background: transparent;
+  padding: 6px 13px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rmg-color-text-light);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.pillToggle button:hover:not(.active) {
+  color: var(--rmg-color-text-heading);
+}
+
+.pillToggle button.active {
+  background: var(--rmg-color-brand-black);
+  color: var(--rmg-color-white);
+}
+
+.chipRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--rmg-radius-xl);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid var(--rmg-color-grey-2);
+  background: var(--rmg-color-surface-white);
+  color: var(--rmg-color-text-body);
+  font-family: inherit;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  user-select: none;
+}
+
+.chip:hover {
+  border-color: var(--rmg-color-grey-1);
+}
+
+/* §3A identification pill — tinted + bordered + coloured text when inactive. */
+.supChip {
+  border-color: var(--sc);
+  background: var(--sct);
+  color: var(--sc);
+}
+
+/* §3D — active supplier filter pill is a solid fill with white text. */
+.supChip.active {
+  border-color: var(--sc);
+  background: var(--sc);
+  color: var(--rmg-color-white);
+}
+
+.preset {
+  background: var(--rmg-color-brand-black);
+  color: var(--rmg-color-white);
+  border-color: var(--rmg-color-brand-black);
+}
+
+.preset:hover {
+  border-color: var(--rmg-color-black);
+}
+
+.select {
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--rmg-color-text-body);
+  border: 1.5px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  padding: 6px 10px;
+  background: var(--rmg-color-surface-white);
+  cursor: pointer;
+}
+
+.exportButton {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--rmg-radius-m);
+  border: 1.5px solid var(--rmg-color-grey-2);
+  background: var(--rmg-color-surface-white);
+  color: var(--rmg-color-text-body);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.exportButton:hover:not(:disabled) {
+  border-color: var(--rmg-color-red);
+  color: var(--rmg-color-red);
+}
+
+.exportButton:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ── Legend ───────────────────────────────────────────────────────── */
+
+.legend {
+  padding: var(--rmg-spacing-02) var(--rmg-spacing-06) var(--rmg-spacing-01);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--rmg-color-text-light);
+}
+
+.legPill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--rmg-radius-xl);
+  padding: 2px 10px;
+  border: 1.5px solid var(--sc);
+  background: var(--sct);
+  color: var(--sc);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.legPill.hyper {
+  background-image: repeating-linear-gradient(45deg, var(--sc2) 0 4px, var(--sct) 4px 8px);
+}
+
+.legPill.tentative {
+  border-style: dashed;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--sct) 0 5px,
+    var(--rmg-color-surface-white) 5px 10px
+  );
+}
+
+.legDivider {
+  width: 1px;
+  height: 12px;
+  background: var(--rmg-color-grey-3);
+}
+
+/* ── Timeline header ──────────────────────────────────────────────── */
+
+.headerWrap {
+  display: flex;
+  padding: var(--rmg-spacing-02) var(--rmg-spacing-06) 0;
+}
+
+.headerSpacer {
+  width: var(--left-col);
+  flex-shrink: 0;
+  padding: 0 12px 6px 4px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.headerSpacer span {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--rmg-color-grey-1);
+}
+
+.headerTimeline {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The today marker gets its own row rather than sharing the month label row,
+   so a tag landing mid-month never collides with a month name. */
+.todayTagRow {
+  height: 15px;
+  position: relative;
+}
+
+.todayTag {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--rmg-color-red);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.monthRow {
+  display: flex;
+  height: 26px;
+  background: var(--rmg-color-surface-white);
+  border-radius: var(--rmg-radius-s) var(--rmg-radius-s) 0 0;
+  border: 1px solid var(--rmg-color-grey-3);
+  border-bottom: none;
+}
+
+.monthCell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--rmg-color-text-light);
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.monthCell:last-child {
+  border-right: none;
+}
+
+/* ── Gantt body ───────────────────────────────────────────────────── */
+
+.ganttWrap {
+  display: flex;
+  margin: 0 var(--rmg-spacing-06) var(--rmg-spacing-06);
+  background: var(--rmg-color-surface-white);
+  border-radius: 0 0 var(--rmg-radius-m) var(--rmg-radius-m);
+  box-shadow: 0 4px 56px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--rmg-color-grey-3);
+  position: relative;
+}
+
+.leftCol {
+  width: var(--left-col);
+  flex-shrink: 0;
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.rightCol {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.todayLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rmg-color-red);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.groupBlock {
+  border-bottom: 1px solid var(--rmg-color-grey-3);
+}
+
+.groupBlock:last-child {
+  border-bottom: none;
+}
+
+/* §17 group row — light grey band with a solid-black name pill.
+   Never a full-width dark bar. */
+.groupLeftHeader {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 8px;
+  gap: 8px;
+  background: var(--rmg-color-grey-4);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--rmg-color-grey-2);
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font-family: inherit;
+  text-align: left;
+}
+
+.groupLeftHeader:hover {
+  background: #ececec;
+}
+
+.groupRightHeader {
+  height: 36px;
+  background: var(--rmg-color-grey-4);
+  border-bottom: 1px solid var(--rmg-color-grey-2);
+  cursor: pointer;
+  position: relative;
+}
+
+.groupRightHeader:hover {
+  background: #ececec;
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rmg-color-grey-1);
+  transition: transform 180ms ease;
+}
+
+.collapsed .chevron {
+  transform: rotate(-90deg);
+}
+
+.groupNamePill {
+  /* Block, not inline-flex: text-overflow only applies to a block container,
+     and inside an inline-flex the label becomes an anonymous flex item that
+     clips mid-word instead of ellipsising. The transition category names are
+     long enough for that to matter at a 300px column. */
+  display: block;
+  line-height: 1.45;
+  border-radius: var(--rmg-radius-xl);
+  padding: 3px 12px;
+  background: var(--rmg-color-brand-black);
+  color: var(--rmg-color-white);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Long group names ("Unassigned — F_Gov / Overheads", the transition
+     category labels) must ellipsis rather than clip mid-word, so the pill has
+     to be allowed to shrink below its content width. */
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.groupCount {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rmg-color-grey-1);
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* ── Resource rows ────────────────────────────────────────────────── */
+
+.resLeftRow {
+  height: var(--row-h);
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 4px;
+  gap: 8px;
+  border-bottom: 1px solid var(--rmg-color-grey-4);
+  background: var(--rmg-color-surface-white);
+  overflow: hidden;
+  transition: height 150ms ease, opacity 130ms ease;
+}
+
+.resLeftRow:last-child,
+.resRightRow:last-child {
+  border-bottom: none;
+}
+
+.collapsed .resLeftRow,
+.collapsed .resRightRow {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border-bottom: none;
+  overflow: hidden;
+}
+
+/* Neutral avatar — deliberately never coloured by supplier. A person
+   mid-transition belongs to two suppliers at once and colouring the avatar by
+   either one misrepresents them. */
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rmg-color-brand-black);
+  color: var(--rmg-color-white);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.resText {
+  min-width: 0;
+  flex: 1;
+}
+
+.resName {
+  font-size: 11.5px;
+  color: var(--rmg-color-text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+/* §3F — discipline is metadata, not a pill. */
+.resSub {
+  font-size: 9.5px;
+  color: var(--rmg-color-grey-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.resPills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-top: 1px;
+}
+
+/* Team split pill — matches the live Schedule's "Pulsar · 50%" treatment. */
+.teamPill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--rmg-radius-xl);
+  padding: 2px 8px;
+  background: #e4edfa;
+  color: #2a3b66;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* §3C — transition state is styled text on the row, not a badge. */
+.statusTag {
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.resRightRow {
+  height: var(--row-h);
+  position: relative;
+  border-bottom: 1px solid var(--rmg-color-grey-4);
+  transition: height 150ms ease, opacity 130ms ease;
+}
+
+.colLines {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.colLine {
+  flex: 1;
+  border-right: 1px solid var(--rmg-color-grey-4);
+}
+
+.colLine:last-child {
+  border-right: none;
+}
+
+.track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--rmg-color-grey-3);
+}
+
+/* ── Segments ─────────────────────────────────────────────────────── */
+
+.seg {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 6px;
+  border-left: 4px solid var(--sc);
+  background: var(--sct);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  padding: 0;
+  font-family: inherit;
+  cursor: default;
+}
+
+/* Hypercare / NPC — diagonal stripe, distinct from ordinary cover at a glance. */
+.seg.hyper {
+  background-image: repeating-linear-gradient(45deg, var(--sc2) 0 5px, var(--sct) 5px 10px);
+}
+
+/* Tentative — dashed accent and a broken fill. */
+.seg.tentative {
+  border-left-style: dashed;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--sct) 0 6px,
+    var(--rmg-color-surface-white) 6px 12px
+  );
+}
+
+.seg:hover {
+  filter: brightness(0.96);
+  z-index: 20;
+  box-shadow: 0 0 0 1.5px var(--sc);
+}
+
+.segLabel {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--sc);
+  white-space: nowrap;
+  padding: 0 7px;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.segDates {
+  font-weight: 500;
+  opacity: 0.75;
+  margin-left: 5px;
+}
+
+.gapMarker {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-1px);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rmg-color-red) 0,
+    var(--rmg-color-red) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+  z-index: 5;
+}
+
+.flagDot {
+  position: absolute;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rmg-color-red);
+  border: 1.5px solid var(--rmg-color-surface-white);
+  z-index: 21;
+}
+
+/* ── Tooltip ──────────────────────────────────────────────────────── */
+
+.tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  padding: 10px 13px;
+  pointer-events: none;
+  max-width: 270px;
+  box-shadow: 0 4px 56px rgba(0, 0, 0, 0.08);
+}
+
+.ttName {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rmg-color-text-heading);
+}
+
+.ttSub {
+  font-size: 10.5px;
+  color: var(--rmg-color-text-light);
+  margin-top: 1px;
+  margin-bottom: 6px;
+}
+
+.ttRow {
+  font-size: 10.5px;
+  color: var(--rmg-color-text-body);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 0;
+}
+
+.ttRow b {
+  color: var(--rmg-color-text-heading);
+}
+
+.ttFlag {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rmg-color-grey-4);
+  color: var(--rmg-color-red);
+}
+
+/* ── Empty + narrow-screen states ─────────────────────────────────── */
+
+.empty {
+  margin: 0 var(--rmg-spacing-06);
+  padding: var(--rmg-spacing-07);
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-3);
+  border-radius: var(--rmg-radius-m);
+  text-align: center;
+  color: var(--rmg-color-text-light);
+  font-size: 13px;
+}
+
+.narrowNotice {
+  display: none;
+  margin: 0 var(--rmg-spacing-06) var(--rmg-spacing-03);
+  padding: 10px 13px;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-3);
+  border-left: 3px solid var(--rmg-color-red);
+  border-radius: var(--rmg-radius-xs);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rmg-color-text-light);
+}
+
+/* Desktop-oriented per §20, but it must degrade rather than break: below the
+   Gantt breakpoint the whole grid becomes one horizontally-scrollable pane at
+   a usable minimum width, with a note explaining why. The page body itself
+   never scrolls sideways. */
+@media (max-width: 768px) {
+  .narrowNotice {
+    display: block;
+  }
+
+  .scrollHost {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .scrollInner {
+    min-width: 900px;
+  }
+
+  .titleRow,
+  .controls,
+  .legend {
+    padding-left: var(--rmg-spacing-04);
+    padding-right: var(--rmg-spacing-04);
+  }
+
+  .ganttWrap {
+    margin-left: var(--rmg-spacing-04);
+    margin-right: var(--rmg-spacing-04);
+  }
+
+  .headerWrap {
+    padding-left: var(--rmg-spacing-04);
+    padding-right: var(--rmg-spacing-04);
+  }
+}
