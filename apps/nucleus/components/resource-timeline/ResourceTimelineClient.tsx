@@ -22,6 +22,7 @@ import {
   type GroupMode,
   STATUS_LABELS,
   buildGroups,
+  buildQuarterSpans,
   disciplineOf,
   filterResources,
   formatLongDate,
@@ -270,6 +271,17 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
 
   const secondaryOptions = groupBy === 'team' ? data.disciplines : data.teams
 
+  const quarterSpans = useMemo(
+    () =>
+      buildQuarterSpans(
+        data.months,
+        data.granularWindowStart,
+        data.coarsePeriodName,
+        data.granularPeriodName,
+      ),
+    [data.months, data.granularWindowStart, data.coarsePeriodName, data.granularPeriodName],
+  )
+
   return (
     <div className={styles.page} style={cssVars}>
       <div className={styles.titleRow}>
@@ -422,6 +434,17 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                     {todayLabel}
                   </div>
                 )}
+              </div>
+              <div className={styles.quarterRow}>
+                {quarterSpans.map((span) => (
+                  <div
+                    key={span.label}
+                    className={styles.quarterCell}
+                    style={{ flex: span.months.length }}
+                  >
+                    {span.label}
+                  </div>
+                ))}
               </div>
               <div className={styles.monthRow}>
                 {data.months.map((month) => (

@@ -18,6 +18,7 @@
 import { CATEGORY_ORDER, type ResourceTimelineData } from '@plato/schema'
 import {
   STATUS_LABELS,
+  buildQuarterSpans,
   disciplineRank,
   formatMonthLabel,
   supplierStripe,
@@ -87,6 +88,15 @@ export function buildStandaloneHtml(
     windowStart: data.windowStart,
     windowEnd: data.windowEnd,
     months: data.months.map((m) => ({ key: m, label: formatMonthLabel(m) })),
+    // Precomputed here (not re-derived in the vanilla-JS runtime below) so
+    // the export's quarter row can never disagree with the live page's —
+    // one source of truth for the split, reused rather than duplicated.
+    quarters: buildQuarterSpans(
+      data.months,
+      data.granularWindowStart,
+      data.coarsePeriodName,
+      data.granularPeriodName,
+    ).map((span) => ({ label: span.label, monthCount: span.months.length })),
     resources: data.resources,
     suppliers: data.suppliers,
     teams: data.teams,
@@ -173,6 +183,7 @@ ${EXPORT_CSS}
   <div class="thl-spacer"><span id="spacerLabel">Team / Resource</span></div>
   <div class="thl-timeline">
     <div class="today-tag-row" id="todayTagHost"></div>
+    <div class="quarter-row" id="quarterRow"></div>
     <div class="month-row" id="monthRow"></div>
   </div>
 </div>
@@ -269,14 +280,29 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .select-wrap span{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--rmg-color-grey-1)}
 .select-wrap select{font-size:12px;font-family:inherit;font-weight:400;color:var(--rmg-color-text-body);border:none;background:transparent;cursor:pointer}
 .select-wrap.active select{color:var(--rmg-color-red);font-weight:600}
-.timeline-header-wrap{display:flex;padding:6px 24px 0}
+/* Sticky: pinned just below the page-header brand bar (--page-header-h),
+   same offset convention the live app uses below PlatoShell's global header.
+   z-index promotes it above .gantt-wrap, a later, non-positioned sibling
+   that would otherwise paint over it as its rows scroll past; the opaque
+   background is what makes scrolled-under rows disappear behind it rather
+   than showing through. */
+.timeline-header-wrap{display:flex;padding:6px 24px 0;position:sticky;top:var(--page-header-h);z-index:20;background:var(--rmg-color-surface-light)}
 .thl-spacer{width:var(--left-col);flex-shrink:0;padding:0 12px 6px 4px;display:flex;align-items:flex-end}
 .thl-spacer span{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--rmg-color-grey-1)}
 .thl-timeline{flex:1;min-width:0;display:flex;flex-direction:column}
 .today-tag-row{height:15px;position:relative}
 .today-tag{position:absolute;bottom:0;transform:translateX(-50%);font-size:9px;font-weight:700;color:var(--rmg-color-red);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
-.month-row{display:flex;height:26px;background:#fff;border-radius:var(--rmg-radius-s) var(--rmg-radius-s) 0 0;border:1px solid var(--rmg-color-grey-3);border-bottom:none}
-.month-cell{flex:1;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--rmg-color-text-light);border-right:1px solid var(--rmg-color-grey-3)}
+/* Structural label row — same quiet weight as the "Team / Resource" spacer
+   label, just dark rather than muted grey-1. Owns the header box's rounded
+   top corners, since it's now the topmost row. */
+.quarter-row{display:flex;height:20px;background:var(--rmg-color-grey-4);border:1px solid var(--rmg-color-grey-3);border-radius:var(--rmg-radius-s) var(--rmg-radius-s) 0 0}
+.quarter-cell{display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--rmg-color-text-heading);border-right:1px solid var(--rmg-color-grey-3)}
+.quarter-cell:last-child{border-right:none}
+/* Pastel tint, not plain white — the detailed axis, distinct from the
+   quarter row above it. Yellow: unused elsewhere (supplier identity uses
+   blue/purple/orange/navy; tint-red is reserved for the today line/label). */
+.month-row{display:flex;height:26px;background:var(--rmg-color-tint-yellow);border-left:1px solid var(--rmg-color-grey-3);border-right:1px solid var(--rmg-color-grey-3)}
+.month-cell{flex:1;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--rmg-color-text-heading);border-right:1px solid var(--rmg-color-grey-3)}
 .month-cell:last-child{border-right:none}
 .gantt-wrap{display:flex;margin:0 24px 40px;background:#fff;border-radius:0 0 var(--rmg-radius-m) var(--rmg-radius-m);box-shadow:0 4px 56px rgba(0,0,0,.08);border:1px solid var(--rmg-color-grey-3);position:relative}
 #left-col{width:var(--left-col);flex-shrink:0;border-right:1px solid var(--rmg-color-grey-3)}
@@ -701,6 +727,11 @@ function buildMonthRow(){
     return '<div class="month-cell">' + esc(m.label) + '</div>';
   }).join('');
 }
+function buildQuarterRow(){
+  document.getElementById('quarterRow').innerHTML = DATA.quarters.map(function(q){
+    return '<div class="quarter-cell" style="flex:' + q.monthCount + '">' + esc(q.label) + '</div>';
+  }).join('');
+}
 function buildSecondary(){
   var wrap = document.getElementById('secLabelWrap');
   var sel = document.getElementById('secondaryFilter');
@@ -762,6 +793,7 @@ window.addEventListener('resize', function(){ positionToday(); fitLabels(); });
 
 state.collapsed = new Set(groupNames());
 buildMonthRow();
+buildQuarterRow();
 buildSupplierChips();
 syncChips();
 buildSecondary();

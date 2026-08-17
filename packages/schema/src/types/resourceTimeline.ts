@@ -58,4 +58,12 @@ export interface ResourceTimelineData {
   disciplines: string[]
   coarsePeriodName: string
   granularPeriodName: string
+  /**
+   * First month (YYYY-MM-01) of the granular period. Splits `months` into
+   * the coarse-quarter group and the granular-quarter group for the
+   * timeline header's quarter row — kept as a real boundary rather than
+   * assuming an even split, so it stays correct if the two periods are ever
+   * different lengths.
+   */
+  granularWindowStart: IsoDate
 }

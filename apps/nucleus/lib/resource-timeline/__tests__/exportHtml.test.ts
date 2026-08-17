@@ -64,6 +64,7 @@ function data(overrides: Partial<ResourceTimelineData> = {}): ResourceTimelineDa
     disciplines: ['Quality Assurance'],
     coarsePeriodName: 'Q2 FY 26/27',
     granularPeriodName: 'Q3 FY 26/27',
+    granularWindowStart: '2026-10-01',
     ...overrides,
   }
 }

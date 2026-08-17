@@ -209,6 +209,36 @@ export function formatMonthLabel(monthStart: string): string {
   return `${month} '${String(date.getUTCFullYear()).slice(2)}`
 }
 
+export interface QuarterSpan {
+  label: string
+  /** Month columns (YYYY-MM-01) this quarter covers, in order. */
+  months: string[]
+}
+
+/**
+ * Groups the month header's columns into their quarters, for the row above
+ * the month labels. Split on the real granularWindowStart boundary rather
+ * than assuming an even 3/3 split, so this stays correct if the two periods
+ * are ever different lengths. A quarter with zero months in the current
+ * window (shouldn't happen given how the window is built, but the caller
+ * shouldn't have to guard against a 0-width cell) is omitted rather than
+ * rendered empty.
+ */
+export function buildQuarterSpans(
+  months: readonly string[],
+  granularWindowStart: string,
+  coarsePeriodName: string,
+  granularPeriodName: string,
+): QuarterSpan[] {
+  const coarseMonths = months.filter((m) => m < granularWindowStart)
+  const granularMonths = months.filter((m) => m >= granularWindowStart)
+
+  const spans: QuarterSpan[] = []
+  if (coarseMonths.length > 0) spans.push({ label: coarsePeriodName, months: coarseMonths })
+  if (granularMonths.length > 0) spans.push({ label: granularPeriodName, months: granularMonths })
+  return spans
+}
+
 /**
  * Bar label. Dates appear only for boundaries that are real facts — a last
  * working day, a derived commercial start, a hypercare end. The window's own

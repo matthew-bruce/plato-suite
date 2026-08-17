@@ -347,5 +347,6 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
     disciplines,
     coarsePeriodName: coarse.period_name,
     granularPeriodName: granular.period_name,
+    granularWindowStart: monthStartOf(granularWindow.start),
   }
 }

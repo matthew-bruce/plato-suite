@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { TimelineResource, TimelineSegment } from '@plato/schema'
 import {
   buildGroups,
+  buildQuarterSpans,
   disciplineRank,
   filterResources,
   formatMonthLabel,
@@ -216,6 +217,46 @@ describe('formatMonthLabel', () => {
   it('renders a short month and two-digit year', () => {
     expect(formatMonthLabel('2026-07-01')).toBe("Jul '26")
     expect(formatMonthLabel('2026-12-01')).toBe("Dec '26")
+  })
+})
+
+describe('buildQuarterSpans', () => {
+  const MONTHS = ['2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01', '2026-11-01', '2026-12-01']
+
+  it('splits the six months into two three-month quarter spans', () => {
+    const spans = buildQuarterSpans(MONTHS, '2026-10-01', 'Q2 FY 26/27', 'Q3 FY 26/27')
+
+    expect(spans).toEqual([
+      { label: 'Q2 FY 26/27', months: ['2026-07-01', '2026-08-01', '2026-09-01'] },
+      { label: 'Q3 FY 26/27', months: ['2026-10-01', '2026-11-01', '2026-12-01'] },
+    ])
+  })
+
+  it('splits on the real boundary rather than assuming an even split', () => {
+    // A hypothetical 4/2 split — the boundary, not month count, decides.
+    const spans = buildQuarterSpans(MONTHS, '2026-11-01', 'Q2 FY 26/27', 'Q3 FY 26/27')
+
+    expect(spans[0]).toEqual({
+      label: 'Q2 FY 26/27',
+      months: ['2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01'],
+    })
+    expect(spans[1]).toEqual({ label: 'Q3 FY 26/27', months: ['2026-11-01', '2026-12-01'] })
+  })
+
+  it('omits a quarter with no months in the window rather than rendering an empty span', () => {
+    const allGranular = buildQuarterSpans(
+      ['2026-10-01', '2026-11-01', '2026-12-01'],
+      '2026-10-01',
+      'Q2 FY 26/27',
+      'Q3 FY 26/27',
+    )
+    expect(allGranular).toEqual([
+      { label: 'Q3 FY 26/27', months: ['2026-10-01', '2026-11-01', '2026-12-01'] },
+    ])
+  })
+
+  it('returns nothing for an empty month list', () => {
+    expect(buildQuarterSpans([], '2026-10-01', 'Q2 FY 26/27', 'Q3 FY 26/27')).toEqual([])
   })
 })
 
