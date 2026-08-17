@@ -284,20 +284,24 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
         <PageToolbar
           primaryRow={
             <>
-              <span className={styles.ctlLabel}>Group by</span>
-              <div className={styles.segToggle}>
-                {GROUP_MODES.map((mode) => (
-                  <button
-                    key={mode.value}
-                    type="button"
-                    className={groupBy === mode.value ? styles.active : undefined}
-                    aria-pressed={groupBy === mode.value}
-                    onClick={() => changeGroupBy(mode.value)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
+              <div className={styles.modePill}>
+                <span className={styles.modePillLabel}>Group by</span>
+                <div className={styles.modeButtons}>
+                  {GROUP_MODES.map((mode) => (
+                    <button
+                      key={mode.value}
+                      type="button"
+                      className={groupBy === mode.value ? styles.active : undefined}
+                      aria-pressed={groupBy === mode.value}
+                      onClick={() => changeGroupBy(mode.value)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              <div className={styles.toolbarDivider} />
 
               {/* Cross-filter: skillsets in Team view, teams in Skillset view.
                   Category view is already a transition-state cut, so it has
@@ -315,9 +319,9 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
               )}
 
               {groupBy !== 'category' && (
-                <>
-                  <span className={styles.ctlLabel}>Show</span>
-                  <div className={styles.segToggle}>
+                <div className={styles.modePill}>
+                  <span className={styles.modePillLabel}>Show</span>
+                  <div className={styles.modeButtons}>
                     <button
                       type="button"
                       className={!transitionOnly ? styles.active : undefined}
@@ -335,7 +339,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                       Transitioning only
                     </button>
                   </div>
-                </>
+                </div>
               )}
 
               {/* This toolbar carries more primaryRow content than Schedule's
@@ -368,7 +372,6 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
           }
           filterRow={
             <>
-              <span className={styles.filterLabel}>Supplier</span>
               <PageToolbarFilterPill
                 label="All suppliers"
                 active={activeSuppliers.size === data.suppliers.length}

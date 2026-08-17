@@ -44,48 +44,88 @@
   padding: var(--rmg-spacing-03) var(--rmg-spacing-06) var(--rmg-spacing-01);
 }
 
-.ctlLabel {
+/* Round 3, Fix 2: rebuilt against Schedule's actual toolbar (CustomSelect +
+   the PageToolbarPrimaryActions button cluster) inspected directly, not
+   approximated — every control here now shares CustomSelect's exact box
+   model: 1px solid grey-2 border, --rmg-radius-s corners, 5px 10px padding.
+   That's what makes the height/weight consistent with the Skillset filter
+   sitting right next to it; the previous version had its own inner+outer
+   padding, which made it read taller and heavier than everything around it. */
+.modePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  padding: 5px 10px;
+  box-sizing: border-box;
+}
+
+/* Same metrics as CustomSelect's own internal label span — this control has
+   no filterRow-white backdrop of its own to inherit that colour from
+   (unlike Schedule's dropdowns, it sits directly on red), so folding the
+   label inside a matching white pill is what lets grey-1 read correctly
+   instead of vanishing against red. */
+.modePillLabel {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.07em;
+  color: var(--rmg-color-grey-1);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-/* Segmented toggle for Group-by / Show — a white pill housing (matching the
-   toolbar's white search-input convention) with the same red-tint "active"
-   treatment already used for CustomSelect and the Edit/Done-editing button
-   on Schedule, rather than a solid fill invented for this page alone. */
-.segToggle {
+.modeButtons {
   display: flex;
-  background: var(--rmg-color-surface-white);
-  border-radius: var(--rmg-radius-s);
-  padding: 3px;
+  align-items: center;
   gap: 2px;
 }
 
-.segToggle button {
+.modeButtons button {
   border: none;
   background: transparent;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--rmg-color-text-light);
-  border-radius: 6px;
+  /* Horizontal padding only — the pill's OWN 5px vertical padding is the
+     single layer of vertical inset, matching CustomSelect's box model
+     exactly. Giving these buttons their own vertical padding too stacked a
+     second layer on top of the pill's and made it 4px taller than
+     CustomSelect, the thing it sits directly next to. */
+  padding: 0 8px;
+  border-radius: 5px;
+  /* Matches CustomSelect's value-text size/weight exactly, not a smaller
+     scale invented for a segmented control — no explicit line-height either,
+     for the same reason CustomSelect's own value span doesn't set one. */
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--rmg-color-text-body);
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap;
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-.segToggle button:hover:not(.active) {
+.modeButtons button:hover:not(.active) {
   color: var(--rmg-color-text-heading);
 }
 
-.segToggle button.active {
+/* Same red-tint "active" treatment CustomSelect and the Edit/Done-editing
+   button already use on Schedule. */
+.modeButtons button.active {
   background: #fff5f5;
   color: var(--rmg-color-red);
   font-weight: 600;
+}
+
+/* Schedule's one divider, after its search box — separating the primary
+   control (there: search; here: Group by) from the secondary filters that
+   follow it. Same values, not approximated. */
+.toolbarDivider {
+  width: 1px;
+  height: 18px;
+  background: var(--rmg-color-grey-2);
+  flex-shrink: 0;
+  margin: 0 4px;
 }
 
 .exportButton {
@@ -115,18 +155,16 @@
   cursor: progress;
 }
 
-.filterLabel {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--rmg-color-grey-1);
-  white-space: nowrap;
-}
+/* No "SUPPLIER" label here — Schedule's own filterRow (the one this page's
+   supplier chips are visually modelled on) has none either, just the pills
+   directly against the grey-4 band. Matching that exactly rather than
+   inventing a label Schedule doesn't have. */
 
 /* Preset action button — same black-fill treatment PageToolbarFilterPill
    already uses for its "--all" active state, reused here since a preset like
-   "Focus: CG + TCS" is the same kind of one-tap state-setting control. */
+   "Focus: CG + TCS" is the same kind of one-tap state-setting control.
+   Metrics (padding, font-size/weight, line-height) copied from
+   getFilterPillStyle so it sits at identical height to the pills beside it. */
 .presetButton {
   display: inline-flex;
   align-items: center;
@@ -134,6 +172,7 @@
   border-radius: var(--rmg-radius-xl);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.4;
   border: 1.5px solid var(--rmg-color-black);
   background: var(--rmg-color-black);
   color: #fff;

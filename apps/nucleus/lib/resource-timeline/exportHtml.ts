@@ -136,20 +136,25 @@ ${EXPORT_CSS}
 <div class="controls">
   <div class="toolbar">
     <div class="toolbar-primary">
-      <span class="ctl-label">Group by</span>
-      <div class="pill-toggle" id="groupToggle">
-        <button data-group="team">Team</button>
-        <button data-group="discipline">Skillset</button>
-        <button data-group="category">Transition category</button>
+      <div class="mode-pill">
+        <span class="mode-pill-label">Group by</span>
+        <div class="mode-buttons" id="groupToggle">
+          <button data-group="team">Team</button>
+          <button data-group="discipline">Skillset</button>
+          <button data-group="category">Transition category</button>
+        </div>
       </div>
+      <div class="toolbar-divider"></div>
       <span class="select-wrap" id="secLabelWrap">
         <span id="secLabel">Skillset</span>
         <select id="secondaryFilter"></select>
       </span>
-      <span class="ctl-label" id="showLabel">Show</span>
-      <div class="pill-toggle" id="transitionToggle">
-        <button data-mode="all">Everyone</button>
-        <button data-mode="transition">Transitioning only</button>
+      <div class="mode-pill" id="showPill">
+        <span class="mode-pill-label" id="showLabel">Show</span>
+        <div class="mode-buttons" id="transitionToggle">
+          <button data-mode="all">Everyone</button>
+          <button data-mode="transition">Transitioning only</button>
+        </div>
       </div>
       <div class="primary-actions">
         <span class="resource-count" id="resourceCount"></span>
@@ -157,7 +162,6 @@ ${EXPORT_CSS}
       </div>
     </div>
     <div class="toolbar-filter">
-      <span class="filter-label">Supplier</span>
       <button class="preset-btn" id="allSuppliersBtn">All suppliers</button>
       <div class="chip-filter" id="supplierChips"></div>
       <button class="preset-btn" id="presetBtn">Focus: CG + TCS</button>
@@ -176,15 +180,6 @@ ${EXPORT_CSS}
 <div class="gantt-wrap" id="ganttWrap">
   <div id="left-col"></div>
   <div id="right-col"></div>
-</div>
-
-<div class="footer">
-  <div class="footer-note info"><strong>Standalone snapshot.</strong> Generated from Plato on
-    ${escapeHtml(payload.meta.generatedLabel)}. Grouping, filters and expand/collapse all work offline —
-    the figures are fixed as at the generation date and will not update.</div>
-  <div class="footer-note"><strong>Dates in bars</strong> are shown only where they are real known facts
-    (last working day, derived commercial start, hypercare boundaries) — never for the window edges,
-    which are just where this view begins and ends.</div>
 </div>
 
 <div class="tooltip" id="tt" hidden>
@@ -228,7 +223,11 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .brand .word span{color:var(--rmg-color-red)}
 .snapshot-badge{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:var(--rmg-radius-xs);background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
 .title-row{padding:16px 24px 0}
-.title-row h1{font-family:var(--rmg-font-display);font-size:19px;font-weight:700;color:var(--rmg-color-text-heading)}
+/* Sans-serif here, not the site-wide display font — a document meant to be
+   shared outside Plato (no login, emailed around) reads better in the plain
+   body face than in the serif display font the in-app page heading uses.
+   Scoped to this export template only; the in-app heading is unchanged. */
+.title-row h1{font-family:var(--rmg-font-body);font-size:19px;font-weight:700;color:var(--rmg-color-text-heading)}
 .title-row .sub{font-size:11.5px;color:var(--rmg-color-text-light);margin-top:2px}
 .controls{padding:12px 24px 4px}
 /* Two-band toolbar — red primary row, grey-4 filter row — mirroring
@@ -237,14 +236,19 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .toolbar{border-radius:var(--rmg-radius-m);overflow:hidden;border:1px solid rgba(0,0,0,.10);box-shadow:0 2px 12px rgba(0,0,0,.08)}
 .toolbar-primary{background:var(--rmg-color-red);display:flex;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap}
 .toolbar-filter{background:var(--rmg-color-grey-4);border-top:1px solid var(--rmg-color-grey-3);display:flex;align-items:center;gap:8px;padding:10px 20px;flex-wrap:wrap}
-.ctl-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:rgba(255,255,255,.7);white-space:nowrap}
-.filter-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--rmg-color-grey-1);white-space:nowrap}
-/* White pill housing + red-tint active state — the same "active" treatment
-   already used for CustomSelect and the Edit/Done-editing button on
-   Schedule, not a solid-fill invented for this page. */
-.pill-toggle{display:flex;background:#fff;border-radius:var(--rmg-radius-s);padding:3px;gap:2px}
-.pill-toggle button{border:none;background:transparent;padding:6px 12px;font-size:11px;font-weight:500;color:var(--rmg-color-text-light);border-radius:6px;cursor:pointer;font-family:inherit;transition:all .12s}
-.pill-toggle button.active{background:#FFF5F5;color:var(--rmg-color-red);font-weight:600}
+/* Rebuilt against Schedule's actual CustomSelect box model (1px solid
+   grey-2 border, --rmg-radius-s corners, 5px 10px padding) so Group-by and
+   Show sit at identical height/weight to the Skillset filter beside them —
+   no double layer of padding, which is what previously made this control
+   read taller than its neighbour. */
+.mode-pill{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--rmg-color-grey-2);border-radius:var(--rmg-radius-s);padding:5px 10px;box-sizing:border-box}
+.mode-pill-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--rmg-color-grey-1);white-space:nowrap;flex-shrink:0}
+.mode-buttons{display:flex;align-items:center;gap:2px}
+.mode-buttons button{border:none;background:transparent;padding:0 8px;border-radius:5px;font-size:12px;font-weight:400;color:var(--rmg-color-text-body);cursor:pointer;font-family:inherit;white-space:nowrap;transition:background-color .12s,color .12s}
+.mode-buttons button:hover:not(.active){color:var(--rmg-color-text-heading)}
+.mode-buttons button.active{background:#FFF5F5;color:var(--rmg-color-red);font-weight:600}
+/* Schedule's one divider, after its search box. */
+.toolbar-divider{width:1px;height:18px;background:var(--rmg-color-grey-2);flex-shrink:0;margin:0 4px}
 .primary-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;margin-left:auto;min-width:0}
 .resource-count{font-size:11px;font-weight:600;color:rgba(255,255,255,.7);white-space:nowrap}
 .expand-all-btn{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);border-radius:var(--rmg-radius-s);padding:7px 12px;font-size:11px;font-weight:700;color:#fff;cursor:pointer;font-family:inherit;white-space:nowrap}
@@ -318,13 +322,9 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .tt-row b{color:var(--rmg-color-text-heading)}
 .tt-flag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-top:6px;padding-top:6px;border-top:1px solid var(--rmg-color-grey-4);color:var(--rmg-color-red)}
 .empty{margin:0 24px;padding:32px;background:#fff;border:1px solid var(--rmg-color-grey-3);border-radius:var(--rmg-radius-m);text-align:center;color:var(--rmg-color-text-light)}
-.footer{padding:0 24px 40px;display:flex;gap:10px;flex-wrap:wrap}
-.footer-note{font-size:10.5px;color:var(--rmg-color-text-light);background:#fff;border-radius:var(--rmg-radius-xs);border:1px solid var(--rmg-color-grey-3);padding:7px 11px;border-left:3px solid var(--rmg-color-grey-2);line-height:1.5;max-width:340px}
-.footer-note strong{color:var(--rmg-color-text-body)}
-.footer-note.info{border-left-color:var(--rmg-color-red)}
 @media (max-width:768px){
   body{overflow-x:auto}
-  .gantt-wrap,.timeline-header-wrap,.controls,.title-row,.footer{min-width:900px}
+  .gantt-wrap,.timeline-header-wrap,.controls,.title-row{min-width:900px}
 }
 `
 
@@ -704,13 +704,11 @@ function buildMonthRow(){
 function buildSecondary(){
   var wrap = document.getElementById('secLabelWrap');
   var sel = document.getElementById('secondaryFilter');
-  var showLabel = document.getElementById('showLabel');
-  var transitionToggle = document.getElementById('transitionToggle');
+  var showPill = document.getElementById('showPill');
 
   var isCategory = state.groupBy === 'category';
   wrap.style.display = isCategory ? 'none' : '';
-  showLabel.style.display = isCategory ? 'none' : '';
-  transitionToggle.style.display = isCategory ? 'none' : '';
+  showPill.style.display = isCategory ? 'none' : '';
   if (isCategory) { sel.innerHTML = ''; return; }
 
   document.getElementById('secLabel').textContent = state.groupBy === 'team' ? 'Skillset' : 'Team';

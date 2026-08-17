@@ -148,8 +148,25 @@ describe('buildStandaloneHtml', () => {
   it('records when the snapshot was taken so it cannot be mistaken for live', () => {
     const html = buildStandaloneHtml(data(), OPTIONS)
 
+    // Recorded via the header badge, not the (removed, round 3) footer copy.
     expect(html).toContain('16 August 2026')
-    expect(html).toContain('Standalone snapshot')
+    expect(html).toContain('snapshot-badge')
+  })
+
+  it('has no footer info boxes (Fix 1, round 3)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).not.toContain('Standalone snapshot.')
+    expect(html).not.toContain('Dates in bars')
+    expect(html).not.toContain('class="footer"')
+    expect(html).not.toContain('footer-note')
+  })
+
+  it('renders the export title in the sans-serif body font, not the site-wide display font (Fix 3, round 3)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('.title-row h1{font-family:var(--rmg-font-body)')
+    expect(html).not.toContain('.title-row h1{font-family:var(--rmg-font-display)')
   })
 
   it('has no legend row markup, CSS, or builder (Fix 2, round 2)', () => {
