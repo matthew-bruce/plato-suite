@@ -7,6 +7,7 @@ import {
   formatMonthLabel,
   memberInGroup,
   percentOf,
+  resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
   sortForTeamView,
@@ -226,5 +227,95 @@ describe('supplier colour', () => {
 
   it('passes through a value it cannot parse', () => {
     expect(supplierTint('rebeccapurple')).toBe('rebeccapurple')
+  })
+})
+
+describe('resolveAvatarColours', () => {
+  const SUPPLIER_COLOURS = new Map([
+    ['CG', '#003C82'],
+    ['TCS', '#9B0A6E'],
+  ])
+
+  // Real derived geometry for these four (verified against the DB in the
+  // schema package's dudleyCohort fixture) — not fabricated shapes.
+  it('splits Nikhil Vibhav (CG hypercare then a tentative TCS start)', () => {
+    const person = resource({
+      status: 'mover_doj_tbc',
+      segments: [
+        seg({ supplier: 'CG', code: 'REG', start: '2026-07-01', end: '2026-09-30' }),
+        seg({ supplier: 'CG', code: 'NPC', start: '2026-10-01', end: '2026-10-30' }),
+        seg({ supplier: 'TCS', code: 'REG', start: '2026-12-01', end: '2026-12-31', tentative: true }),
+      ],
+    })
+
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({
+      mode: 'split',
+      fromColour: '#003C82',
+      toColour: '#9B0A6E',
+    })
+  })
+
+  it('keeps Prapti Verma solid — a TCS incumbent, never at CG', () => {
+    const person = resource({
+      status: 'incumbent',
+      segments: [
+        seg({ supplier: 'TCS', code: 'REG', start: '2026-07-01', end: '2026-09-30' }),
+        seg({ supplier: 'TCS', code: 'REG', start: '2026-10-01', end: '2026-12-31', realStart: true }),
+      ],
+    })
+
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({ mode: 'solid', colour: '#9B0A6E' })
+  })
+
+  it('keeps Praneetha Bandlamudi solid — a CG roll-off with no successor', () => {
+    const person = resource({
+      status: 'rolledoff',
+      segments: [seg({ supplier: 'CG', code: 'REG', start: '2026-07-01', end: '2026-09-06' })],
+    })
+
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({ mode: 'solid', colour: '#003C82' })
+  })
+
+  it('keeps Bharat Patil solid — CG hypercare only, never reaches a second supplier', () => {
+    // The one case the fix prompt specifically calls out: hypercare being a
+    // visually distinct segment type must NOT be mistaken for a supplier
+    // change. Both segments here are CG, so this must not split.
+    const person = resource({
+      status: 'rolledoff_hypercare',
+      segments: [
+        seg({ supplier: 'CG', code: 'REG', start: '2026-07-01', end: '2026-09-30' }),
+        seg({ supplier: 'CG', code: 'NPC', start: '2026-10-01', end: '2026-10-30' }),
+      ],
+    })
+
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({ mode: 'solid', colour: '#003C82' })
+  })
+
+  it('generalises beyond CG/TCS — any two distinct suppliers split', () => {
+    const person = resource({
+      status: 'mover',
+      segments: [
+        seg({ supplier: 'HT', code: 'REG', start: '2026-07-01', end: '2026-09-30' }),
+        seg({ supplier: 'NH', code: 'REG', start: '2026-10-01', end: '2026-12-31' }),
+      ],
+    })
+
+    expect(resolveAvatarColours(person, new Map([['HT', '#FF8C00'], ['NH', '#1A2B5B']]))).toEqual({
+      mode: 'split',
+      fromColour: '#FF8C00',
+      toColour: '#1A2B5B',
+    })
+  })
+
+  it('falls back to a neutral colour for an unknown supplier abbreviation', () => {
+    const person = resource({ segments: [seg({ supplier: 'ZZZ' })] })
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({ mode: 'solid', colour: '#8F9495' })
+  })
+
+  it('falls back to a neutral solid colour when a resource has no segments', () => {
+    expect(resolveAvatarColours(resource({ segments: [] }), SUPPLIER_COLOURS)).toEqual({
+      mode: 'solid',
+      colour: '#8F9495',
+    })
   })
 })

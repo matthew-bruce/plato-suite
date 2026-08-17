@@ -151,4 +151,43 @@ describe('buildStandaloneHtml', () => {
     expect(html).toContain('16 August 2026')
     expect(html).toContain('Standalone snapshot')
   })
+
+  it('has no legend row markup, CSS, or builder (Fix 2, round 2)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).not.toContain('legend-bar')
+    expect(html).not.toContain('leg-pill')
+    expect(html).not.toContain('buildLegend')
+  })
+
+  it('renders the toolbar as a red primary row + grey filter row (Fix 1)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('toolbar-primary')
+    expect(html).toContain('toolbar-filter')
+    expect(html).toContain('background:var(--rmg-color-red)')
+  })
+
+  it('includes an expand/collapse-all control (Fix 3)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('expandAllBtn')
+    expect(html).toContain('toggleAllGroups')
+    expect(html).toContain('allGroupsExpanded')
+  })
+
+  it('computes avatar colour from segment history for the split treatment (Fix 4)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('function avatarColour(r)')
+    expect(html).toContain('avatar-split')
+    expect(html).toContain('conic-gradient(from 180deg')
+  })
+
+  it('renders the group header as plain text, not a pill (Fix 5)', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('group-header-text')
+    expect(html).not.toContain('group-name-pill')
+  })
 })

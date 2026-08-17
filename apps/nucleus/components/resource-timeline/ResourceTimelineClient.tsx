@@ -2,12 +2,21 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { Download } from 'lucide-react'
+import {
+  PageToolbar,
+  PageToolbarExpandButton,
+  PageToolbarFilterPill,
+  PageToolbarPrimaryActions,
+  PageToolbarResourceCount,
+} from '@plato/ui'
 import {
   CATEGORY_ORDER,
   type ResourceTimelineData,
   type TimelineResource,
   type TimelineSegment,
 } from '@plato/schema'
+import { CustomSelect } from '@/components/ui/CustomSelect'
 import {
   CG_TCS_FOCUS,
   type GroupMode,
@@ -18,6 +27,7 @@ import {
   formatLongDate,
   formatMonthLabel,
   percentOf,
+  resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
   supplierStripe,
@@ -110,6 +120,19 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
       return next
     })
   }, [])
+
+  // Mirrors Schedule's allExpanded/toggleAll exactly: "expanded" means
+  // "every currently visible group is expanded" (so a mixed manual state —
+  // some open, some closed — reads as not-fully-expanded, and the button
+  // offers "Expand all" rather than lying about the current state). toggleAll
+  // recomputes every visible group's state from scratch each time, which is
+  // what makes it work identically across grouping modes without special
+  // casing which groups exist.
+  const allExpanded = groups.length > 0 && groups.every((g) => !collapsed.has(g.name))
+
+  const toggleAll = useCallback(() => {
+    setCollapsed(allExpanded ? new Set(groups.map((g) => g.name)) : new Set())
+  }, [allExpanded, groups])
 
   const handleExport = useCallback(() => {
     setExporting(true)
@@ -257,165 +280,125 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
         </p>
       </div>
 
-      <div className={styles.controls}>
-        <div className={styles.controlsInner}>
-          <div className={styles.controlsRow}>
-            <span className={styles.ctlLabel}>Group by</span>
-            <div className={styles.pillToggle}>
-              {GROUP_MODES.map((mode) => (
-                <button
-                  key={mode.value}
-                  type="button"
-                  className={groupBy === mode.value ? styles.active : undefined}
-                  aria-pressed={groupBy === mode.value}
-                  onClick={() => changeGroupBy(mode.value)}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
+      <div className={styles.toolbarWrap}>
+        <PageToolbar
+          primaryRow={
+            <>
+              <span className={styles.ctlLabel}>Group by</span>
+              <div className={styles.segToggle}>
+                {GROUP_MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    className={groupBy === mode.value ? styles.active : undefined}
+                    aria-pressed={groupBy === mode.value}
+                    onClick={() => changeGroupBy(mode.value)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
 
-            {/* Cross-filter: skillsets in Team view, teams in Skillset view.
-                Category view is already a transition-state cut, so it has no
-                meaningful secondary axis. */}
-            {groupBy !== 'category' && (
-              <>
-                <span className={styles.ctlLabel}>
-                  Filter by {groupBy === 'team' ? 'skillset' : 'team'}
-                </span>
-                <select
-                  className={styles.select}
+              {/* Cross-filter: skillsets in Team view, teams in Skillset view.
+                  Category view is already a transition-state cut, so it has
+                  no meaningful secondary axis. */}
+              {groupBy !== 'category' && (
+                <CustomSelect
+                  label={groupBy === 'team' ? 'Skillset' : 'Team'}
                   value={secondaryFilter}
-                  aria-label={`Filter by ${groupBy === 'team' ? 'skillset' : 'team'}`}
-                  onChange={(e) => setSecondaryFilter(e.target.value)}
+                  onChange={setSecondaryFilter}
+                  options={[
+                    { value: '', label: 'All' },
+                    ...secondaryOptions.map((option) => ({ value: option, label: option })),
+                  ]}
+                />
+              )}
+
+              {groupBy !== 'category' && (
+                <>
+                  <span className={styles.ctlLabel}>Show</span>
+                  <div className={styles.segToggle}>
+                    <button
+                      type="button"
+                      className={!transitionOnly ? styles.active : undefined}
+                      aria-pressed={!transitionOnly}
+                      onClick={() => setTransitionOnly(false)}
+                    >
+                      Everyone
+                    </button>
+                    <button
+                      type="button"
+                      className={transitionOnly ? styles.active : undefined}
+                      aria-pressed={transitionOnly}
+                      onClick={() => setTransitionOnly(true)}
+                    >
+                      Transitioning only
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* This toolbar carries more primaryRow content than Schedule's
+                  (a grouping toggle and a secondary filter on top of the
+                  usual actions cluster), so at narrow widths the actions
+                  cluster itself needs to wrap onto its own line(s) rather
+                  than get silently clipped by the toolbar's rounded-corner
+                  overflow:hidden — Schedule's leaner row never hits this.
+                  flexWrap alone is not enough here: the shared component
+                  defaults flexShrink to 0, and a flex item's default
+                  min-width is "auto" (its content size) rather than 0, so
+                  without overriding both it keeps its full unwrapped width
+                  and just overflows its own line instead of wrapping. */}
+              <PageToolbarPrimaryActions
+                style={{ marginLeft: 'auto', flexWrap: 'wrap', rowGap: 6, flexShrink: 1, minWidth: 0 }}
+              >
+                <PageToolbarResourceCount>{visible.length} resources</PageToolbarResourceCount>
+                <PageToolbarExpandButton expanded={allExpanded} onToggle={toggleAll} />
+                <button
+                  type="button"
+                  className={styles.exportButton}
+                  onClick={handleExport}
+                  disabled={exporting}
                 >
-                  <option value="">All</option>
-                  {secondaryOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            {groupBy !== 'category' && (
-              <>
-                <span className={styles.ctlLabel}>Show</span>
-                <div className={styles.pillToggle}>
-                  <button
-                    type="button"
-                    className={!transitionOnly ? styles.active : undefined}
-                    aria-pressed={!transitionOnly}
-                    onClick={() => setTransitionOnly(false)}
-                  >
-                    Everyone
-                  </button>
-                  <button
-                    type="button"
-                    className={transitionOnly ? styles.active : undefined}
-                    aria-pressed={transitionOnly}
-                    onClick={() => setTransitionOnly(true)}
-                  >
-                    Transitioning only
-                  </button>
-                </div>
-              </>
-            )}
-
-            <button
-              type="button"
-              className={styles.exportButton}
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              {exporting ? 'Preparing…' : 'Export standalone HTML'}
-            </button>
-          </div>
-
-          <div className={styles.controlsRow}>
-            <span className={styles.ctlLabel}>Supplier</span>
-            <div className={styles.chipRow}>
-              {data.suppliers.map((supplier) => {
-                const isActive = activeSuppliers.has(supplier.abbreviation)
-                return (
-                  <button
-                    key={supplier.abbreviation}
-                    type="button"
-                    aria-pressed={isActive}
-                    className={`${styles.chip} ${styles.supChip} ${isActive ? styles.active : ''}`}
-                    style={
-                      {
-                        '--sc': supplier.colour,
-                        '--sct': supplierTint(supplier.colour),
-                      } as CSSProperties
-                    }
-                    onClick={() => toggleSupplier(supplier.abbreviation)}
-                  >
-                    {supplier.name}
-                  </button>
-                )
-              })}
-            </div>
-            <button
-              type="button"
-              className={`${styles.chip} ${styles.preset}`}
-              onClick={() => setActiveSuppliers(new Set(CG_TCS_FOCUS))}
-            >
-              Focus: CG + TCS
-            </button>
-            <button
-              type="button"
-              className={styles.chip}
-              onClick={() => setActiveSuppliers(new Set(data.suppliers.map((s) => s.abbreviation)))}
-            >
-              All suppliers
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className={styles.legend}>
-        {data.suppliers.map((supplier) => (
-          <span
-            key={supplier.abbreviation}
-            className={styles.legPill}
-            style={
-              {
-                '--sc': supplier.colour,
-                '--sct': supplierTint(supplier.colour),
-              } as CSSProperties
-            }
-          >
-            {supplier.abbreviation}
-          </span>
-        ))}
-        <span className={styles.legDivider} />
-        <span
-          className={`${styles.legPill} ${styles.hyper}`}
-          style={
-            {
-              '--sc': supplierColours.get('CG') ?? '#003C82',
-              '--sct': supplierTint(supplierColours.get('CG') ?? '#003C82'),
-              '--sc2': supplierStripe(supplierColours.get('CG') ?? '#003C82'),
-            } as CSSProperties
+                  <Download size={12} />
+                  {exporting ? 'Preparing…' : 'Export standalone HTML'}
+                </button>
+              </PageToolbarPrimaryActions>
+            </>
           }
-        >
-          Hypercare
-        </span>
-        <span
-          className={`${styles.legPill} ${styles.tentative}`}
-          style={
-            {
-              '--sc': supplierColours.get('TCS') ?? '#9B0A6E',
-              '--sct': supplierTint(supplierColours.get('TCS') ?? '#9B0A6E'),
-            } as CSSProperties
+          filterRow={
+            <>
+              <span className={styles.filterLabel}>Supplier</span>
+              <PageToolbarFilterPill
+                label="All suppliers"
+                active={activeSuppliers.size === data.suppliers.length}
+                colour="--all"
+                onClick={() => setActiveSuppliers(new Set(data.suppliers.map((s) => s.abbreviation)))}
+              />
+              {data.suppliers.map((supplier) => (
+                <PageToolbarFilterPill
+                  key={supplier.abbreviation}
+                  label={supplier.name}
+                  active={activeSuppliers.has(supplier.abbreviation)}
+                  colour={supplier.colour}
+                  onClick={() => toggleSupplier(supplier.abbreviation)}
+                />
+              ))}
+              <button
+                type="button"
+                className={`${styles.presetButton} ${
+                  activeSuppliers.size === CG_TCS_FOCUS.length &&
+                  CG_TCS_FOCUS.every((s) => activeSuppliers.has(s))
+                    ? ''
+                    : styles.inactive
+                }`}
+                onClick={() => setActiveSuppliers(new Set(CG_TCS_FOCUS))}
+              >
+                Focus: CG + TCS
+              </button>
+            </>
           }
-        >
-          Tentative
-        </span>
-        <span>┄┄ Coverage gap</span>
-        <span>● Flagged</span>
+        />
       </div>
 
       <div className={styles.narrowNotice}>
@@ -471,7 +454,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                         <span className={styles.chevron}>
                           <Chevron />
                         </span>
-                        <span className={styles.groupNamePill} title={group.displayName}>
+                        <span className={styles.groupHeaderText} title={group.displayName}>
                           {group.displayName}
                         </span>
                         <span className={styles.groupCount}>
@@ -482,9 +465,27 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
 
                       {group.resources.map((resource) => {
                         const status = STATUS_LABELS[resource.status]
+                        const avatarColour = resolveAvatarColours(resource, supplierColours)
                         return (
                           <div key={resource.resourceId} className={styles.resLeftRow}>
-                            <div className={styles.avatar}>{resource.initials}</div>
+                            <div
+                              className={`${styles.avatar} ${avatarColour.mode === 'split' ? styles.avatarSplit : ''}`}
+                              style={
+                                avatarColour.mode === 'split'
+                                  ? ({
+                                      '--avatar-from': avatarColour.fromColour,
+                                      '--avatar-to': avatarColour.toColour,
+                                    } as CSSProperties)
+                                  : ({ '--avatar-colour': avatarColour.colour } as CSSProperties)
+                              }
+                              title={
+                                avatarColour.mode === 'split'
+                                  ? `${resource.name} — transitioning`
+                                  : undefined
+                              }
+                            >
+                              {resource.initials}
+                            </div>
                             <div className={styles.resText}>
                               <div className={styles.resName}>{resource.name}</div>
                               {groupBy === 'team' ? (

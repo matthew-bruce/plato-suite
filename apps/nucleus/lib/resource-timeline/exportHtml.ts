@@ -134,32 +134,36 @@ ${EXPORT_CSS}
 </div>
 
 <div class="controls">
-  <div class="controls-inner">
-    <div class="controls-row">
+  <div class="toolbar">
+    <div class="toolbar-primary">
       <span class="ctl-label">Group by</span>
       <div class="pill-toggle" id="groupToggle">
         <button data-group="team">Team</button>
         <button data-group="discipline">Skillset</button>
         <button data-group="category">Transition category</button>
       </div>
-      <span class="ctl-label" id="secLabelWrap">Filter by <span id="secLabel">skillset</span></span>
-      <select class="select-inline" id="secondaryFilter"></select>
+      <span class="select-wrap" id="secLabelWrap">
+        <span id="secLabel">Skillset</span>
+        <select id="secondaryFilter"></select>
+      </span>
       <span class="ctl-label" id="showLabel">Show</span>
       <div class="pill-toggle" id="transitionToggle">
         <button data-mode="all">Everyone</button>
         <button data-mode="transition">Transitioning only</button>
       </div>
+      <div class="primary-actions">
+        <span class="resource-count" id="resourceCount"></span>
+        <button type="button" class="expand-all-btn" id="expandAllBtn"></button>
+      </div>
     </div>
-    <div class="controls-row">
-      <span class="ctl-label">Supplier</span>
+    <div class="toolbar-filter">
+      <span class="filter-label">Supplier</span>
+      <button class="preset-btn" id="allSuppliersBtn">All suppliers</button>
       <div class="chip-filter" id="supplierChips"></div>
-      <button class="chip preset" id="presetBtn">Focus: CG + TCS</button>
-      <button class="chip" id="allSuppliersBtn">All suppliers</button>
+      <button class="preset-btn" id="presetBtn">Focus: CG + TCS</button>
     </div>
   </div>
 </div>
-
-<div class="legend-bar" id="legendBar"></div>
 
 <div class="timeline-header-wrap">
   <div class="thl-spacer"><span id="spacerLabel">Team / Resource</span></div>
@@ -227,24 +231,40 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .title-row h1{font-family:var(--rmg-font-display);font-size:19px;font-weight:700;color:var(--rmg-color-text-heading)}
 .title-row .sub{font-size:11.5px;color:var(--rmg-color-text-light);margin-top:2px}
 .controls{padding:12px 24px 4px}
-.controls-inner{background:#fff;border-radius:var(--rmg-radius-m);box-shadow:0 2px 12px rgba(0,0,0,.08);padding:12px 16px}
-.controls-row{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-.controls-row+.controls-row{margin-top:10px;padding-top:10px;border-top:1px solid var(--rmg-color-grey-4)}
-.ctl-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--rmg-color-grey-1);white-space:nowrap}
-.pill-toggle{display:flex;background:var(--rmg-color-grey-4);border-radius:var(--rmg-radius-s);padding:3px;gap:2px}
-.pill-toggle button{border:none;background:transparent;padding:6px 13px;font-size:11px;font-weight:600;color:var(--rmg-color-text-light);border-radius:6px;cursor:pointer;font-family:inherit;transition:all .12s}
-.pill-toggle button.active{background:var(--rmg-color-brand-black);color:#fff}
-.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:var(--rmg-radius-xl);font-size:11.5px;font-weight:600;cursor:pointer;border:1.5px solid var(--rmg-color-grey-2);background:#fff;color:var(--rmg-color-text-body);font-family:inherit;transition:all .12s;user-select:none}
-.chip.sup-chip{border-color:var(--sc);background:var(--sct);color:var(--sc)}
-.chip.sup-chip.active{border-color:var(--sc);background:var(--sc);color:#fff}
-.chip.preset{background:var(--rmg-color-brand-black);color:#fff;border-color:var(--rmg-color-brand-black)}
-.chip-filter{display:flex;gap:6px;flex-wrap:wrap}
-.select-inline{font-size:11px;font-family:inherit;font-weight:600;color:var(--rmg-color-text-body);border:1.5px solid var(--rmg-color-grey-2);border-radius:var(--rmg-radius-s);padding:6px 10px;background:#fff;cursor:pointer}
-.legend-bar{padding:8px 24px 4px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:10.5px;color:var(--rmg-color-text-light)}
-.leg-pill{display:inline-flex;align-items:center;border-radius:var(--rmg-radius-xl);padding:2px 10px;border:1.5px solid var(--sc);background:var(--sct);color:var(--sc);font-size:10.5px;font-weight:600}
-.leg-pill.hyper{background-image:repeating-linear-gradient(45deg,var(--sc2) 0 4px,var(--sct) 4px 8px)}
-.leg-pill.tentative{border-style:dashed;background-image:repeating-linear-gradient(135deg,var(--sct) 0 5px,#fff 5px 10px)}
-.leg-divider{width:1px;height:12px;background:var(--rmg-color-grey-3)}
+/* Two-band toolbar — red primary row, grey-4 filter row — mirroring
+   @plato/ui's shared PageToolbar component exactly (the same one Schedule
+   and People build their toolbars from), not a one-off invented for export. */
+.toolbar{border-radius:var(--rmg-radius-m);overflow:hidden;border:1px solid rgba(0,0,0,.10);box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.toolbar-primary{background:var(--rmg-color-red);display:flex;align-items:center;gap:10px;padding:10px 14px;flex-wrap:wrap}
+.toolbar-filter{background:var(--rmg-color-grey-4);border-top:1px solid var(--rmg-color-grey-3);display:flex;align-items:center;gap:8px;padding:10px 20px;flex-wrap:wrap}
+.ctl-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:rgba(255,255,255,.7);white-space:nowrap}
+.filter-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--rmg-color-grey-1);white-space:nowrap}
+/* White pill housing + red-tint active state — the same "active" treatment
+   already used for CustomSelect and the Edit/Done-editing button on
+   Schedule, not a solid-fill invented for this page. */
+.pill-toggle{display:flex;background:#fff;border-radius:var(--rmg-radius-s);padding:3px;gap:2px}
+.pill-toggle button{border:none;background:transparent;padding:6px 12px;font-size:11px;font-weight:500;color:var(--rmg-color-text-light);border-radius:6px;cursor:pointer;font-family:inherit;transition:all .12s}
+.pill-toggle button.active{background:#FFF5F5;color:var(--rmg-color-red);font-weight:600}
+.primary-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;row-gap:6px;margin-left:auto;min-width:0}
+.resource-count{font-size:11px;font-weight:600;color:rgba(255,255,255,.7);white-space:nowrap}
+.expand-all-btn{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);border-radius:var(--rmg-radius-s);padding:7px 12px;font-size:11px;font-weight:700;color:#fff;cursor:pointer;font-family:inherit;white-space:nowrap}
+.expand-all-btn:hover{background:rgba(255,255,255,.22)}
+.expand-all-btn svg{transition:transform .12s}
+.expand-all-btn.expanded svg{transform:rotate(180deg)}
+/* Supplier filter pill — mirrors PageToolbarFilterPill's getFilterPillStyle
+   exactly (border-radius xl, tinted+bordered when inactive, solid fill when
+   active), computed per-chip in JS since each supplier's colour differs. */
+.chip{border-radius:var(--rmg-radius-xl);padding:4px 12px;font-size:11px;font-weight:600;border:1.5px solid;cursor:pointer;font-family:inherit;white-space:nowrap;line-height:1.4}
+.preset-btn{display:inline-flex;align-items:center;padding:4px 12px;border-radius:var(--rmg-radius-xl);font-size:11px;font-weight:600;border:1.5px solid var(--rmg-color-black);background:var(--rmg-color-black);color:#fff;font-family:inherit;cursor:pointer;white-space:nowrap}
+.preset-btn.inactive{background:transparent;color:var(--rmg-color-dark-grey);border-color:var(--rmg-color-grey-2)}
+/* Secondary filter — a plain native <select> (no floating-panel JS needed in
+   a file that has to just work when double-clicked from an email), styled to
+   the same white-pill / red-when-active language as CustomSelect on Schedule. */
+.select-wrap{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid var(--rmg-color-grey-2);border-radius:var(--rmg-radius-s);padding:5px 10px}
+.select-wrap.active{border-color:var(--rmg-color-red);background:#FFF5F5}
+.select-wrap span{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--rmg-color-grey-1)}
+.select-wrap select{font-size:12px;font-family:inherit;font-weight:400;color:var(--rmg-color-text-body);border:none;background:transparent;cursor:pointer}
+.select-wrap.active select{color:var(--rmg-color-red);font-weight:600}
 .timeline-header-wrap{display:flex;padding:6px 24px 0}
 .thl-spacer{width:var(--left-col);flex-shrink:0;padding:0 12px 6px 4px;display:flex;align-items:flex-end}
 .thl-spacer span{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--rmg-color-grey-1)}
@@ -264,13 +284,14 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .group-left-header:hover{background:#ECECEC}
 .chevron{flex-shrink:0;width:12px;height:12px;display:flex;align-items:center;justify-content:center;color:var(--rmg-color-grey-1);transition:transform .18s ease}
 .group-block.collapsed .chevron{transform:rotate(-90deg)}
-.group-name-pill{display:block;line-height:1.45;border-radius:var(--rmg-radius-xl);padding:3px 12px;background:var(--rmg-color-brand-black);color:#fff;font-size:11.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
+.group-header-text{display:block;line-height:1.3;font-size:14.5px;font-weight:700;color:var(--rmg-color-text-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex-shrink:1}
 .group-count{font-size:11px;font-weight:600;color:var(--rmg-color-grey-1);flex-shrink:0;margin-left:auto;padding-left:8px}
 .group-right-header{height:36px;background:var(--rmg-color-grey-4);border-bottom:1px solid var(--rmg-color-grey-2);cursor:pointer;position:relative}
 .res-left-row{height:var(--row-h);display:flex;align-items:center;padding:0 10px 0 4px;gap:8px;border-bottom:1px solid var(--rmg-color-grey-4);background:#fff;overflow:hidden;transition:height .15s ease,opacity .13s ease}
 .res-left-row:last-child,.res-right-row:last-child{border-bottom:none}
 .group-block.collapsed .res-left-row,.group-block.collapsed .res-right-row{height:0;opacity:0;pointer-events:none;border-bottom:none;overflow:hidden}
-.avatar{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--rmg-color-brand-black);color:#fff;font-size:9.5px;font-weight:700}
+.avatar{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--avatar-colour,var(--rmg-color-brand-black));color:#fff;font-size:9.5px;font-weight:700;text-shadow:0 1px 1.5px rgba(0,0,0,.45)}
+.avatar-split{background:conic-gradient(from 180deg,var(--avatar-from) 0deg 180deg,var(--avatar-to) 180deg 360deg)}
 .res-text{min-width:0;flex:1}
 .res-name{font-size:11.5px;color:var(--rmg-color-text-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
 .res-sub{font-size:9.5px;color:var(--rmg-color-grey-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.03em}
@@ -303,7 +324,7 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .footer-note.info{border-left-color:var(--rmg-color-red)}
 @media (max-width:768px){
   body{overflow-x:auto}
-  .gantt-wrap,.timeline-header-wrap,.controls,.legend-bar,.title-row,.footer{min-width:900px}
+  .gantt-wrap,.timeline-header-wrap,.controls,.title-row,.footer{min-width:900px}
 }
 `
 
@@ -328,6 +349,11 @@ var state = {
   transitionOnly: DATA.initial.transitionOnly,
   collapsed: new Set()
 };
+// Names of the groups actually rendered on the last pass — used by the
+// expand/collapse-all control, which (mirroring Schedule's own toggleAll)
+// only ever reasons about what's currently visible, not every group that
+// could theoretically exist under the active filters.
+var lastRenderedGroupNames = [];
 
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -346,6 +372,35 @@ function fmtLong(iso){
 function disciplineOf(r){ return r.discipline || UNASSIGNED_DISCIPLINE; }
 function rankOf(r){ var d = disciplineOf(r); return d in DATA.rankTable ? DATA.rankTable[d] : 5; }
 function palette(sup){ return DATA.palette[sup] || {name:sup,colour:'#8F9495',tint:'#8F949533',stripe:'#8F94954d'}; }
+
+// Mirrors resolveAvatarColours() in lib/resource-timeline/presentation.ts —
+// solid for a resource whose segments touch one supplier, split (from the
+// chronologically first segment's supplier to the last's) for two or more.
+// Segments arrive pre-sorted by deriveSegments, so first/last here is
+// genuinely chronological, the same guarantee the React version relies on.
+function avatarColour(r){
+  var segs = r.segments;
+  if (!segs.length) return {mode:'solid', colour:'#8F9495'};
+  var from = segs[0].supplier, to = segs[segs.length-1].supplier;
+  if (from === to) return {mode:'solid', colour:palette(from).colour};
+  return {mode:'split', fromColour:palette(from).colour, toColour:palette(to).colour};
+}
+
+// Mirrors PageToolbarFilterPill's getFilterPillStyle — tinted+bordered when
+// inactive, solid fill + white text when active, with the same "--all"
+// sentinel treatment (solid black / transparent+grey) for the all-suppliers
+// and preset buttons.
+function filterPillStyle(colour, active){
+  if (colour === '--all') {
+    return active
+      ? 'background:var(--rmg-color-black);color:#fff;border-color:var(--rmg-color-black)'
+      : 'background:transparent;color:var(--rmg-color-dark-grey);border-color:var(--rmg-color-grey-2)';
+  }
+  var safe = /^#[0-9a-fA-F]{3,8}$/.test(colour) ? colour : '#8F9495';
+  return active
+    ? 'background:' + safe + ';color:#fff;border-color:' + safe
+    : 'background:' + safe + '12;color:' + safe + ';border-color:' + safe + '38';
+}
 
 function groupNames(){
   if (state.groupBy === 'team') return DATA.teams;
@@ -369,6 +424,8 @@ function filtered(){
 }
 
 var CHEVRON = '<svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+// Same double-chevron used by PageToolbarExpandButton on Schedule.
+var EXPAND_ICON = '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" style="margin-right:5px;vertical-align:-1px"><path d="M2 4 L6 7 L10 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M2 7 L6 10 L10 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
 function colLines(){
   var out = '';
   for (var i = 0; i < DATA.months.length; i++) out += '<div class="col-line"></div>';
@@ -395,12 +452,15 @@ function render(){
     list.length + ' of ' + DATA.resources.length + ' resources · ' +
     DATA.meta.coarsePeriodName + ' – ' + DATA.meta.granularPeriodName +
     ' · snapshot ' + DATA.meta.generatedLabel;
+  document.getElementById('resourceCount').textContent = list.length + ' resources';
 
   var any = false;
+  var renderedNames = [];
   groupNames().forEach(function(name){
     var members = list.filter(function(r){ return inGroup(r, name); });
     if (!members.length) return;
     any = true;
+    renderedNames.push(name);
     if (state.groupBy === 'team') {
       members = members.slice().sort(function(a,b){
         var d = rankOf(a) - rankOf(b);
@@ -412,7 +472,7 @@ function render(){
 
     var lh = '<div class="group-left-header" data-g="' + esc(name) + '">' +
       '<span class="chevron">' + CHEVRON + '</span>' +
-      '<span class="group-name-pill" title="' + esc(display) + '">' + esc(display) + '</span>' +
+      '<span class="group-header-text" title="' + esc(display) + '">' + esc(display) + '</span>' +
       '<span class="group-count">' + members.length + ' resource' + (members.length === 1 ? '' : 's') + '</span></div>';
 
     members.forEach(function(r){
@@ -426,7 +486,12 @@ function render(){
             (r.teams.length > 1 ? ' · ' + Math.round(t.capacitySplit * 100) + '%' : '') + '</span>';
         }).join('') + '</div>';
       }
-      lh += '<div class="res-left-row"><div class="avatar">' + esc(r.initials) + '</div>' +
+      var av = avatarColour(r);
+      var avStyle = av.mode === 'split'
+        ? '--avatar-from:' + av.fromColour + ';--avatar-to:' + av.toColour
+        : '--avatar-colour:' + av.colour;
+      var avClass = 'avatar' + (av.mode === 'split' ? ' avatar-split' : '');
+      lh += '<div class="res-left-row"><div class="' + avClass + '" style="' + avStyle + '">' + esc(r.initials) + '</div>' +
         '<div class="res-text"><div class="res-name">' + esc(r.name) + '</div>' + sub + '</div>' +
         (st.text ? '<span class="status-tag" style="color:' + esc(st.colour) + '">' + esc(st.text) + '</span>' : '') +
         '</div>';
@@ -486,10 +551,32 @@ function render(){
     wrap.parentNode.insertBefore(e, wrap);
   }
 
+  lastRenderedGroupNames = renderedNames;
+  syncExpandAllButton();
   attachGroupToggles();
   attachTooltips();
   positionToday();
   fitLabels();
+}
+
+// Mirrors Schedule's allExpanded/toggleAll: "expanded" means every currently
+// rendered group is expanded, so a mixed manual state (some open, some
+// closed) reads as not-fully-expanded and the button offers "Expand all"
+// rather than lying about the current state.
+function allGroupsExpanded(){
+  return lastRenderedGroupNames.length > 0 &&
+    lastRenderedGroupNames.every(function(name){ return !state.collapsed.has(name); });
+}
+function syncExpandAllButton(){
+  var btn = document.getElementById('expandAllBtn');
+  var expanded = allGroupsExpanded();
+  btn.classList.toggle('expanded', expanded);
+  btn.innerHTML = EXPAND_ICON + (expanded ? 'Collapse all' : 'Expand all');
+}
+function toggleAllGroups(){
+  var expanded = allGroupsExpanded();
+  state.collapsed = expanded ? new Set(lastRenderedGroupNames) : new Set();
+  render();
 }
 
 function attachGroupToggles(){
@@ -585,11 +672,9 @@ function buildSupplierChips(){
   var host = document.getElementById('supplierChips');
   host.innerHTML = '';
   DATA.suppliers.forEach(function(s){
-    var p = palette(s.abbreviation);
     var chip = document.createElement('button');
-    chip.className = 'chip sup-chip' + (state.activeSuppliers.has(s.abbreviation) ? ' active' : '');
-    chip.style.setProperty('--sc', p.colour);
-    chip.style.setProperty('--sct', p.tint);
+    chip.className = 'chip';
+    chip.style.cssText = filterPillStyle(s.colour, state.activeSuppliers.has(s.abbreviation));
     chip.textContent = s.name;
     chip.addEventListener('click', function(){
       if (state.activeSuppliers.has(s.abbreviation)) state.activeSuppliers.delete(s.abbreviation);
@@ -603,27 +688,18 @@ function syncChips(){
   var chips = document.getElementById('supplierChips').children;
   for (var i = 0; i < chips.length; i++) {
     var abbr = DATA.suppliers[i].abbreviation;
-    chips[i].classList.toggle('active', state.activeSuppliers.has(abbr));
+    chips[i].style.cssText = filterPillStyle(DATA.palette[abbr].colour, state.activeSuppliers.has(abbr));
   }
+  var allBtn = document.getElementById('allSuppliersBtn');
+  allBtn.classList.toggle('inactive', state.activeSuppliers.size !== DATA.suppliers.length);
+  var presetBtn = document.getElementById('presetBtn');
+  var isFocus = state.activeSuppliers.size === 2 && state.activeSuppliers.has('CG') && state.activeSuppliers.has('TCS');
+  presetBtn.classList.toggle('inactive', !isFocus);
 }
 function buildMonthRow(){
   document.getElementById('monthRow').innerHTML = DATA.months.map(function(m){
     return '<div class="month-cell">' + esc(m.label) + '</div>';
   }).join('');
-}
-function buildLegend(){
-  var bar = document.getElementById('legendBar');
-  var html = '';
-  DATA.suppliers.forEach(function(s){
-    var p = palette(s.abbreviation);
-    html += '<span class="leg-pill" style="--sc:' + p.colour + ';--sct:' + p.tint + '">' + esc(s.abbreviation) + '</span>';
-  });
-  html += '<span class="leg-divider"></span>';
-  var cg = palette('CG'), tcs = palette('TCS');
-  html += '<span class="leg-pill hyper" style="--sc:' + cg.colour + ';--sct:' + cg.tint + ';--sc2:' + cg.stripe + '">Hypercare</span>';
-  html += '<span class="leg-pill tentative" style="--sc:' + tcs.colour + ';--sct:' + tcs.tint + '">Tentative</span>';
-  html += '<span>┄┄ Coverage gap</span><span>● Flagged</span>';
-  bar.innerHTML = html;
 }
 function buildSecondary(){
   var wrap = document.getElementById('secLabelWrap');
@@ -633,17 +709,17 @@ function buildSecondary(){
 
   var isCategory = state.groupBy === 'category';
   wrap.style.display = isCategory ? 'none' : '';
-  sel.style.display = isCategory ? 'none' : '';
   showLabel.style.display = isCategory ? 'none' : '';
   transitionToggle.style.display = isCategory ? 'none' : '';
   if (isCategory) { sel.innerHTML = ''; return; }
 
-  document.getElementById('secLabel').textContent = state.groupBy === 'team' ? 'skillset' : 'team';
+  document.getElementById('secLabel').textContent = state.groupBy === 'team' ? 'Skillset' : 'Team';
   var opts = state.groupBy === 'team' ? DATA.disciplines : DATA.teams;
   sel.innerHTML = '<option value="">All</option>' + opts.map(function(o){
     return '<option value="' + esc(o) + '">' + esc(o) + '</option>';
   }).join('');
   sel.value = state.secondaryFilter;
+  wrap.classList.toggle('active', state.secondaryFilter !== '');
 }
 function syncModeButtons(){
   Array.prototype.forEach.call(document.querySelectorAll('#groupToggle button'), function(b){
@@ -672,7 +748,9 @@ document.getElementById('transitionToggle').addEventListener('click', function(e
   syncModeButtons(); render();
 });
 document.getElementById('secondaryFilter').addEventListener('change', function(e){
-  state.secondaryFilter = e.target.value; render();
+  state.secondaryFilter = e.target.value;
+  document.getElementById('secLabelWrap').classList.toggle('active', state.secondaryFilter !== '');
+  render();
 });
 document.getElementById('presetBtn').addEventListener('click', function(){
   state.activeSuppliers = new Set(['CG','TCS']); syncChips(); render();
@@ -681,12 +759,13 @@ document.getElementById('allSuppliersBtn').addEventListener('click', function(){
   state.activeSuppliers = new Set(DATA.suppliers.map(function(s){ return s.abbreviation; }));
   syncChips(); render();
 });
+document.getElementById('expandAllBtn').addEventListener('click', toggleAllGroups);
 window.addEventListener('resize', function(){ positionToday(); fitLabels(); });
 
 state.collapsed = new Set(groupNames());
 buildMonthRow();
 buildSupplierChips();
-buildLegend();
+syncChips();
 buildSecondary();
 syncModeButtons();
 render();

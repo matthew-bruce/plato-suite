@@ -251,3 +251,53 @@ export function supplierStripe(hex: string): string {
 }
 
 export const CG_TCS_FOCUS: readonly string[] = ['CG', 'TCS']
+
+/* ── Avatar colour ─────────────────────────────────────────────────── */
+
+export type AvatarColour =
+  | { mode: 'solid'; colour: string }
+  | { mode: 'split'; fromColour: string; toColour: string }
+
+const FALLBACK_AVATAR_COLOUR = '#8F9495'
+
+/**
+ * Resolve avatar colouring from a resource's own segment history — not from
+ * its status field. A resource whose segments touch exactly one supplier
+ * gets that colour solid, regardless of status (this is what makes
+ * rolledoff_hypercare fall out correctly: CG hypercare doesn't introduce a
+ * second supplier, so it never qualifies for a split even though hypercare
+ * gets a distinct treatment on the timeline itself — the avatar reflects
+ * supplier identity, not segment type).
+ *
+ * A resource whose segments touch two or more suppliers splits the avatar:
+ * left = the supplier of its chronologically first segment ("from"), right =
+ * the supplier of its chronologically last segment ("to"). Segments arrive
+ * pre-sorted by deriveSegments, so first/last here is genuinely
+ * chronological. This generalises to any future supplier pair — nothing here
+ * is CG/TCS-specific.
+ */
+export function resolveAvatarColours(
+  resource: TimelineResource,
+  supplierColours: ReadonlyMap<string, string>,
+): AvatarColour {
+  const segments = resource.segments
+  if (segments.length === 0) {
+    return { mode: 'solid', colour: FALLBACK_AVATAR_COLOUR }
+  }
+
+  const fromSupplier = segments[0]!.supplier
+  const toSupplier = segments[segments.length - 1]!.supplier
+
+  if (fromSupplier === toSupplier) {
+    return {
+      mode: 'solid',
+      colour: supplierColours.get(fromSupplier) ?? FALLBACK_AVATAR_COLOUR,
+    }
+  }
+
+  return {
+    mode: 'split',
+    fromColour: supplierColours.get(fromSupplier) ?? FALLBACK_AVATAR_COLOUR,
+    toColour: supplierColours.get(toSupplier) ?? FALLBACK_AVATAR_COLOUR,
+  }
+}
