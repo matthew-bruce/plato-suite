@@ -415,7 +415,9 @@ describe('signed_doj_tbc', () => {
 /* ── No data at all ────────────────────────────────────────────────── */
 
 describe('resources with no Q3 data', () => {
-  it('renders the flat Q2 block only and fabricates nothing for Q3', () => {
+  it('renders the flat Q2 block only and fabricates nothing for Q3 when no Q3 allocation exists at all', () => {
+    // No allocation object at all for Q3 — the query never returned a row.
+    // This is genuinely "no Q3 presence" and must stay empty.
     const segs = deriveSegments(build({ coarseAllocations: [alloc('CG', 'REG')] }))
 
     expect(segs).toHaveLength(1)
@@ -427,6 +429,8 @@ describe('resources with no Q3 data', () => {
   })
 
   it('ignores months explicitly booked at zero days', () => {
+    // Real rows exist (three of them), they just all say 0 — a genuine
+    // "booked no days this quarter", distinct from no rows existing at all.
     const segs = deriveSegments(
       build({
         granularAllocations: [
@@ -436,6 +440,97 @@ describe('resources with no Q3 data', () => {
     )
 
     expect(segs).toEqual([])
+  })
+})
+
+/* ── Q3 allocation with no monthly breakdown at all (bug fix) ───────── */
+// Round 4: an allocation with a real Q3 resource_period_allocations row but
+// zero rows in resource_period_allocation_monthly_days was being dropped
+// entirely — rendering as if the person had no Q3 presence and, worse,
+// classifying them as "Not moving". "No monthly breakdown" must mean "render
+// flat for the whole quarter" (the same fallback Q2 always uses), not
+// "no Q3 presence". Confirmed against the live DB: Aliaksei Yakimovich (EPAM),
+// Rachel Hatcher (EPAM), Freddie Leigh-Akompi (EPAM), Bence Daroczi (EPAM),
+// Dzianis Roi (EPAM), and the Happy Team resources Adam Dobrzeniewski, Jan
+// Urbaniak, Krzysztof Derek and Tomasz Foltynski all have this exact shape —
+// a confirmed Q3 allocation, zero monthly rows.
+describe('Q3 allocation with no monthly rows falls back to a flat quarter block', () => {
+  it('renders flat Oct-Dec rather than dropping the segment (the bug case)', () => {
+    // Aliaksei Yakimovich: EPAM, Q3 FY26/27, capacity_days=60, zero monthly rows.
+    const segs = deriveSegments(build({ granularAllocations: [alloc('EPAM', 'REG')] }))
+
+    expect(segs).toHaveLength(1)
+    expect(segs[0]).toMatchObject({
+      supplier: 'EPAM',
+      code: 'REG',
+      start: '2026-10-01',
+      end: '2026-12-31',
+      // Same as Q2's coarse block: the window edges aren't real boundaries.
+      realStart: false,
+      realEnd: true,
+    })
+  })
+
+  it('classifies as an incumbent, not "Not moving", once the segment renders', () => {
+    const segs = deriveSegments(build({ granularAllocations: [alloc('EPAM', 'REG')] }))
+
+    expect(classifyTransition(null, segs, Q3.start)).toMatchObject({
+      status: 'incumbent',
+      categoryLabel: 'Not part of Dudley transition',
+    })
+  })
+
+  it('applies per-allocation, not per-resource: one bare allocation and one with real monthly data both render', () => {
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('HT', 'REG'),
+          alloc('TCS', 'REG', { '2026-10-01': 22, '2026-11-01': 21, '2026-12-01': 21 }),
+        ],
+      }),
+    )
+
+    expect(segs).toHaveLength(2)
+    expect(segs.find((s) => s.supplier === 'HT')).toMatchObject({
+      start: '2026-10-01',
+      end: '2026-12-31',
+      realStart: false,
+      realEnd: true,
+    })
+    expect(segs.find((s) => s.supplier === 'TCS')).toMatchObject({
+      start: '2026-10-01',
+      end: '2026-12-31',
+      realStart: true,
+      realEnd: false,
+    })
+  })
+
+  it('still clips to a last working day that falls inside Q3', () => {
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [alloc('HT', 'REG')],
+        transition: transition({ fromSupplier: 'HT', toSupplier: null, lastWorkingDay: '2026-11-13' }),
+      }),
+    )
+
+    expect(segs[0]?.end).toBe('2026-11-13')
+  })
+
+  it('still applies the CG October hard cap', () => {
+    const segs = deriveSegments(build({ granularAllocations: [alloc('CG', 'REG')] }))
+
+    expect(segs[0]?.end).toBe(CG_HARD_CAP)
+  })
+
+  it('still marks a tentative signed_doj_tbc segment as tentative', () => {
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [alloc('TCS', 'REG')],
+        transition: transition({ status: 'signed_doj_tbc', notes: 'Commercial start tentative' }),
+      }),
+    )
+
+    expect(segs[0]).toMatchObject({ tentative: true, flag: 'Commercial start tentative' })
   })
 })
 

@@ -266,11 +266,85 @@ const CASES: Case[] = [
     ],
   },
   {
-    name: 'Adam Dobrzeniewski — continuous incumbent, no monthly data',
+    // Round 4 bug fix: this Happy Team resource has a real, confirmed Q3
+    // allocation (HT, 64 capacity days) with zero rows in
+    // resource_period_allocation_monthly_days. Before the fix, the missing
+    // monthly breakdown made the Q3 segment vanish entirely — rendering as
+    // if he'd stopped on 30 September and tagging him "Not moving". No
+    // monthly breakdown means "render flat for the whole quarter" (Q2's own
+    // fallback), never "no Q3 presence".
+    name: 'Adam Dobrzeniewski — Happy Team, confirmed Q3 allocation, no monthly breakdown',
     transition: null,
     q2: [{ supplier: 'HT', code: 'REG', monthlyDays: {} }],
     q3: [{ supplier: 'HT', code: 'REG', monthlyDays: {} }],
-    expected: [['HT', 'REG', '2026-07-01', '2026-09-30']],
+    expected: [
+      ['HT', 'REG', '2026-07-01', '2026-09-30'],
+      ['HT', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    // Same Happy Team bug shape, a second resource — Matt flagged this
+    // supplier specifically as missing from the timeline.
+    name: 'Jan Urbaniak — Happy Team, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'HT', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'HT', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['HT', 'REG', '2026-07-01', '2026-09-30'],
+      ['HT', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    // The EPAM/Helion team named in the round 4 bug report — same shape:
+    // real Q3 allocations, zero monthly rows, confirmed against the live DB.
+    name: 'Aliaksei Yakimovich — EPAM, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['EPAM', 'REG', '2026-07-01', '2026-09-30'],
+      ['EPAM', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    name: 'Rachel Hatcher — EPAM, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['EPAM', 'REG', '2026-07-01', '2026-09-30'],
+      ['EPAM', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    name: 'Freddie Leigh-Akompi — EPAM, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['EPAM', 'REG', '2026-07-01', '2026-09-30'],
+      ['EPAM', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    name: 'Bence Daroczi — EPAM, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['EPAM', 'REG', '2026-07-01', '2026-09-30'],
+      ['EPAM', 'REG', '2026-10-01', '2026-12-31'],
+    ],
+  },
+  {
+    name: 'Dzianis Roi — EPAM, confirmed Q3 allocation, no monthly breakdown',
+    transition: null,
+    q2: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    q3: [{ supplier: 'EPAM', code: 'REG', monthlyDays: {} }],
+    expected: [
+      ['EPAM', 'REG', '2026-07-01', '2026-09-30'],
+      ['EPAM', 'REG', '2026-10-01', '2026-12-31'],
+    ],
   },
 ]
 

@@ -10,7 +10,11 @@
 //     resource_period_allocation_monthly_days. It is always one flat
 //     whole-quarter block, clipped only if a last working day lands inside it.
 //  2. The granular period (Q3) is driven by monthly days. Each contiguous run
-//     of months with days > 0 becomes one segment.
+//     of months with days > 0 becomes one segment. An allocation that exists
+//     in Q3 but has NO monthly rows at all falls back to the same flat
+//     whole-quarter block Q2 always uses — "no monthly breakdown" means the
+//     allocation was never entered month-by-month, not that the resource has
+//     no Q3 presence. Do not drop the segment.
 //  3. Noise threshold: a month short by fewer than NOISE_THRESHOLD_DAYS days
 //     counts as full. TCS teams report ±1 day of regional calendar variance
 //     and that is not a real partial start or end.
@@ -179,6 +183,37 @@ function deriveGranularSegments(
   const isTentative = transition?.status === 'signed_doj_tbc'
 
   for (const alloc of allocations) {
+    // No monthly rows at all for this allocation — not the same thing as
+    // "no Q3 presence". It means the allocation was never broken down
+    // month-by-month, so fall back to the same flat whole-quarter block Q2
+    // always renders, rather than silently dropping the segment. This is
+    // deliberately keyed on the monthlyDays map being empty (zero DB rows),
+    // not on every value being zero: an allocation legitimately booked at
+    // 0 days for a specific month (e.g. a joiner with an explicit October
+    // row of 0) still has real rows and takes the month-accurate path below.
+    if (Object.keys(alloc.monthlyDays).length === 0) {
+      const isHypercare = alloc.code === 'NPC'
+      const lwd = transition?.lastWorkingDay ?? null
+      const clipsHere = lwd !== null && lwd >= window.start && lwd <= window.end
+      const end = applyCgCap(alloc.supplier, clipsHere ? lwd : window.end)
+      const isToSupplier = alloc.supplier === transition?.toSupplier
+
+      segments.push({
+        supplier: alloc.supplier,
+        code: alloc.code,
+        start: window.start,
+        end,
+        // Same as Q2's coarse block: the window's own edges aren't real
+        // boundaries for anybody, only a last-working-day clip is.
+        realStart: false,
+        realEnd: true,
+        tentative: isTentative && !isHypercare && isToSupplier,
+        flag: isTentative && !isHypercare && isToSupplier ? (transition?.notes ?? null) : null,
+        commercialStartMismatch: null,
+      })
+      continue
+    }
+
     for (const run of contiguousRuns(alloc.monthlyDays)) {
       const firstMonth = run[0]!
       const lastMonth = run[run.length - 1]!
