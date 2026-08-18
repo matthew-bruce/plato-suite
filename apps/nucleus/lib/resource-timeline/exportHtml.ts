@@ -223,7 +223,7 @@ const EXPORT_CSS = `
   --rmg-font-body:"PF DINText Std","Helvetica Neue",Arial,sans-serif;
   --rmg-font-display:"RM First Class",Georgia,serif;
   --rmg-radius-xs:4px; --rmg-radius-s:8px; --rmg-radius-m:12px; --rmg-radius-xl:100px;
-  --left-col:300px; --row-h:42px; --page-header-h:40px;
+  --left-col:300px; --row-h:48px; --page-header-h:40px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);font-family:var(--rmg-font-body);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}
@@ -324,8 +324,8 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .avatar-split{background:conic-gradient(from 180deg,var(--avatar-from) 0deg 180deg,var(--avatar-to) 180deg 360deg)}
 .res-text{min-width:0;flex:1}
 .res-name{font-size:14px;color:var(--rmg-color-text-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
-.res-sub{font-size:11px;color:var(--rmg-color-grey-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.04em}
-.res-pills{display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden;margin-top:1px}
+.res-sub{font-size:11px;color:var(--rmg-color-grey-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.res-pills{display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden;margin-top:2px}
 .team-pill{display:inline-flex;align-items:center;border-radius:var(--rmg-radius-xl);padding:2px 8px;background:#E4EDFA;color:#2A3B66;font-size:9px;font-weight:600;white-space:nowrap;flex-shrink:0}
 .status-tag{font-size:9px;font-weight:700;flex-shrink:0;white-space:nowrap}
 .res-right-row{height:var(--row-h);position:relative;border-bottom:1px solid var(--rmg-color-grey-4);transition:height .15s ease,opacity .13s ease}

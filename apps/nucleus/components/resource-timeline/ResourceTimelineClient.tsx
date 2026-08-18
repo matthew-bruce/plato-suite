@@ -266,7 +266,15 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
   const monthCount = data.months.length
   const cssVars = {
     '--left-col': '300px',
-    '--row-h': '42px',
+    // 48px (round 6) — round 4's 42px minimised height growth after the
+    // avatar/font sizes were bumped to match the People row, but left too
+    // little breathing room around the larger avatar and two-line text
+    // stack. Compared side-by-side against 46px/50px candidates; this is the
+    // best balance of legibility against rows-per-screen. Both left/right
+    // rows key off this one variable, so they can't drift out of alignment,
+    // and .seg's top/bottom insets are fixed px (not percentage), so the
+    // segment bars stay centred automatically as this changes.
+    '--row-h': '48px',
   } as CSSProperties
 
   const secondaryOptions = groupBy === 'team' ? data.disciplines : data.teams
