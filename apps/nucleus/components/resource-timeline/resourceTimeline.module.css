@@ -576,11 +576,36 @@
 
 .colLine {
   flex: 1;
-  border-right: 1px solid var(--rmg-color-grey-4);
+  /* grey-2, not grey-4 (round 7) — grey-4 is nearly indistinguishable from
+     the row's white/near-white background, which left no real "stronger
+     reference" for the new week lines below to sit lighter than. */
+  border-right: 1px solid var(--rmg-color-grey-2);
 }
 
 .colLine:last-child {
   border-right: none;
+}
+
+/* Week gridlines (round 7) — a finer, subordinate scale reference behind the
+   month lines above. Absolutely positioned (not flex-divided like
+   .colLines) since these snap to real calendar Mondays via weekLinePositions
+   rather than equal-width columns. */
+.weekLines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.weekLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  /* Dashed and a step lighter than .colLine's solid grey-2 border — both a
+     fainter colour and a lighter-weight line style, so the two tiers read
+     unambiguously (solid month lines = primary, dashed week lines =
+     subtle aid) rather than relying on a luminance gap alone. */
+  border-left: 1px dashed var(--rmg-color-grey-3);
 }
 
 .track {

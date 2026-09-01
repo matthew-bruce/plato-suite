@@ -33,6 +33,7 @@ import {
   segmentLabel,
   supplierStripe,
   supplierTint,
+  weekLinePositions,
 } from '@/lib/resource-timeline/presentation'
 import { buildStandaloneHtml } from '@/lib/resource-timeline/exportHtml'
 import styles from './resourceTimeline.module.css'
@@ -278,6 +279,11 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
   } as CSSProperties
 
   const secondaryOptions = groupBy === 'team' ? data.disciplines : data.teams
+
+  const weekLines = useMemo(
+    () => weekLinePositions(data.windowStart, data.windowEnd),
+    [data.windowStart, data.windowEnd],
+  )
 
   const quarterSpans = useMemo(
     () =>
@@ -563,6 +569,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                         onClick={() => toggleGroup(group.name)}
                         aria-hidden="true"
                       >
+                        <WeekLines positions={weekLines} />
                         <ColumnLines count={monthCount} />
                       </div>
 
@@ -572,6 +579,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                         )
                         return (
                           <div key={resource.resourceId} className={styles.resRightRow}>
+                            <WeekLines positions={weekLines} />
                             <ColumnLines count={monthCount} />
                             <div className={styles.track} />
 
@@ -698,6 +706,21 @@ function ColumnLines({ count }: { count: number }) {
     <div className={styles.colLines}>
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className={styles.colLine} />
+      ))}
+    </div>
+  )
+}
+
+/* Week gridlines (round 7) — a lighter scale reference behind the month
+   lines. Absolutely positioned at real day-accurate percentages (like the
+   segment bars and today-line), not divided into equal flex columns like
+   ColumnLines' month lines, since these exist specifically to help judge
+   where within a month a bar boundary falls. */
+function WeekLines({ positions }: { positions: number[] }) {
+  return (
+    <div className={styles.weekLines} aria-hidden="true">
+      {positions.map((left) => (
+        <div key={left} className={styles.weekLine} style={{ left: `${left}%` }} />
       ))}
     </div>
   )

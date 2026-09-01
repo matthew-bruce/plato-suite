@@ -14,6 +14,7 @@ import {
   sortForTeamView,
   supplierStripe,
   supplierTint,
+  weekLinePositions,
 } from '../presentation'
 
 const WINDOW_START = '2026-07-01'
@@ -187,6 +188,43 @@ describe('geometry', () => {
       WINDOW_END,
     )
     expect(width).toBeGreaterThan(0)
+  })
+})
+
+describe('weekLinePositions', () => {
+  it('snaps to the first real Monday, not a 7-day slice from windowStart', () => {
+    // 2026-07-01 is a Wednesday — the first week line must land on the
+    // following Monday (2026-07-06), not 7 days after windowStart.
+    const positions = weekLinePositions(WINDOW_START, WINDOW_END)
+    expect(positions[0]).toBeCloseTo(percentOf('2026-07-06', WINDOW_START, WINDOW_END), 5)
+  })
+
+  it('excludes windowStart itself when it already falls on a Monday', () => {
+    // 2026-07-06 is a Monday — a line exactly at 0% (the row's own edge)
+    // would add nothing, so it must be skipped.
+    const positions = weekLinePositions('2026-07-06', '2026-08-03')
+    expect(positions[0]).not.toBe(0)
+    expect(positions.every((p) => p > 0)).toBe(true)
+  })
+
+  it('produces one line per real calendar week, strictly increasing', () => {
+    const positions = weekLinePositions(WINDOW_START, WINDOW_END)
+    // 184 days between windowStart and windowEnd, so roughly 26 week lines.
+    expect(positions.length).toBeGreaterThan(24)
+    expect(positions.length).toBeLessThan(28)
+    for (let i = 1; i < positions.length; i++) {
+      expect(positions[i]).toBeGreaterThan(positions[i - 1])
+    }
+  })
+
+  it('never returns a boundary line at 0% or 100%', () => {
+    const positions = weekLinePositions(WINDOW_START, WINDOW_END)
+    expect(positions.every((p) => p > 0 && p < 100)).toBe(true)
+  })
+
+  it('returns nothing for a zero-or-negative-length window', () => {
+    expect(weekLinePositions(WINDOW_START, WINDOW_START)).toEqual([])
+    expect(weekLinePositions(WINDOW_END, WINDOW_START)).toEqual([])
   })
 })
 

@@ -184,6 +184,36 @@ export function segmentGeometry(
   return { left, width: Math.max(right - left, MIN_SEGMENT_WIDTH_PCT) }
 }
 
+/**
+ * Percent positions of real calendar week boundaries (Mondays) within the
+ * window — a finer scale reference sitting behind the month gridlines, round
+ * 7. Deliberately snapped to actual Mondays rather than 7-day slices from
+ * windowStart, so a line lands where someone would recognise it as a week
+ * boundary rather than an arbitrary offset. Positioned with the same
+ * day-accurate percentOf() the segment bars and today-line use (not the
+ * month gridlines' equal-per-column flex split), so a week line is a
+ * meaningful reference for where a bar actually starts/ends. The boundary
+ * Mondays themselves (0%/100%) are excluded — a line sitting on the row's
+ * own edge adds nothing.
+ */
+export function weekLinePositions(windowStart: string, windowEnd: string): number[] {
+  const start = Date.parse(`${windowStart}T00:00:00Z`)
+  const end = Date.parse(`${windowEnd}T00:00:00Z`)
+  if (end <= start) return []
+
+  const startDay = new Date(start).getUTCDay() // 0 (Sun) – 6 (Sat)
+  const daysToMonday = (8 - startDay) % 7 // 0 when windowStart is already a Monday
+  const firstMonday = start + daysToMonday * MS_PER_DAY
+
+  const positions: number[] = []
+  for (let t = firstMonday; t < end; t += 7 * MS_PER_DAY) {
+    if (t <= start) continue
+    const iso = new Date(t).toISOString().slice(0, 10)
+    positions.push(percentOf(iso, windowStart, windowEnd))
+  }
+  return positions
+}
+
 /* ── Labels ────────────────────────────────────────────────────────── */
 
 export function formatShortDate(iso: string): string {

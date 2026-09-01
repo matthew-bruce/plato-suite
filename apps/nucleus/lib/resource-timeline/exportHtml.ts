@@ -23,6 +23,7 @@ import {
   formatMonthLabel,
   supplierStripe,
   supplierTint,
+  weekLinePositions,
 } from './presentation'
 
 export interface ExportOptions {
@@ -97,6 +98,10 @@ export function buildStandaloneHtml(
       data.coarsePeriodName,
       data.granularPeriodName,
     ).map((span) => ({ label: span.label, monthCount: span.months.length })),
+    // Precomputed for the same reason as `quarters` — one source of truth
+    // for the real-calendar-week split (round 7), reused rather than
+    // reimplemented in the vanilla-JS runtime below.
+    weekLines: weekLinePositions(data.windowStart, data.windowEnd),
     resources: data.resources,
     suppliers: data.suppliers,
     teams: data.teams,
@@ -330,8 +335,10 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .status-tag{font-size:9px;font-weight:700;flex-shrink:0;white-space:nowrap}
 .res-right-row{height:var(--row-h);position:relative;border-bottom:1px solid var(--rmg-color-grey-4);transition:height .15s ease,opacity .13s ease}
 .col-lines{position:absolute;inset:0;display:flex;pointer-events:none}
-.col-line{flex:1;border-right:1px solid var(--rmg-color-grey-4)}
+.col-line{flex:1;border-right:1px solid var(--rmg-color-grey-2)}
 .col-line:last-child{border-right:none}
+.week-lines{position:absolute;inset:0;pointer-events:none}
+.week-line{position:absolute;top:0;bottom:0;width:0;border-left:1px dashed var(--rmg-color-grey-3)}
 .track{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--rmg-color-grey-3)}
 .seg{position:absolute;top:6px;bottom:6px;border-radius:6px;border-left:4px solid var(--sc);background:var(--sct);display:flex;align-items:center;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
 .seg.hyper{background-image:repeating-linear-gradient(45deg,var(--sc2) 0 5px,var(--sct) 5px 10px)}
@@ -458,6 +465,14 @@ function colLines(){
   return '<div class="col-lines">' + out + '</div>';
 }
 
+function weekLines(){
+  var out = '';
+  for (var i = 0; i < DATA.weekLines.length; i++) {
+    out += '<div class="week-line" style="left:' + DATA.weekLines[i] + '%"></div>';
+  }
+  return '<div class="week-lines">' + out + '</div>';
+}
+
 function segLabel(s){
   var text = s.code === 'NPC' ? s.supplier + ' Hypercare' : s.supplier;
   var dates = '';
@@ -528,10 +543,10 @@ function render(){
     lb.innerHTML = lh;
     left.appendChild(lb);
 
-    var rh = '<div class="group-right-header" data-g="' + esc(name) + '">' + colLines() + '</div>';
+    var rh = '<div class="group-right-header" data-g="' + esc(name) + '">' + weekLines() + colLines() + '</div>';
     members.forEach(function(r){
       var segs = r.segments.filter(function(s){ return state.activeSuppliers.has(s.supplier); });
-      var bars = colLines() + '<div class="track"></div>';
+      var bars = weekLines() + colLines() + '<div class="track"></div>';
 
       (r.gaps || []).forEach(function(g){
         var a = pct(g.start), b = pct(g.end);
