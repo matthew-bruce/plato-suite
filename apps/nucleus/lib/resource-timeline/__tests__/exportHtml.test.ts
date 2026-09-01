@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { ResourceTimelineData, TimelineResource } from '@plato/schema'
 import { buildStandaloneHtml } from '../exportHtml'
@@ -207,5 +209,84 @@ describe('buildStandaloneHtml', () => {
 
     expect(html).toContain('group-header-text')
     expect(html).not.toContain('group-name-pill')
+  })
+})
+
+// Round 8: the export is a self-contained file, so every --rmg-* token it
+// uses has to be re-declared in its own inlined :root block (see EXPORT_CSS
+// in exportHtml.ts) — nothing here can fall back on the app's real
+// packages/config/tokens/rmg.css. Round 5 added `.month-row{background:
+// var(--rmg-color-tint-yellow)...}` but never added a matching
+// `--rmg-color-tint-yellow` declaration to that :root block, so the rule
+// silently resolved to nothing (an undefined custom property with no
+// fallback makes the whole `background` declaration invalid) — the export
+// rendered a plain white/grey row while the live page correctly showed
+// yellow. This suite pins the live CSS Module's rendered colour against the
+// export's, so a future edit to either file that breaks that parity fails a
+// test instead of only showing up in a screenshot someone has to remember to
+// take.
+describe('export styling stays in sync with the live CSS Module (round 8 regression)', () => {
+  const testDir = fileURLToPath(new URL('.', import.meta.url))
+  const liveCss = readFileSync(
+    new URL('../../../components/resource-timeline/resourceTimeline.module.css', `file://${testDir}`),
+    'utf8',
+  )
+  const rmgTokens = readFileSync(
+    new URL('../../../../../packages/config/tokens/rmg.css', `file://${testDir}`),
+    'utf8',
+  )
+  const exportCss = buildStandaloneHtml(data(), OPTIONS)
+
+  /** Pulls `property: value;` out of a `.selector { ... }` block (tolerant
+   *  of the live module's multi-line, spaced-out formatting, its inline
+   *  `/* ... *\/` comments, and the export's minified single-line one). */
+  function ruleValue(css: string, selector: string, property: string): string {
+    const rule = css.match(new RegExp(`\\.${selector}\\s*\\{([^}]*)\\}`))
+    if (!rule) throw new Error(`Rule .${selector} not found`)
+    const withoutComments = rule[1].replace(/\/\*[\s\S]*?\*\//g, '')
+    // Terminated by `;` or the rule's closing `}` — minified CSS (the
+    // export) omits the trailing `;` before `}` when the property is last
+    // in its declaration block.
+    const prop = withoutComments.match(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;}]+)`))
+    if (!prop) throw new Error(`Property ${property} not found on .${selector}`)
+    return prop[1].trim()
+  }
+
+  /** Resolves a bare `var(--token)` value against a `:root{...}` block's own
+   *  declarations — the live page's real design-system scope for the first
+   *  arg, the export's self-declared, self-contained scope for the second. */
+  function resolveVar(value: string, tokenSource: string): string {
+    const ref = value.match(/^var\((--[a-zA-Z0-9-]+)\)$/)
+    if (!ref) return value
+    const decl = tokenSource.match(new RegExp(`${ref[1]}\\s*:\\s*([^;]+);`))
+    if (!decl) throw new Error(`${ref[1]} is not defined in this stylesheet's :root`)
+    return decl[1].trim()
+  }
+
+  it.each([
+    ['monthRow', 'month-row', 'background'],
+    ['quarterRow', 'quarter-row', 'background'],
+    ['colLine', 'col-line', 'border-right'],
+  ])('%s / .%s renders the same %s in the export as in the live page', (liveSelector, exportSelector, property) => {
+    const live = resolveVar(ruleValue(liveCss, liveSelector, property), rmgTokens)
+    const exported = resolveVar(ruleValue(exportCss, exportSelector, property), exportCss)
+    expect(exported).toBe(live)
+  })
+
+  it('defines a real (non-empty) --rmg-color-tint-yellow in the export, not just a reference to it', () => {
+    // The exact shape of round 8's bug: the rule referenced the token but no
+    // :root declaration backed it, so resolveVar above would throw before
+    // ever reaching a mismatch — this pins that failure mode specifically.
+    expect(() => resolveVar('var(--rmg-color-tint-yellow)', exportCss)).not.toThrow()
+  })
+
+  it('gives the week-line a lighter treatment than the col-line, preserving the round-7 hierarchy', () => {
+    const monthLine = ruleValue(exportCss, 'col-line', 'border-right')
+    const weekLine = ruleValue(exportCss, 'week-line', 'border-left')
+    // Solid vs dashed is the hierarchy signal (see resourceTimeline.module.css
+    // .weekLine's comment) — a week line that regresses to solid would erase
+    // the visual distinction from the month line even if positioned fine.
+    expect(monthLine).toContain('solid')
+    expect(weekLine).toContain('dashed')
   })
 })

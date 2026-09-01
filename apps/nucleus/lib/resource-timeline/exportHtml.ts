@@ -220,11 +220,13 @@ ${EXPORT_SCRIPT}
 const EXPORT_CSS = `
 :root{
   --rmg-color-red:#DA202A; --rmg-color-black:#2A2A2D; --rmg-color-brand-black:#2A2A2A;
+  --rmg-color-dark-grey:#404044;
   --rmg-color-grey-1:#8F9495; --rmg-color-grey-2:#D5D5D5; --rmg-color-grey-3:#EEEEEE;
   --rmg-color-grey-4:#F5F5F5; --rmg-color-white:#FFFFFF;
   --rmg-color-surface-white:#FFFFFF; --rmg-color-surface-light:#F1F2F5;
   --rmg-color-text-heading:#2A2A2D; --rmg-color-text-body:#333333; --rmg-color-text-light:#666666;
   --rmg-color-green-contrast:#008A00;
+  --rmg-color-tint-yellow:#FEEB87;
   --rmg-font-body:"PF DINText Std","Helvetica Neue",Arial,sans-serif;
   --rmg-font-display:"RM First Class",Georgia,serif;
   --rmg-radius-xs:4px; --rmg-radius-s:8px; --rmg-radius-m:12px; --rmg-radius-xl:100px;
