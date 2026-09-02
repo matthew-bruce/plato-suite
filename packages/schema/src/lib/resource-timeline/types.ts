@@ -46,6 +46,20 @@ export interface PeriodWindow {
   end: IsoDate
 }
 
+/** One resource_team_assignments row, already filtered to deleted_at IS NULL. */
+export interface TeamAssignmentInput {
+  resourceId: string
+  periodId: string
+  teamName: string
+  capacitySplit: number
+}
+
+/** A resource's resolved team, as resolveTeamsByResource() produces it. */
+export interface TeamOutput {
+  teamName: string
+  capacitySplit: number
+}
+
 export interface DeriveSegmentsInput {
   transition: TransitionRecord | null
   /** Allocations in the coarse period (Q2) — rendered as flat whole-quarter blocks. */

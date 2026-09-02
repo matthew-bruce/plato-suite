@@ -13,13 +13,18 @@ import {
   deriveGaps,
   deriveSegments,
 } from '../lib/resource-timeline/deriveSegments'
+import { resolveTeamsByResource } from '../lib/resource-timeline/resolveTeams'
 import { monthStartOf } from '../lib/resource-timeline/workingDays'
-import type { AllocationInput, SegmentCode, TransitionRecord } from '../lib/resource-timeline/types'
+import type {
+  AllocationInput,
+  SegmentCode,
+  TeamAssignmentInput,
+  TransitionRecord,
+} from '../lib/resource-timeline/types'
 import type {
   ResourceTimelineData,
   TimelineResource,
   TimelineSupplier,
-  TimelineTeam,
 } from '../types/resourceTimeline'
 
 /**
@@ -231,20 +236,25 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
     monthlyByAllocation.set(row.allocation_id, existing)
   }
 
-  // Team assignments are period-scoped; the timeline spans two periods and
-  // shows one team set per person. The granular period is the more current
-  // picture, so it wins where a person appears in both.
-  const teamsByResource = new Map<string, Map<string, TimelineTeam>>()
-  const teamRows = ((teamsResult.data ?? []) as unknown as TeamAssignmentRow[]).sort((a, b) =>
-    a.period_id === granular.period_id ? 1 : b.period_id === granular.period_id ? -1 : 0,
-  )
-  for (const row of teamRows) {
-    const teamName = pickEmbed(row.teams)?.team_name
-    if (!teamName) continue
-    const existing = teamsByResource.get(row.resource_id) ?? new Map<string, TimelineTeam>()
-    existing.set(teamName, { teamName, capacitySplit: Number(row.capacity_split) })
-    teamsByResource.set(row.resource_id, existing)
-  }
+  // Team assignments are period-scoped, and the query below fetches both
+  // periods so a resource with no granular-period row yet still gets their
+  // last-known (coarse-period) team rather than "Unassigned" — see
+  // resolveTeamsByResource() for how the two periods get collapsed to the
+  // one team set the timeline shows per person.
+  const teamAssignmentInputs: TeamAssignmentInput[] = ((teamsResult.data ?? []) as unknown as TeamAssignmentRow[])
+    .map((row) => {
+      const teamName = pickEmbed(row.teams)?.team_name
+      return teamName
+        ? {
+            resourceId: row.resource_id,
+            periodId: row.period_id,
+            teamName,
+            capacitySplit: Number(row.capacity_split),
+          }
+        : null
+    })
+    .filter((row): row is TeamAssignmentInput => row !== null)
+  const teamsByResource = resolveTeamsByResource(teamAssignmentInputs, granular.period_id)
 
   const transitionByResource = new Map<string, TransitionRecord>()
   for (const row of transitionRows) {
@@ -298,7 +308,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
       })
 
       const classification = classifyTransition(transition, segments, granularWindow.start)
-      const teams = [...(teamsByResource.get(row.resource_id)?.values() ?? [])]
+      const teams = teamsByResource.get(row.resource_id) ?? []
 
       return {
         resourceId: row.resource_id,
