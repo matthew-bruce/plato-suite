@@ -1,0 +1,820 @@
+/* Resource Timeline (Nucleus / Finance) — Gantt-style supplier coverage.
+   Follows PLATO-DESIGN-SYSTEM.md §3 (badges & pills), §7 (page layout),
+   §17 (Gantt / roadmap) and §19 (spacing & radius). Every colour resolves to
+   an --rmg-* token except the per-supplier accents, which are set inline from
+   suppliers.supplier_colour (the DB is the source of truth, §2).
+
+   Per-segment custom properties, set inline:
+     --sc   supplier colour, full strength (left border, label text)
+     --sct  ~18% tint of the same colour (bar fill)
+     --sc2  ~28% tint (hypercare diagonal stripe) */
+
+.page {
+  background-color: var(--rmg-color-surface-light);
+  min-height: 100vh;
+  padding-bottom: var(--rmg-spacing-08);
+}
+
+.titleRow {
+  padding: var(--rmg-spacing-05) var(--rmg-spacing-06) 0;
+}
+
+.title {
+  font-family: var(--rmg-font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--rmg-color-text-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--rmg-color-text-light);
+  margin-top: 4px;
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+/* Uses @plato/ui's shared PageToolbar (red primaryRow, grey-4 filterRow) —
+   the same component Schedule and People already build their toolbars from.
+   Only the toolbar's own vertical placement lives here; PageToolbar supplies
+   its own background, border and shadow. */
+
+.toolbarWrap {
+  padding: var(--rmg-spacing-03) var(--rmg-spacing-06) var(--rmg-spacing-01);
+}
+
+/* Round 3, Fix 2: rebuilt against Schedule's actual toolbar (CustomSelect +
+   the PageToolbarPrimaryActions button cluster) inspected directly, not
+   approximated — every control here now shares CustomSelect's exact box
+   model: 1px solid grey-2 border, --rmg-radius-s corners, 5px 10px padding.
+   That's what makes the height/weight consistent with the Skillset filter
+   sitting right next to it; the previous version had its own inner+outer
+   padding, which made it read taller and heavier than everything around it. */
+.modePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  padding: 5px 10px;
+  box-sizing: border-box;
+}
+
+/* Same metrics as CustomSelect's own internal label span — this control has
+   no filterRow-white backdrop of its own to inherit that colour from
+   (unlike Schedule's dropdowns, it sits directly on red), so folding the
+   label inside a matching white pill is what lets grey-1 read correctly
+   instead of vanishing against red. */
+.modePillLabel {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--rmg-color-grey-1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.modeButtons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.modeButtons button {
+  border: none;
+  background: transparent;
+  /* Horizontal padding only — the pill's OWN 5px vertical padding is the
+     single layer of vertical inset, matching CustomSelect's box model
+     exactly. Giving these buttons their own vertical padding too stacked a
+     second layer on top of the pill's and made it 4px taller than
+     CustomSelect, the thing it sits directly next to. */
+  padding: 0 8px;
+  border-radius: 5px;
+  /* Matches CustomSelect's value-text size/weight exactly, not a smaller
+     scale invented for a segmented control — no explicit line-height either,
+     for the same reason CustomSelect's own value span doesn't set one. */
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--rmg-color-text-body);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.modeButtons button:hover:not(.active) {
+  color: var(--rmg-color-text-heading);
+}
+
+/* Same red-tint "active" treatment CustomSelect and the Edit/Done-editing
+   button already use on Schedule. */
+.modeButtons button.active {
+  background: #fff5f5;
+  color: var(--rmg-color-red);
+  font-weight: 600;
+}
+
+/* Schedule's one divider, after its search box — separating the primary
+   control (there: search; here: Group by) from the secondary filters that
+   follow it. Same values, not approximated. */
+.toolbarDivider {
+  width: 1px;
+  height: 18px;
+  background: var(--rmg-color-grey-2);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.exportButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--rmg-radius-s);
+  border: 1.5px solid var(--rmg-color-grey-2);
+  background: var(--rmg-color-surface-white);
+  color: var(--rmg-color-text-body);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.exportButton:hover:not(:disabled) {
+  border-color: var(--rmg-color-red);
+  color: var(--rmg-color-red);
+}
+
+.exportButton:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* No "SUPPLIER" label here — Schedule's own filterRow (the one this page's
+   supplier chips are visually modelled on) has none either, just the pills
+   directly against the grey-4 band. Matching that exactly rather than
+   inventing a label Schedule doesn't have. */
+
+/* Preset action button — same black-fill treatment PageToolbarFilterPill
+   already uses for its "--all" active state, reused here since a preset like
+   "Focus: CG + TCS" is the same kind of one-tap state-setting control.
+   Metrics (padding, font-size/weight, line-height) copied from
+   getFilterPillStyle so it sits at identical height to the pills beside it. */
+.presetButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--rmg-radius-xl);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1.5px solid var(--rmg-color-black);
+  background: var(--rmg-color-black);
+  color: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.presetButton.inactive {
+  background: transparent;
+  color: var(--rmg-color-dark-grey);
+  border-color: var(--rmg-color-grey-2);
+}
+
+/* ── Timeline header ──────────────────────────────────────────────── */
+/* Sticky: pinned just below PlatoShell's fixed 40px global header (the same
+   offset Schedule's own sticky toolbar uses) so the quarter/month axis stays
+   visible while the resource rows scroll underneath it. z-index promotes it
+   above .ganttWrap, which is a later, non-positioned sibling and would
+   otherwise paint over it as it scrolls past; the opaque background (matching
+   the page's own) is what makes scrolled-under rows actually disappear behind
+   it rather than showing through. */
+
+.headerWrap {
+  display: flex;
+  padding: var(--rmg-spacing-02) var(--rmg-spacing-06) 0;
+  position: sticky;
+  top: 40px;
+  z-index: 20;
+  background: var(--rmg-color-surface-light);
+}
+
+.headerSpacer {
+  width: var(--left-col);
+  flex-shrink: 0;
+  padding: 0 12px 6px 4px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.headerSpacer span {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--rmg-color-grey-1);
+}
+
+.headerTimeline {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The today marker gets its own row rather than sharing the month label row,
+   so a tag landing mid-month never collides with a month name. */
+.todayTagRow {
+  height: 15px;
+  position: relative;
+}
+
+.todayTag {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--rmg-color-red);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* Structural label row — same quiet weight as the "TEAM / RESOURCE" spacer
+   label (§ headerSpacer span), just dark rather than muted grey-1, per the
+   explicit "dark text on the existing light grey background is fine here"
+   call: this row is the coarse axis, not the one that needs to stand out —
+   that's reserved for the month row below it. Owns the header box's rounded
+   top corners, since it's now the topmost row. */
+.quarterRow {
+  display: flex;
+  height: 20px;
+  background: var(--rmg-color-grey-4);
+  border: 1px solid var(--rmg-color-grey-3);
+  border-radius: var(--rmg-radius-s) var(--rmg-radius-s) 0 0;
+}
+
+.quarterCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--rmg-color-text-heading);
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.quarterCell:last-child {
+  border-right: none;
+}
+
+/* Pastel tint (§ RMG palette) rather than plain white — this is the row that
+   should read as a distinct, detailed header band. Yellow is unused
+   elsewhere on this page: supplier identity uses blue/purple/orange/navy,
+   and tint-red is reserved for the today line/label, so a red-tinted month
+   row would compete with it rather than sit quietly behind it. */
+.monthRow {
+  display: flex;
+  height: 26px;
+  background: var(--rmg-color-tint-yellow);
+  border-left: 1px solid var(--rmg-color-grey-3);
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.monthCell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  /* Dark heading colour, not the previous light grey — that read too faint
+     against the new yellow background. */
+  color: var(--rmg-color-text-heading);
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.monthCell:last-child {
+  border-right: none;
+}
+
+/* ── Gantt body ───────────────────────────────────────────────────── */
+
+.ganttWrap {
+  display: flex;
+  margin: 0 var(--rmg-spacing-06) var(--rmg-spacing-06);
+  background: var(--rmg-color-surface-white);
+  border-radius: 0 0 var(--rmg-radius-m) var(--rmg-radius-m);
+  box-shadow: 0 4px 56px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--rmg-color-grey-3);
+  position: relative;
+}
+
+.leftCol {
+  width: var(--left-col);
+  flex-shrink: 0;
+  border-right: 1px solid var(--rmg-color-grey-3);
+}
+
+.rightCol {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.todayLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rmg-color-red);
+  z-index: 15;
+  pointer-events: none;
+}
+
+.groupBlock {
+  border-bottom: 1px solid var(--rmg-color-grey-3);
+}
+
+.groupBlock:last-child {
+  border-bottom: none;
+}
+
+/* §17 group row — light grey band. Round 2 (Fix 5) removed the black pill
+   badge in favour of plain bold text directly on the band; never a full-width
+   dark bar. */
+.groupLeftHeader {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 8px;
+  gap: 8px;
+  background: var(--rmg-color-grey-4);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--rmg-color-grey-2);
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  font-family: inherit;
+  text-align: left;
+}
+
+.groupLeftHeader:hover {
+  background: #ececec;
+}
+
+.groupRightHeader {
+  height: 36px;
+  background: var(--rmg-color-grey-4);
+  border-bottom: 1px solid var(--rmg-color-grey-2);
+  cursor: pointer;
+  position: relative;
+}
+
+.groupRightHeader:hover {
+  background: #ececec;
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rmg-color-grey-1);
+  transition: transform 180ms ease;
+}
+
+.collapsed .chevron {
+  transform: rotate(-90deg);
+}
+
+.groupHeaderText {
+  /* Plain text, not a pill/badge (Fix 5) — sits directly on the grey-4 band.
+     Still `display: block` rather than inline: text-overflow only applies to
+     a block container, and inside an inline-flex ancestor the label becomes
+     an anonymous flex item that clips mid-word instead of ellipsising. The
+     transition category labels are long enough for that to matter at a
+     300px column. */
+  display: block;
+  line-height: 1.3;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--rmg-color-red);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Long group names ("Unassigned — F_Gov / Overheads", the transition
+     category labels) must ellipsis rather than clip mid-word, so the text
+     has to be allowed to shrink below its content width. */
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.groupCount {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rmg-color-grey-1);
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* ── Resource rows ────────────────────────────────────────────────── */
+
+.resLeftRow {
+  height: var(--row-h);
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 4px;
+  gap: 8px;
+  border-bottom: 1px solid var(--rmg-color-grey-4);
+  background: var(--rmg-color-surface-white);
+  overflow: hidden;
+  transition: height 150ms ease, opacity 130ms ease;
+}
+
+.resLeftRow:last-child,
+.resRightRow:last-child {
+  border-bottom: none;
+}
+
+.collapsed .resLeftRow,
+.collapsed .resRightRow {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border-bottom: none;
+  overflow: hidden;
+}
+
+/* Avatar — coloured by supplier identity (Fix 4, round 2). Solid for anyone
+   whose segments touch exactly one supplier; split for anyone who moves
+   between two. Colour(s) arrive via --avatar-colour / --avatar-from /
+   --avatar-to, computed in resolveAvatarColours() — this file only supplies
+   the two background formulas and the legibility treatment for the initials
+   on top of them. */
+.avatar {
+  /* Matches the People (/people) desktop row's avatar exactly (Fix 1,
+     round 4) rather than an independently-chosen size. */
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--avatar-colour, var(--rmg-color-brand-black));
+  color: var(--rmg-color-white);
+  font-size: 12px;
+  font-weight: 700;
+  /* A light supplier colour (HT orange, LT teal) under plain white text can
+     read weakly, and a split avatar always has one lighter and one darker
+     half — this keeps the initials legible over either. */
+  text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.45);
+}
+
+/* Split avatar: left half = the resource's chronologically earliest
+   supplier ("from"), right half = its latest ("to") — see
+   resolveAvatarColours() in lib/resource-timeline/presentation.ts. A
+   conic-gradient rather than two overlaid elements, for a single declaration
+   and a crisp edge at 24px. `from 180deg` starts the sweep at the bottom and
+   goes clockwise: bottom → left → top is the first 180° (left half), top →
+   right → bottom is the second (right half) — verified against a rendered
+   screenshot, not just the angle arithmetic, since a conic-gradient's 0° origin
+   (12 o'clock, not 3 o'clock) makes it easy to get this backwards. */
+.avatarSplit {
+  background: conic-gradient(from 180deg, var(--avatar-from) 0deg 180deg, var(--avatar-to) 180deg 360deg);
+}
+
+.resText {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Name/subtitle font-size and weight match the People row exactly (Fix 1,
+   round 4) — see .resSub below for the same note. */
+.resName {
+  font-size: 14px;
+  color: var(--rmg-color-text-heading);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+/* §3F — discipline is metadata, not a pill. margin-top separates it from
+   .resName (round 6) — at the round-4 avatar/font sizes the two lines sat
+   flush against each other, which read as cramped even after the row itself
+   gained height. */
+.resSub {
+  font-size: 11px;
+  color: var(--rmg-color-grey-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+.resPills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+/* Team split pill — matches the live Schedule's "Pulsar · 50%" treatment. */
+.teamPill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--rmg-radius-xl);
+  padding: 2px 8px;
+  background: #e4edfa;
+  color: #2a3b66;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* §3C — transition state is styled text on the row, not a badge. */
+.statusTag {
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.resRightRow {
+  height: var(--row-h);
+  position: relative;
+  border-bottom: 1px solid var(--rmg-color-grey-4);
+  transition: height 150ms ease, opacity 130ms ease;
+}
+
+.colLines {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+.colLine {
+  flex: 1;
+  /* grey-2, not grey-4 (round 7) — grey-4 is nearly indistinguishable from
+     the row's white/near-white background, which left no real "stronger
+     reference" for the new week lines below to sit lighter than. */
+  border-right: 1px solid var(--rmg-color-grey-2);
+}
+
+.colLine:last-child {
+  border-right: none;
+}
+
+/* Week gridlines (round 7) — a finer, subordinate scale reference behind the
+   month lines above. Absolutely positioned (not flex-divided like
+   .colLines) since these snap to real calendar Mondays via weekLinePositions
+   rather than equal-width columns. */
+.weekLines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.weekLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  /* Dashed and a step lighter than .colLine's solid grey-2 border — both a
+     fainter colour and a lighter-weight line style, so the two tiers read
+     unambiguously (solid month lines = primary, dashed week lines =
+     subtle aid) rather than relying on a luminance gap alone. */
+  border-left: 1px dashed var(--rmg-color-grey-3);
+}
+
+.track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--rmg-color-grey-3);
+}
+
+/* ── Segments ─────────────────────────────────────────────────────── */
+
+.seg {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 6px;
+  border-left: 4px solid var(--sc);
+  background: var(--sct);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  padding: 0;
+  font-family: inherit;
+  cursor: default;
+}
+
+/* Hypercare / NPC — diagonal stripe, distinct from ordinary cover at a glance. */
+.seg.hyper {
+  background-image: repeating-linear-gradient(45deg, var(--sc2) 0 5px, var(--sct) 5px 10px);
+}
+
+/* Tentative — dashed accent and a broken fill. */
+.seg.tentative {
+  border-left-style: dashed;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--sct) 0 6px,
+    var(--rmg-color-surface-white) 6px 12px
+  );
+}
+
+.seg:hover {
+  filter: brightness(0.96);
+  z-index: 20;
+  box-shadow: 0 0 0 1.5px var(--sc);
+}
+
+.segLabel {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--sc);
+  white-space: nowrap;
+  padding: 0 7px;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.segDates {
+  font-weight: 500;
+  opacity: 0.75;
+  margin-left: 5px;
+}
+
+.gapMarker {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-1px);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rmg-color-red) 0,
+    var(--rmg-color-red) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+  z-index: 5;
+}
+
+.flagDot {
+  position: absolute;
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rmg-color-red);
+  border: 1.5px solid var(--rmg-color-surface-white);
+  z-index: 21;
+}
+
+/* ── Tooltip ──────────────────────────────────────────────────────── */
+
+.tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  padding: 10px 13px;
+  pointer-events: none;
+  max-width: 270px;
+  box-shadow: 0 4px 56px rgba(0, 0, 0, 0.08);
+}
+
+.ttName {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rmg-color-text-heading);
+}
+
+.ttSub {
+  font-size: 10.5px;
+  color: var(--rmg-color-text-light);
+  margin-top: 1px;
+  margin-bottom: 6px;
+}
+
+.ttRow {
+  font-size: 10.5px;
+  color: var(--rmg-color-text-body);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 2px 0;
+}
+
+.ttRow b {
+  color: var(--rmg-color-text-heading);
+}
+
+.ttFlag {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rmg-color-grey-4);
+  color: var(--rmg-color-red);
+}
+
+/* ── Empty + narrow-screen states ─────────────────────────────────── */
+
+.empty {
+  margin: 0 var(--rmg-spacing-06);
+  padding: var(--rmg-spacing-07);
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-3);
+  border-radius: var(--rmg-radius-m);
+  text-align: center;
+  color: var(--rmg-color-text-light);
+  font-size: 13px;
+}
+
+.narrowNotice {
+  display: none;
+  margin: 0 var(--rmg-spacing-06) var(--rmg-spacing-03);
+  padding: 10px 13px;
+  background: var(--rmg-color-surface-white);
+  border: 1px solid var(--rmg-color-grey-3);
+  border-left: 3px solid var(--rmg-color-red);
+  border-radius: var(--rmg-radius-xs);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rmg-color-text-light);
+}
+
+/* Desktop-oriented per §20, but it must degrade rather than break: below the
+   Gantt breakpoint the whole grid becomes one horizontally-scrollable pane at
+   a usable minimum width, with a note explaining why. The page body itself
+   never scrolls sideways. */
+@media (max-width: 768px) {
+  .narrowNotice {
+    display: block;
+  }
+
+  .scrollHost {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .scrollInner {
+    min-width: 900px;
+  }
+
+  .titleRow,
+  .toolbarWrap {
+    padding-left: var(--rmg-spacing-04);
+    padding-right: var(--rmg-spacing-04);
+  }
+
+  .ganttWrap {
+    margin-left: var(--rmg-spacing-04);
+    margin-right: var(--rmg-spacing-04);
+  }
+
+  .headerWrap {
+    padding-left: var(--rmg-spacing-04);
+    padding-right: var(--rmg-spacing-04);
+    /* .scrollHost's overflow-x: auto above forces it to become the nearest
+       scroll container, but it never scrolls internally — the window does,
+       via scrollHost's static position in the page. That makes sticky's
+       reference point stuck at scrollTop 0 forever, so the header silently
+       scrolls away instead of pinning. Opt out here rather than ship a
+       header that looks sticky but isn't. */
+    position: static;
+    top: auto;
+  }
+}

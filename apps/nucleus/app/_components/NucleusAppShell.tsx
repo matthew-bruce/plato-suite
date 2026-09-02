@@ -8,6 +8,7 @@ import {
   UserCircle,
   Truck,
   CalendarRange,
+  GanttChartSquare,
   ReceiptText,
   Layers,
   LineChart,
@@ -41,6 +42,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Finance',
     items: [
       { label: 'Platform Schedule', icon: <CalendarRange size={16} />, href: '/schedule' },
+      { label: 'Resource Timeline', icon: <GanttChartSquare size={16} />, href: '/resource-timeline' },
       { label: 'Blended Rates',      icon: <LineChart size={16} />,     href: '/rates'    },
       { label: 'Rate Cards',         icon: <ReceiptText size={16} />,   href: '#', disabled: true },
       { label: 'Periods',            icon: <Layers size={16} />,        href: '#', disabled: true },
