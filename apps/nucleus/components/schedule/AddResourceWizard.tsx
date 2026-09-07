@@ -12,6 +12,8 @@ import {
   findResourcePeriodConflicts,
   connectKeepExisting,
   connectUseVacant,
+  setAllocationDayRate,
+  deleteAllocation,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
@@ -22,11 +24,20 @@ import type {
 import {
   assignResourceToAllocation,
   unassignResourceFromAllocation,
+  setAllocationMonthlyDays,
 } from '@/app/actions/schedule'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { formatMoneyPence } from '@/lib/schedule/format'
 import { computeConflictDayMath, describeConflictPresentation } from '@/lib/schedule/conflictDayMath'
 import type { ConflictDayMath } from '@/lib/schedule/conflictDayMath'
+import { calculateWorkingDaysInMonth, sumMonthlyDays } from '@/lib/schedule/monthlyDays'
+import type { PeriodMonth } from '@/lib/schedule/monthlyDays'
+import {
+  describeRateConflict,
+  resolveKeepRoleRate,
+  resolveUseResourceRate,
+} from '@/lib/schedule/rateConflict'
+import type { RateConflict } from '@/lib/schedule/rateConflict'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -55,10 +66,32 @@ interface FormState {
   planviewCode: 'PR' | 'F_Gov' | 'BAU'
   resourceLocation: ResourceLocation
   /** Optional starting capacity in days, as a raw input string ('' = blank →
-   *  defaults to 0, edit inline after adding). New-person / TBC paths only. */
+   *  defaults to 0, edit inline after adding). Used in total mode; in monthly
+   *  mode the total comes from the month drafts instead. */
   capacityDays?: string
   /** Optional starting day rate in pounds, as a raw input string. */
   dayRate?: string
+}
+
+/** How capacity days are being entered on the Details step. Mirrors the
+ *  Schedule row's own two states: a single total, or a per-month breakdown
+ *  whose sum becomes the total (enforced server-side by migration 029). */
+type CapacityMode = 'total' | 'monthly'
+
+/**
+ * Everything the Details step's monthly breakdown needs. Mirrors the shape
+ * SchedulePageClient already assembles for the inline row editor
+ * (MonthlyDaysContext), minus the write handlers — the wizard has no
+ * allocation_id to write against until its row has been inserted.
+ */
+export interface WizardMonthlyContext {
+  months: PeriodMonth[]
+  periodStart: Date
+  periodEnd: Date
+  holidays: Date[]
+  /** Years with no seeded bank-holiday data — non-empty disables "Populate
+   *  working days" rather than filling in an unadjusted figure. */
+  missingHolidayYears: number[]
 }
 
 /** Parse the optional Details-step capacity/rate inputs. Blank stays blank
@@ -96,6 +129,15 @@ export interface WizardSuccessPayload {
   planviewCode: PlanviewCode
   teams: Array<{ teamId: string; teamName: string }>
   displayOrder: number | null
+  /** The figures actually written to the new row. The caller renders the row
+   *  optimistically without re-fetching, so these have to travel with the
+   *  payload — otherwise a rate/capacity the user just entered comes back on
+   *  screen as 0 until the next full page load. */
+  capacityDays: number
+  dayRate: number
+  /** The per-month breakdown written after the insert, keyed by month start
+   *  (YYYY-MM-01). Empty when the total was entered directly. */
+  monthlyDays: Record<string, number>
 }
 
 export interface AssignModeConfig {
@@ -122,9 +164,19 @@ export interface AddResourceWizardProps {
   /** Period's standard working days, used by the same-period conflict dialog's
    *  day-math framing. */
   periodWorkingDays: number
+  /** Period months + holiday data for the Details step's monthly capacity
+   *  breakdown. Omit to offer the single-total field only. */
+  monthlyCapacity?: WizardMonthlyContext
   /** When set the wizard operates in assign-only mode (no new allocation is created). */
   assignMode?: AssignModeConfig
-  onAssignSuccess?: (allocationId: string, resourceId: string | null, resourceName: string | null) => void
+  onAssignSuccess?: (
+    allocationId: string,
+    resourceId: string | null,
+    resourceName: string | null,
+    /** Set only when the assign resolved a role-vs-resource rate difference,
+     *  so the caller can reflect the new rate on the row it already shows. */
+    dayRate?: number,
+  ) => void
   /** Called after a same-period conflict is resolved by merging records (the
    *  "Connect and…" options), which soft-delete one row and rewrite another —
    *  the parent should re-fetch to reflect the merged state. */
@@ -211,6 +263,7 @@ export function AddResourceWizard({
   activeSupplierFilter,
   activeTeamFilter,
   periodWorkingDays,
+  monthlyCapacity,
   assignMode,
   onAssignSuccess,
   onConflictResolved,
@@ -255,6 +308,19 @@ export function AddResourceWizard({
   const [duplicateAdvisory, setDuplicateAdvisory] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Capacity entry: a single total (default, as before) or a per-month
+  // breakdown whose sum becomes the total. Month drafts are kept as raw
+  // strings so a field can sit blank or mid-edit without becoming 0 — the
+  // same convention the inline row editor uses.
+  const [capacityMode, setCapacityMode] = useState<CapacityMode>('total')
+  const [monthDrafts, setMonthDrafts] = useState<Record<string, string>>({})
+
+  // Assign mode: the role's budgeted rate and the picked resource's own rate
+  // both exist and disagree, so the user has to say which one stands. Null
+  // when there is nothing to resolve (see lib/schedule/rateConflict).
+  const [rateConflict, setRateConflict] = useState<RateConflict | null>(null)
+  const [chosenDayRate, setChosenDayRate] = useState<number | null>(null)
 
   // Same-period conflict dialog: shown when an already-recognised resource is
   // about to be connected while it already holds another active allocation in
@@ -315,6 +381,10 @@ export function AddResourceWizard({
       setSubmitError(null)
       setConflictDialog(null)
       setNewPersonName('')
+      setCapacityMode('total')
+      setMonthDrafts({})
+      setRateConflict(null)
+      setChosenDayRate(null)
       setForm(defaultForm())
     }
   }, [open, defaultForm])
@@ -355,6 +425,12 @@ export function AddResourceWizard({
       roleTitle: r.resource_job_title ?? '',
       planviewCode: 'PR',
       resourceLocation: r.resource_location ?? 'onshore',
+      // Seed the day rate from the person's own recorded rate, in pounds, so
+      // the common case is one glance rather than one lookup. Still fully
+      // editable; a resource with no recorded rate leaves the field blank
+      // (blank, not 0 — 0 would read as a deliberate "free of charge").
+      dayRate:
+        r.day_rate_override === null ? undefined : String(r.day_rate_override / 100),
     })
   }
 
@@ -379,6 +455,12 @@ export function AddResourceWizard({
     if (isAssignMode) {
       setSelectedResource(r)
       setMode('existing')
+      // Does this person's own rate disagree with what the vacant role was
+      // budgeted at? Only a genuine two-sided difference is put to the user;
+      // anything else resolves silently to whichever figure exists.
+      const conflict = describeRateConflict(assignMode!.dayRate, r.day_rate_override)
+      setRateConflict(conflict.needsPrompt ? conflict : null)
+      setChosenDayRate(null)
     } else {
       prepareExistingForm(r)
     }
@@ -401,6 +483,10 @@ export function AddResourceWizard({
     if (isAssignMode) {
       setMode('new')
       setSelectedResource(null)
+      // A brand-new person carries no recorded rate, so the role's own rate
+      // stands unchallenged.
+      setRateConflict(null)
+      setChosenDayRate(null)
       setForm((prev) => ({ ...prev, roleTitle: name }))
       setStep(2)
       return
@@ -422,6 +508,9 @@ export function AddResourceWizard({
     if (isAssignMode) {
       setMode('tbc')
       setSelectedResource(null)
+      // Leaving the seat vacant changes no rate.
+      setRateConflict(null)
+      setChosenDayRate(null)
       setStep(2)
       return
     }
@@ -486,6 +575,53 @@ export function AddResourceWizard({
     )
   }
 
+  /* ── Monthly capacity entry ─────────────────────────────── */
+
+  const months = monthlyCapacity?.months ?? []
+  const canEnterMonthly = months.length > 0
+
+  /** The parsed month values, in the order the period's months run. A blank
+   *  or unparseable field counts as "not entered" rather than 0, matching the
+   *  inline editor, where a blank month clears rather than zeroes it. */
+  const monthValues: Record<string, number> = {}
+  for (const m of months) {
+    const raw = (monthDrafts[m.key] ?? '').trim()
+    if (raw === '') continue
+    const parsed = parseFloat(raw)
+    if (!isNaN(parsed)) monthValues[m.key] = Math.max(0, parsed)
+  }
+  const monthlyTotal = sumMonthlyDays(monthValues)
+
+  /** Monthly entry only counts as "in use" when it is both selected and has a
+   *  figure in it — an empty breakdown would otherwise write a row of nulls
+   *  and pin the total to 0. */
+  const isMonthlyMode =
+    capacityMode === 'monthly' && canEnterMonthly && Object.keys(monthValues).length > 0
+
+  const populateDisabled = (monthlyCapacity?.missingHolidayYears.length ?? 0) > 0
+  const populateTitle = populateDisabled
+    ? `No bank holiday data available for ${monthlyCapacity?.missingHolidayYears.join(', ')} yet.`
+    : 'Populate each month with its working days (weekdays minus bank holidays)'
+
+  /** Fill every month with its own working-day count, exactly as the inline
+   *  row editor's populate button does. */
+  function populateWorkingDays() {
+    if (!monthlyCapacity || populateDisabled) return
+    const next: Record<string, string> = {}
+    for (const m of monthlyCapacity.months) {
+      next[m.key] = String(
+        calculateWorkingDaysInMonth(
+          m.monthStart,
+          m.monthEnd,
+          monthlyCapacity.periodStart,
+          monthlyCapacity.periodEnd,
+          monthlyCapacity.holidays,
+        ),
+      )
+    }
+    setMonthDrafts(next)
+  }
+
   async function handleSubmit() {
     setIsSubmitting(true)
     setSubmitError(null)
@@ -518,6 +654,26 @@ export function AddResourceWizard({
           setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
+
+        // Settle the day rate. A two-sided disagreement was put to the user on
+        // the Confirm step and `chosenDayRate` holds their answer; otherwise
+        // whichever single rate exists stands, which only needs a write when
+        // it differs from what the row already carries (an unpriced role
+        // gaining the person's own rate).
+        const currentRoleRate = assignMode!.dayRate ?? 0
+        const conflict = describeRateConflict(assignMode!.dayRate, selectedResource.day_rate_override)
+        const targetRate = conflict.needsPrompt ? chosenDayRate : conflict.resolvedDayRate
+        let appliedRate: number | undefined
+        if (targetRate !== null && targetRate !== undefined && targetRate !== currentRoleRate) {
+          const rateResult = await setAllocationDayRate(allocationId, targetRate)
+          if (!rateResult.success) {
+            setIsSubmitting(false)
+            setSubmitError(rateResult.error ?? 'Could not save the day rate. Please try again.')
+            return
+          }
+          appliedRate = targetRate
+        }
+
         const teamAssignments = teamRows
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
@@ -526,7 +682,12 @@ export function AddResourceWizard({
         // the user picks "No Team" or skips, avoiding unique constraint violations.
         await updateTeamAssignments(selectedResource.resource_id, periodId, teamAssignments)
         setIsSubmitting(false)
-        onAssignSuccess?.(allocationId, selectedResource.resource_id, selectedResource.resource_name)
+        onAssignSuccess?.(
+          allocationId,
+          selectedResource.resource_id,
+          selectedResource.resource_name,
+          appliedRate,
+        )
         onClose()
         return
       }
@@ -602,6 +763,11 @@ export function AddResourceWizard({
         planviewCode: form.planviewCode,
         teams: teamPayload,
         displayOrder: null,
+        // A team-only edit creates no row and touches no figures; the caller
+        // returns early on isTeamEdit and never reads these.
+        capacityDays: 0,
+        dayRate: 0,
+        monthlyDays: {},
       })
       return
     }
@@ -617,7 +783,16 @@ export function AddResourceWizard({
       .filter((r) => r.teamId !== '')
       .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
 
-    const { capacityDays, dayRate } = parseOptionalFigures(form)
+    const { capacityDays: totalCapacityDays, dayRate } = parseOptionalFigures(form)
+
+    // In monthly mode the breakdown is authoritative: the row is inserted
+    // carrying the sum, then the months themselves are written by the RPC
+    // (which re-syncs capacity_days to the same figure). Seeding the insert
+    // with the sum rather than 0 means the total is already correct at the
+    // moment the row appears, and stays correct even if phase two is what
+    // fails.
+    const useMonthly = isMonthlyMode
+    const capacityDays = useMonthly ? monthlyTotal : totalCapacityDays
 
     const result = await createResourceAndAllocation({
       mode,
@@ -634,12 +809,43 @@ export function AddResourceWizard({
       dayRate,
     })
 
-    setIsSubmitting(false)
-
     if (!result.success || !result.allocationId) {
+      setIsSubmitting(false)
       setSubmitError(result.error ?? 'Something went wrong. Please try again.')
       return
     }
+
+    // Phase two: the monthly breakdown, which needs the allocation_id phase
+    // one just produced (set_allocation_monthly_days has nothing to attach
+    // rows to before then). Every month the period spans is sent — the ones
+    // left blank as null, so they are explicitly absent rather than zero.
+    if (useMonthly) {
+      const monthKeys = months.map((m) => m.key)
+      const monthDays = months.map((m) =>
+        m.key in monthValues ? monthValues[m.key] : null,
+      )
+      const monthlyResult = await setAllocationMonthlyDays(
+        result.allocationId,
+        monthKeys,
+        monthDays,
+      )
+      if (!monthlyResult.success) {
+        // Roll the row back rather than leaving it on the schedule with no
+        // breakdown behind a total the user expected to be built from months.
+        // Reverting also means pressing "Add to schedule" again retries
+        // cleanly instead of adding a second row.
+        const revert = await deleteAllocation(result.allocationId)
+        setIsSubmitting(false)
+        setSubmitError(
+          revert.success
+            ? (monthlyResult.error ?? 'Could not save the monthly breakdown. Please try again.')
+            : `The monthly breakdown failed to save and the part-created row could not be removed. Check the schedule before retrying. (${monthlyResult.error ?? 'unknown error'})`,
+        )
+        return
+      }
+    }
+
+    setIsSubmitting(false)
 
     const supplierData = suppliers.find((s) => s.supplier_id === form.supplierId)
     const teamPayload = teamRows
@@ -668,6 +874,9 @@ export function AddResourceWizard({
       planviewCode: form.planviewCode,
       teams: teamPayload,
       displayOrder: result.displayOrder ?? null,
+      capacityDays: capacityDays ?? 0,
+      dayRate: dayRate ?? 0,
+      monthlyDays: useMonthly ? monthValues : {},
     })
   }
 
@@ -837,6 +1046,10 @@ export function AddResourceWizard({
       : (roleTitleRequired || teamTotal !== 100 || newPersonInvalid)
   )
   const submitLabel = mode === 'edit-teams' ? 'Save changes' : 'Add to schedule'
+  // A rate difference put to the user has to be answered before the assign
+  // can complete — picking one silently is exactly what this avoids.
+  const rateChoicePending = isAssignMode && rateConflict !== null && chosenDayRate === null
+  const submitDisabled = isSubmitting || rateChoicePending
 
   return (
     <div style={overlay} onClick={onClose} role="dialog" aria-modal>
@@ -963,6 +1176,18 @@ export function AddResourceWizard({
               onTeamRowChange={updateTeamRow}
               onFormChange={(key, val) => setForm((prev) => ({ ...prev, [key]: val }))}
               onChangeResource={() => setStep(1)}
+              canEnterMonthly={canEnterMonthly}
+              capacityMode={capacityMode}
+              onCapacityModeChange={setCapacityMode}
+              months={months}
+              monthDrafts={monthDrafts}
+              onMonthDraftChange={(key, val) =>
+                setMonthDrafts((prev) => ({ ...prev, [key]: val }))
+              }
+              monthlyTotal={monthlyTotal}
+              onPopulateWorkingDays={populateWorkingDays}
+              populateDisabled={populateDisabled}
+              populateTitle={populateTitle}
               inputStyle={inputStyle}
               selectStyle={selectStyle}
               labelStyle={labelStyle}
@@ -970,16 +1195,30 @@ export function AddResourceWizard({
             />
           )}
           {step === 3 && (
-            <Step3Body
-              mode={mode}
-              selectedResource={selectedResource}
-              form={form}
-              personName={newPersonName}
-              teamRows={teamRows}
-              teams={teams}
-              summaryBg={SUMMARY_BG}
-              assignRoleTitle={isAssignMode ? (assignMode!.roleTitle || '—') : undefined}
-            />
+            <>
+              <Step3Body
+                mode={mode}
+                selectedResource={selectedResource}
+                form={form}
+                personName={newPersonName}
+                teamRows={teamRows}
+                teams={teams}
+                summaryBg={SUMMARY_BG}
+                assignRoleTitle={isAssignMode ? (assignMode!.roleTitle || '—') : undefined}
+                capacityMode={isMonthlyMode ? 'monthly' : 'total'}
+                months={months}
+                monthValues={monthValues}
+                monthlyTotal={monthlyTotal}
+              />
+              {isAssignMode && rateConflict && (
+                <RateChoice
+                  conflict={rateConflict}
+                  resourceName={selectedResource?.resource_name ?? 'this person'}
+                  chosen={chosenDayRate}
+                  onChoose={setChosenDayRate}
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -1020,8 +1259,9 @@ export function AddResourceWizard({
               <button
                 type="button"
                 onClick={() => handleSubmit()}
-                disabled={isSubmitting}
-                style={isSubmitting ? btnDisabled : btnPrimary}
+                disabled={submitDisabled}
+                title={rateChoicePending ? 'Choose which day rate applies first' : undefined}
+                style={submitDisabled ? btnDisabled : btnPrimary}
               >
                 {isSubmitting ? 'Saving…' : isAssignMode ? 'Assign' : submitLabel}
               </button>
@@ -1073,6 +1313,89 @@ export function AddResourceWizard({
           }}
         />
       )}
+    </div>
+  )
+}
+
+/* ── Assign-mode rate choice ─────────────────────────────── */
+
+/**
+ * The role's budgeted day rate and the person's own rate both exist and
+ * disagree. Shown inline on the Confirm step rather than as a modal: it is one
+ * decision with two outcomes, and the summary it sits under is the context
+ * that makes it answerable. The Assign button stays disabled until one is
+ * picked — neither figure is a safe silent default.
+ */
+function RateChoice({
+  conflict,
+  resourceName,
+  chosen,
+  onChoose,
+}: {
+  conflict: RateConflict
+  resourceName: string
+  chosen: number | null
+  onChoose: (rate: number) => void
+}) {
+  const roleRate = resolveKeepRoleRate(conflict)
+  const resourceRate = resolveUseResourceRate(conflict)
+
+  const optionBase: React.CSSProperties = {
+    flex: '1 1 150px',
+    minWidth: 0,
+    textAlign: 'left',
+    borderRadius: 6,
+    padding: '8px 10px',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'var(--rmg-font-body)',
+    lineHeight: 1.35,
+  }
+  const optionStyle = (selected: boolean): React.CSSProperties => ({
+    ...optionBase,
+    background: selected ? 'rgba(218,32,42,0.06)' : 'var(--rmg-color-white)',
+    border: selected ? `1.5px solid ${ACTIVE_RED}` : '1px solid #D0D0D0',
+    color: '#2A2A2D',
+  })
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        background: '#FFF8ED',
+        border: '1px solid #FFD98A',
+        borderRadius: 8,
+        padding: '12px 14px',
+      }}
+    >
+      <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: '#2A2A2D' }}>
+        Which day rate applies?
+      </p>
+      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#8A6100', lineHeight: 1.45 }}>
+        This role is budgeted at {formatMoneyPence(roleRate)}/day, but {resourceName}&apos;s
+        own rate is {formatMoneyPence(resourceRate)}/day.
+      </p>
+      {/* Wraps to one option per line under ~330px of content width, so both
+          stay fully readable on a 390px viewport. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => onChoose(roleRate)}
+          aria-pressed={chosen === roleRate}
+          style={optionStyle(chosen === roleRate)}
+        >
+          Keep {formatMoneyPence(roleRate)} (role)
+        </button>
+        <button
+          type="button"
+          onClick={() => onChoose(resourceRate)}
+          aria-pressed={chosen === resourceRate}
+          style={optionStyle(chosen === resourceRate)}
+        >
+          Use {formatMoneyPence(resourceRate)} ({resourceName}&apos;s rate)
+        </button>
+      </div>
     </div>
   )
 }
@@ -1725,6 +2048,16 @@ function Step2Body({
   onTeamRowChange,
   onFormChange,
   onChangeResource,
+  canEnterMonthly,
+  capacityMode,
+  onCapacityModeChange,
+  months,
+  monthDrafts,
+  onMonthDraftChange,
+  monthlyTotal,
+  onPopulateWorkingDays,
+  populateDisabled,
+  populateTitle,
   inputStyle,
   selectStyle,
   labelStyle,
@@ -1747,6 +2080,16 @@ function Step2Body({
   onTeamRowChange: (id: string, field: 'teamId' | 'pct', value: string | number) => void
   onFormChange: (key: keyof FormState, val: string) => void
   onChangeResource: () => void
+  canEnterMonthly: boolean
+  capacityMode: CapacityMode
+  onCapacityModeChange: (mode: CapacityMode) => void
+  months: PeriodMonth[]
+  monthDrafts: Record<string, string>
+  onMonthDraftChange: (monthKey: string, val: string) => void
+  monthlyTotal: number
+  onPopulateWorkingDays: () => void
+  populateDisabled: boolean
+  populateTitle: string
   inputStyle: React.CSSProperties
   selectStyle: React.CSSProperties
   labelStyle: React.CSSProperties
@@ -1941,34 +2284,147 @@ function Step2Body({
         </div>
       )}
 
-      {/* Optional starting figures — brand-new-person and TBC rows are created
-          at 0 days / £0 by default; fill these to seed them directly. */}
-      {(mode === 'new' || mode === 'tbc') && (
-        <div style={{ display: 'flex', gap: 12 }}>
-          <div style={{ ...fieldWrap, flex: 1 }}>
-            <label style={labelStyle}>Capacity (days)</label>
-            <input
-              type="number"
-              min={0}
-              value={form.capacityDays ?? ''}
-              onChange={(e) => onFormChange('capacityDays', e.target.value)}
-              placeholder="Optional"
-              style={inputStyle}
-            />
+      {/* Optional starting figures. Rows are created at 0 days / £0 by
+          default; fill these to seed them directly instead of editing the row
+          inline afterwards. Offered on every path that creates a row — a
+          known person, a new person and a vacant TBC seat alike. */}
+      {mode !== 'edit-teams' && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            {/* Both fields keep a floor of ~140px and wrap to their own line
+                rather than shrinking below it, which is what keeps them
+                usable at a 390px viewport. */}
+            <div style={{ ...fieldWrap, flex: '1 1 140px', minWidth: 0 }}>
+              <label style={labelStyle}>Capacity (days)</label>
+              {capacityMode === 'monthly' ? (
+                <input
+                  type="number"
+                  value={monthlyTotal}
+                  readOnly
+                  aria-readonly="true"
+                  title="Total is the sum of the monthly breakdown below"
+                  style={{
+                    ...inputStyle,
+                    background: '#F1F2F5',
+                    color: INACTIVE_GREY,
+                    cursor: 'not-allowed',
+                  }}
+                />
+              ) : (
+                <input
+                  type="number"
+                  min={0}
+                  value={form.capacityDays ?? ''}
+                  onChange={(e) => onFormChange('capacityDays', e.target.value)}
+                  placeholder="Optional"
+                  style={inputStyle}
+                />
+              )}
+            </div>
+            <div style={{ ...fieldWrap, flex: '1 1 140px', minWidth: 0 }}>
+              <label style={labelStyle}>Day rate (£)</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.dayRate ?? ''}
+                onChange={(e) => onFormChange('dayRate', e.target.value)}
+                placeholder="Optional"
+                style={inputStyle}
+              />
+            </div>
           </div>
-          <div style={{ ...fieldWrap, flex: 1 }}>
-            <label style={labelStyle}>Day rate (£)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.dayRate ?? ''}
-              onChange={(e) => onFormChange('dayRate', e.target.value)}
-              placeholder="Optional"
-              style={inputStyle}
-            />
-          </div>
-        </div>
+
+          {/* Total vs per-month entry. The row editor expresses the same two
+              states implicitly (any populated month locks the total to the
+              sum); here it has to be an explicit choice, because a row that
+              does not exist yet has no months to infer it from. */}
+          {canEnterMonthly && (
+            <div style={fieldWrap}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                {(['total', 'monthly'] as const).map((m) => {
+                  const active = capacityMode === m
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => onCapacityModeChange(m)}
+                      aria-pressed={active}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        fontFamily: 'var(--rmg-font-body)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        background: active ? ACTIVE_RED : 'transparent',
+                        color: active ? '#fff' : '#404044',
+                        border: active ? 'none' : '1px solid #C0C0C0',
+                      }}
+                    >
+                      {m === 'total' ? 'Total days' : 'Per month'}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {capacityMode === 'monthly' && (
+                <>
+                  {/* Wraps instead of scrolling: at 390px a 3-month quarter
+                      fits on one line, and a longer period flows onto a
+                      second rather than overflowing the card. */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    {months.map((m) => (
+                      <div key={m.key} style={{ flex: '1 1 64px', minWidth: 64 }}>
+                        <label
+                          style={{
+                            ...labelStyle,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: INACTIVE_GREY,
+                            marginBottom: 2,
+                          }}
+                        >
+                          {m.label}
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          aria-label={`${m.label} ${m.year} days`}
+                          value={monthDrafts[m.key] ?? ''}
+                          onChange={(e) => onMonthDraftChange(m.key, e.target.value)}
+                          style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onPopulateWorkingDays}
+                    disabled={populateDisabled}
+                    title={populateTitle}
+                    style={{
+                      marginTop: 8,
+                      background: 'transparent',
+                      border: 'none',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: populateDisabled ? INACTIVE_GREY : ACTIVE_RED,
+                      cursor: populateDisabled ? 'not-allowed' : 'pointer',
+                      padding: 0,
+                      fontFamily: 'var(--rmg-font-body)',
+                    }}
+                  >
+                    Populate working days
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -1985,6 +2441,10 @@ function Step3Body({
   teams,
   summaryBg,
   assignRoleTitle,
+  capacityMode,
+  months,
+  monthValues,
+  monthlyTotal,
 }: {
   mode: WizardMode
   selectedResource: ResourceSearchResult | null
@@ -1994,6 +2454,10 @@ function Step3Body({
   teams: TeamOption[]
   summaryBg: string
   assignRoleTitle?: string
+  capacityMode: CapacityMode
+  months: PeriodMonth[]
+  monthValues: Record<string, number>
+  monthlyTotal: number
 }) {
   // ── Assign mode: summary ─────────────────────────────────────────────────────
   if (assignRoleTitle !== undefined) {
@@ -2056,8 +2520,19 @@ function Step3Body({
 
   // Optional starting figures (new / TBC paths). When provided they appear in
   // the summary like any other field and the "edit inline" note drops away.
-  const { capacityDays, dayRate } = parseOptionalFigures(form)
+  const { capacityDays: totalCapacityDays, dayRate } = parseOptionalFigures(form)
+  const inMonthlyMode = capacityMode === 'monthly'
+  const capacityDays = inMonthlyMode ? monthlyTotal : totalCapacityDays
   const hasFigures = capacityDays !== undefined || dayRate !== undefined
+
+  // In monthly mode the summary shows the months behind the total, so what is
+  // about to be written is legible before it is written.
+  const monthlyBreakdown = inMonthlyMode
+    ? months
+        .filter((m) => m.key in monthValues)
+        .map((m) => `${m.label} ${monthValues[m.key]}`)
+        .join(' · ')
+    : ''
 
   const rows: Array<{ label: string; value: string }> =
     mode === 'edit-teams'
@@ -2073,8 +2548,14 @@ function Step3Body({
           { label: 'Plan', value: form.planviewCode },
           { label: 'Location', value: locationLabel(form.resourceLocation) },
           ...(capacityDays !== undefined
-            ? [{ label: 'Capacity (days)', value: String(capacityDays) }]
+            ? [
+                {
+                  label: inMonthlyMode ? 'Capacity (monthly total)' : 'Capacity (days)',
+                  value: String(capacityDays),
+                },
+              ]
             : []),
+          ...(monthlyBreakdown ? [{ label: 'Months', value: monthlyBreakdown }] : []),
           ...(dayRate !== undefined
             ? [{ label: 'Day rate', value: `${formatMoneyPence(dayRate)}/day` }]
             : []),

@@ -12,6 +12,11 @@ export interface ResourceSearchResult {
   supplier_id: string | null
   supplier_name: string | null
   supplier_colour: string | null
+  /** The person's own day rate in integer pence, or null when never set.
+   *  Pre-fills the wizard's day-rate field and drives the assign-mode rate
+   *  comparison, so it travels with the search result rather than costing a
+   *  second round trip once a resource is picked. */
+  day_rate_override: number | null
 }
 
 export interface SupplierOption {
@@ -37,6 +42,7 @@ type RawResourceRow = {
   resource_job_title: string | null
   resource_location: string | null
   supplier_id: string | null
+  day_rate_override: number | string | null
   suppliers:
     | { supplier_name: string; supplier_colour: string | null }
     | { supplier_name: string; supplier_colour: string | null }[]
@@ -59,6 +65,7 @@ export async function searchResources(
     .from('resources')
     .select(
       `resource_id, resource_name, resource_job_title, resource_location, supplier_id,
+       day_rate_override,
        suppliers:supplier_id ( supplier_name, supplier_colour )`,
     )
     .ilike('resource_name', `%${query}%`)
@@ -79,6 +86,10 @@ export async function searchResources(
       supplier_id: r.supplier_id,
       supplier_name: s?.supplier_name ?? null,
       supplier_colour: s?.supplier_colour ?? null,
+      day_rate_override:
+        r.day_rate_override === null || r.day_rate_override === undefined
+          ? null
+          : Number(r.day_rate_override),
     }
   })
 }
@@ -420,6 +431,57 @@ export async function createResourceAndAllocation(
     const message = err instanceof Error ? err.message : 'Unexpected error'
     return { success: false, error: message }
   }
+}
+
+/**
+ * Set one allocation's day_rate, in integer pence. Used by assign mode when
+ * the role's budgeted rate and the resource's own rate disagree and the user
+ * has picked which of the two stands (see lib/schedule/rateConflict).
+ */
+export async function setAllocationDayRate(
+  allocationId: string,
+  dayRate: number,
+): Promise<{ success: boolean; error?: string }> {
+  if (!Number.isFinite(dayRate) || dayRate < 0) {
+    return { success: false, error: 'Day rate must be a non-negative number of pence' }
+  }
+
+  const supabase = await getSupabaseServerComponentClient()
+
+  const { data, error } = await supabase
+    .from('resource_period_allocations')
+    .update({ day_rate: Math.round(dayRate), updated_at: new Date().toISOString() })
+    .eq('allocation_id', allocationId)
+    .is('deleted_at', null)
+    .select('allocation_id')
+
+  if (error) return { success: false, error: error.message }
+  if (!data || (data as unknown[]).length === 0) {
+    return { success: false, error: 'Allocation not found' }
+  }
+  return { success: true }
+}
+
+/**
+ * Soft-delete an allocation the wizard has just created. Only used to roll
+ * back the first phase of a two-phase monthly submit: if the monthly-days RPC
+ * fails after the row landed, the row would otherwise be left carrying no
+ * breakdown at all while the user asked for one. Reverting leaves the schedule
+ * exactly as it was so "Add to schedule" can simply be pressed again, rather
+ * than the retry adding a second row.
+ */
+export async function deleteAllocation(
+  allocationId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await getSupabaseServerComponentClient()
+
+  const { error } = await supabase
+    .from('resource_period_allocations')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('allocation_id', allocationId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true }
 }
 
 export async function getTeamAssignments(

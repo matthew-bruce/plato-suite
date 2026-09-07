@@ -665,9 +665,28 @@ export function SchedulePageClient({ data }: Props) {
       .eq('allocation_id', id)
   }
 
-  function handleAssignSuccess(allocationId: string, _resourceId: string | null, resourceName: string | null): void {
+  function handleAssignSuccess(
+    allocationId: string,
+    _resourceId: string | null,
+    resourceName: string | null,
+    dayRate?: number,
+  ): void {
     setLocalAllocations((prev) =>
-      prev.map((a) => a.allocation_id === allocationId ? { ...a, resource_name: resourceName } : a),
+      prev.map((a) => {
+        if (a.allocation_id !== allocationId) return a
+        const next = { ...a, resource_name: resourceName }
+        // The assign settled a rate difference, so the row's own figure — and
+        // everything derived from it — moves with it rather than waiting for
+        // a re-fetch.
+        if (dayRate === undefined) return next
+        const base = Math.round(dayRate * (next.capacity_days ?? 0) * (next.utilisation_percent / 100))
+        return {
+          ...next,
+          day_rate: dayRate,
+          base_total_pence: base,
+          vat_total_pence: next.vat_applies !== false ? Math.round(base * (1 + vatPct / 100)) : base,
+        }
+      }),
     )
   }
 
@@ -732,6 +751,13 @@ export function SchedulePageClient({ data }: Props) {
       teamName: t.teamName,
       capacitySplit: 1.0,
     })) as unknown as Allocation['teams']
+    // The figures the wizard actually wrote, not zeros: this row is rendered
+    // straight from here without a re-fetch, so anything hardcoded to 0 stays
+    // visibly 0 until the next full page load even though the DB holds the
+    // real value. Derived totals are computed the same way handleUpdateAllocation
+    // does, so BASE/+VAT and every roll-up are right immediately.
+    const utilisationPercent = 100
+    const base = Math.round(data.dayRate * data.capacityDays * (utilisationPercent / 100))
     const newAlloc: Allocation = {
       allocation_id: data.allocationId,
       resource_id: data.resourceId ?? null,
@@ -743,16 +769,16 @@ export function SchedulePageClient({ data }: Props) {
       supplier_sort_order: data.supplierSortOrder,
       resource_location: data.resourceLocation,
       planview_code: data.planviewCode,
-      day_rate: 0,
-      utilisation_percent: 100,
-      capacity_days: 0,
-      is_chargeable: false,
+      day_rate: data.dayRate,
+      utilisation_percent: utilisationPercent,
+      capacity_days: data.capacityDays,
+      is_chargeable: isChargeableRow(data.planviewCode),
       vat_applies: true,
       is_confirmed: false,
-      monthly_days: {},
+      monthly_days: data.monthlyDays,
       teams,
-      base_total_pence: 0,
-      vat_total_pence: 0,
+      base_total_pence: base,
+      vat_total_pence: Math.round(base * (1 + vatPct / 100)),
       display_order: data.displayOrder,
     }
     setLocalAllocations((prev) => [...prev, newAlloc])
@@ -1072,6 +1098,16 @@ export function SchedulePageClient({ data }: Props) {
       activeSupplierFilter={selectedSuppliers}
       activeTeamFilter={teamFilter}
       periodWorkingDays={workingDays}
+      // The same period months and holiday data the inline row editor uses,
+      // taken from the one context both now share so the wizard's per-month
+      // capacity entry can never drift from the row's.
+      monthlyCapacity={{
+        months: monthlyDaysContext.months,
+        periodStart: monthlyDaysContext.periodStart,
+        periodEnd: monthlyDaysContext.periodEnd,
+        holidays: monthlyDaysContext.holidays,
+        missingHolidayYears: monthlyDaysContext.missingHolidayYears,
+      }}
       assignMode={assignWizardTarget ?? undefined}
       onAssignSuccess={handleAssignSuccess}
       onConflictResolved={() => router.refresh()}
