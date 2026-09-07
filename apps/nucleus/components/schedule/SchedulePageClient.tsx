@@ -56,6 +56,7 @@ import {
 } from '@/lib/schedule/monthlyDays'
 import { CustomSelect } from '../ui/CustomSelect'
 import { AddResourceWizard } from './AddResourceWizard'
+import { RedXButton } from './RedXButton'
 import { CreatePeriodWizard } from './CreatePeriodWizard'
 import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard'
 import { EditTeamsModal } from './EditTeamsModal'
@@ -3149,37 +3150,6 @@ function UserPlusIcon() {
  *  destructive/reset action on a row (deleting it, or clearing a locked
  *  field back to manual entry). Not for confirmed multi-step deletes,
  *  which use their own inline Yes/Cancel controls. */
-function RedXButton({
-  onClick,
-  title,
-  ariaLabel,
-}: {
-  onClick: () => void
-  title: string
-  ariaLabel: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-label={ariaLabel}
-      style={{
-        flexShrink: 0,
-        background: 'transparent',
-        border: 'none',
-        color: '#DA202A',
-        cursor: 'pointer',
-        fontSize: 14,
-        lineHeight: 1,
-        padding: '0 2px',
-      }}
-    >
-      ✕
-    </button>
-  )
-}
-
 function UserMinusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

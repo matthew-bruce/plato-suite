@@ -30,8 +30,14 @@ import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { formatMoneyPence } from '@/lib/schedule/format'
 import { computeConflictDayMath, describeConflictPresentation } from '@/lib/schedule/conflictDayMath'
 import type { ConflictDayMath } from '@/lib/schedule/conflictDayMath'
-import { calculateWorkingDaysInMonth, sumMonthlyDays } from '@/lib/schedule/monthlyDays'
+import {
+  calculateWorkingDaysInMonth,
+  sumMonthlyDays,
+  hasAnyMonthlyValue,
+} from '@/lib/schedule/monthlyDays'
 import type { PeriodMonth } from '@/lib/schedule/monthlyDays'
+import { RedXButton } from './RedXButton'
+import { CalendarCheck } from 'lucide-react'
 import {
   describeRateConflict,
   resolveKeepRoleRate,
@@ -72,11 +78,6 @@ interface FormState {
   /** Optional starting day rate in pounds, as a raw input string. */
   dayRate?: string
 }
-
-/** How capacity days are being entered on the Details step. Mirrors the
- *  Schedule row's own two states: a single total, or a per-month breakdown
- *  whose sum becomes the total (enforced server-side by migration 029). */
-type CapacityMode = 'total' | 'monthly'
 
 /**
  * Everything the Details step's monthly breakdown needs. Mirrors the shape
@@ -309,11 +310,10 @@ export function AddResourceWizard({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Capacity entry: a single total (default, as before) or a per-month
-  // breakdown whose sum becomes the total. Month drafts are kept as raw
-  // strings so a field can sit blank or mid-edit without becoming 0 — the
-  // same convention the inline row editor uses.
-  const [capacityMode, setCapacityMode] = useState<CapacityMode>('total')
+  // Month drafts are kept as raw strings so a field can sit blank or mid-edit
+  // without becoming 0 — the same convention the inline row editor uses.
+  // There is no mode flag: whether the breakdown is in use is derived from
+  // whether any month carries a value, exactly as the row editor derives it.
   const [monthDrafts, setMonthDrafts] = useState<Record<string, string>>({})
 
   // Assign mode: the role's budgeted rate and the picked resource's own rate
@@ -381,7 +381,6 @@ export function AddResourceWizard({
       setSubmitError(null)
       setConflictDialog(null)
       setNewPersonName('')
-      setCapacityMode('total')
       setMonthDrafts({})
       setRateConflict(null)
       setChosenDayRate(null)
@@ -592,11 +591,17 @@ export function AddResourceWizard({
   }
   const monthlyTotal = sumMonthlyDays(monthValues)
 
-  /** Monthly entry only counts as "in use" when it is both selected and has a
-   *  figure in it — an empty breakdown would otherwise write a row of nulls
-   *  and pin the total to 0. */
-  const isMonthlyMode =
-    capacityMode === 'monthly' && canEnterMonthly && Object.keys(monthValues).length > 0
+  /** The breakdown is "on" as soon as any month carries a value — the same
+   *  derivation the inline row editor makes (hasAnyMonthlyValue over the row's
+   *  monthly_days), applied here to the drafts standing in for a row that does
+   *  not exist yet. No stored mode flag on either side. */
+  const isMonthlyMode = hasAnyMonthlyValue(monthValues)
+
+  /** Clear every month, handing the total back to direct entry. Mirrors the
+   *  row editor's red ✕, which clears the breakdown for the same reason. */
+  function clearMonths() {
+    setMonthDrafts({})
+  }
 
   const populateDisabled = (monthlyCapacity?.missingHolidayYears.length ?? 0) > 0
   const populateTitle = populateDisabled
@@ -791,8 +796,7 @@ export function AddResourceWizard({
     // with the sum rather than 0 means the total is already correct at the
     // moment the row appears, and stays correct even if phase two is what
     // fails.
-    const useMonthly = isMonthlyMode
-    const capacityDays = useMonthly ? monthlyTotal : totalCapacityDays
+    const capacityDays = isMonthlyMode ? monthlyTotal : totalCapacityDays
 
     const result = await createResourceAndAllocation({
       mode,
@@ -819,7 +823,7 @@ export function AddResourceWizard({
     // one just produced (set_allocation_monthly_days has nothing to attach
     // rows to before then). Every month the period spans is sent — the ones
     // left blank as null, so they are explicitly absent rather than zero.
-    if (useMonthly) {
+    if (isMonthlyMode) {
       const monthKeys = months.map((m) => m.key)
       const monthDays = months.map((m) =>
         m.key in monthValues ? monthValues[m.key] : null,
@@ -876,7 +880,7 @@ export function AddResourceWizard({
       displayOrder: result.displayOrder ?? null,
       capacityDays: capacityDays ?? 0,
       dayRate: dayRate ?? 0,
-      monthlyDays: useMonthly ? monthValues : {},
+      monthlyDays: isMonthlyMode ? monthValues : {},
     })
   }
 
@@ -1177,13 +1181,13 @@ export function AddResourceWizard({
               onFormChange={(key, val) => setForm((prev) => ({ ...prev, [key]: val }))}
               onChangeResource={() => setStep(1)}
               canEnterMonthly={canEnterMonthly}
-              capacityMode={capacityMode}
-              onCapacityModeChange={setCapacityMode}
+              isMonthlyMode={isMonthlyMode}
               months={months}
               monthDrafts={monthDrafts}
               onMonthDraftChange={(key, val) =>
                 setMonthDrafts((prev) => ({ ...prev, [key]: val }))
               }
+              onClearMonths={clearMonths}
               monthlyTotal={monthlyTotal}
               onPopulateWorkingDays={populateWorkingDays}
               populateDisabled={populateDisabled}
@@ -1205,7 +1209,7 @@ export function AddResourceWizard({
                 teams={teams}
                 summaryBg={SUMMARY_BG}
                 assignRoleTitle={isAssignMode ? (assignMode!.roleTitle || '—') : undefined}
-                capacityMode={isMonthlyMode ? 'monthly' : 'total'}
+                isMonthlyMode={isMonthlyMode}
                 months={months}
                 monthValues={monthValues}
                 monthlyTotal={monthlyTotal}
@@ -2049,11 +2053,11 @@ function Step2Body({
   onFormChange,
   onChangeResource,
   canEnterMonthly,
-  capacityMode,
-  onCapacityModeChange,
+  isMonthlyMode,
   months,
   monthDrafts,
   onMonthDraftChange,
+  onClearMonths,
   monthlyTotal,
   onPopulateWorkingDays,
   populateDisabled,
@@ -2081,11 +2085,12 @@ function Step2Body({
   onFormChange: (key: keyof FormState, val: string) => void
   onChangeResource: () => void
   canEnterMonthly: boolean
-  capacityMode: CapacityMode
-  onCapacityModeChange: (mode: CapacityMode) => void
+  /** Derived, not stored: true when any month carries a value. */
+  isMonthlyMode: boolean
   months: PeriodMonth[]
   monthDrafts: Record<string, string>
   onMonthDraftChange: (monthKey: string, val: string) => void
+  onClearMonths: () => void
   monthlyTotal: number
   onPopulateWorkingDays: () => void
   populateDisabled: boolean
@@ -2290,140 +2295,136 @@ function Step2Body({
           known person, a new person and a vacant TBC seat alike. */}
       {mode !== 'edit-teams' && (
         <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {/* Both fields keep a floor of ~140px and wrap to their own line
-                rather than shrinking below it, which is what keeps them
-                usable at a 390px viewport. */}
-            <div style={{ ...fieldWrap, flex: '1 1 140px', minWidth: 0 }}>
-              <label style={labelStyle}>Capacity (days)</label>
-              {capacityMode === 'monthly' ? (
-                <input
-                  type="number"
-                  value={monthlyTotal}
-                  readOnly
-                  aria-readonly="true"
-                  title="Total is the sum of the monthly breakdown below"
+          {/* Capacity, laid out in the same order as the inline row editor:
+              the month inputs, the populate-working-days button, the total,
+              then the clear ✕. Like that row, the total is freely editable
+              until any month carries a value, at which point it mirrors the
+              sum and the ✕ is the way back to manual entry. */}
+          <div style={fieldWrap}>
+            <label style={labelStyle}>Capacity (days)</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' }}>
+              {canEnterMonthly &&
+                months.map((m) => (
+                  <div key={m.key} style={{ flex: '1 1 56px', minWidth: 52 }}>
+                    <label
+                      style={{
+                        ...labelStyle,
+                        fontSize: 11,
+                        fontWeight: 500,
+                        color: INACTIVE_GREY,
+                        marginBottom: 2,
+                      }}
+                    >
+                      {m.label}
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      aria-label={`${m.label} ${m.year} days`}
+                      value={monthDrafts[m.key] ?? ''}
+                      onChange={(e) => onMonthDraftChange(m.key, e.target.value)}
+                      style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
+                    />
+                  </div>
+                ))}
+
+              {canEnterMonthly && (
+                <button
+                  type="button"
+                  onClick={onPopulateWorkingDays}
+                  disabled={populateDisabled}
+                  title={populateTitle}
+                  aria-label="Populate working days"
                   style={{
-                    ...inputStyle,
-                    background: '#F1F2F5',
-                    color: INACTIVE_GREY,
-                    cursor: 'not-allowed',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    width: 30,
+                    height: 30,
+                    border: '1px solid #D0D0D0',
+                    borderRadius: 6,
+                    background: '#fff',
+                    color: populateDisabled ? INACTIVE_GREY : '#404044',
+                    cursor: populateDisabled ? 'not-allowed' : 'pointer',
+                    opacity: populateDisabled ? 0.5 : 1,
                   }}
-                />
-              ) : (
-                <input
-                  type="number"
-                  min={0}
-                  value={form.capacityDays ?? ''}
-                  onChange={(e) => onFormChange('capacityDays', e.target.value)}
-                  placeholder="Optional"
-                  style={inputStyle}
-                />
+                >
+                  <CalendarCheck size={14} strokeWidth={1.75} aria-hidden />
+                </button>
               )}
-            </div>
-            <div style={{ ...fieldWrap, flex: '1 1 140px', minWidth: 0 }}>
-              <label style={labelStyle}>Day rate (£)</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.dayRate ?? ''}
-                onChange={(e) => onFormChange('dayRate', e.target.value)}
-                placeholder="Optional"
-                style={inputStyle}
-              />
+
+              {/* The total. Read-only grey while the months drive it, exactly
+                  as the row editor's total behaves. */}
+              <div style={{ flex: '1 1 72px', minWidth: 64 }}>
+                <label
+                  style={{
+                    ...labelStyle,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: INACTIVE_GREY,
+                    marginBottom: 2,
+                  }}
+                >
+                  Total
+                </label>
+                {isMonthlyMode ? (
+                  <input
+                    type="number"
+                    value={monthlyTotal}
+                    readOnly
+                    aria-readonly="true"
+                    title="Total is the sum of the monthly breakdown — clear it to type a total directly"
+                    style={{
+                      ...inputStyle,
+                      padding: '6px 8px',
+                      textAlign: 'right',
+                      background: '#F1F2F5',
+                      color: INACTIVE_GREY,
+                      cursor: 'not-allowed',
+                    }}
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.capacityDays ?? ''}
+                    onChange={(e) => onFormChange('capacityDays', e.target.value)}
+                    // No placeholder, matching the row editor's total: at this
+                    // width any hint text clips, and the "Total" label above
+                    // already names the field.
+                    style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
+                  />
+                )}
+              </div>
+
+              {isMonthlyMode && (
+                <div style={{ paddingBottom: 8 }}>
+                  <RedXButton
+                    onClick={onClearMonths}
+                    title="Clear the monthly breakdown and enter a total directly"
+                    ariaLabel="Clear monthly breakdown"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Total vs per-month entry. The row editor expresses the same two
-              states implicitly (any populated month locks the total to the
-              sum); here it has to be an explicit choice, because a row that
-              does not exist yet has no months to infer it from. */}
-          {canEnterMonthly && (
-            <div style={fieldWrap}>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                {(['total', 'monthly'] as const).map((m) => {
-                  const active = capacityMode === m
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => onCapacityModeChange(m)}
-                      aria-pressed={active}
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        fontFamily: 'var(--rmg-font-body)',
-                        fontSize: 12,
-                        fontWeight: 600,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        background: active ? ACTIVE_RED : 'transparent',
-                        color: active ? '#fff' : '#404044',
-                        border: active ? 'none' : '1px solid #C0C0C0',
-                      }}
-                    >
-                      {m === 'total' ? 'Total days' : 'Per month'}
-                    </button>
-                  )
-                })}
-              </div>
-
-              {capacityMode === 'monthly' && (
-                <>
-                  {/* Wraps instead of scrolling: at 390px a 3-month quarter
-                      fits on one line, and a longer period flows onto a
-                      second rather than overflowing the card. */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                    {months.map((m) => (
-                      <div key={m.key} style={{ flex: '1 1 64px', minWidth: 64 }}>
-                        <label
-                          style={{
-                            ...labelStyle,
-                            fontSize: 11,
-                            fontWeight: 500,
-                            color: INACTIVE_GREY,
-                            marginBottom: 2,
-                          }}
-                        >
-                          {m.label}
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.5"
-                          aria-label={`${m.label} ${m.year} days`}
-                          value={monthDrafts[m.key] ?? ''}
-                          onChange={(e) => onMonthDraftChange(m.key, e.target.value)}
-                          style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onPopulateWorkingDays}
-                    disabled={populateDisabled}
-                    title={populateTitle}
-                    style={{
-                      marginTop: 8,
-                      background: 'transparent',
-                      border: 'none',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: populateDisabled ? INACTIVE_GREY : ACTIVE_RED,
-                      cursor: populateDisabled ? 'not-allowed' : 'pointer',
-                      padding: 0,
-                      fontFamily: 'var(--rmg-font-body)',
-                    }}
-                  >
-                    Populate working days
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+          {/* Day rate gets its own full-width row — it is unrelated to the
+              month/total interplay above and reads as a separate figure. */}
+          <div style={fieldWrap}>
+            <label style={labelStyle}>Day rate (£)</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.dayRate ?? ''}
+              onChange={(e) => onFormChange('dayRate', e.target.value)}
+              placeholder="Optional"
+              style={inputStyle}
+            />
+          </div>
         </>
       )}
     </div>
@@ -2441,7 +2442,7 @@ function Step3Body({
   teams,
   summaryBg,
   assignRoleTitle,
-  capacityMode,
+  isMonthlyMode,
   months,
   monthValues,
   monthlyTotal,
@@ -2454,7 +2455,8 @@ function Step3Body({
   teams: TeamOption[]
   summaryBg: string
   assignRoleTitle?: string
-  capacityMode: CapacityMode
+  /** Derived from the month drafts, not a stored mode. */
+  isMonthlyMode: boolean
   months: PeriodMonth[]
   monthValues: Record<string, number>
   monthlyTotal: number
@@ -2521,13 +2523,12 @@ function Step3Body({
   // Optional starting figures (new / TBC paths). When provided they appear in
   // the summary like any other field and the "edit inline" note drops away.
   const { capacityDays: totalCapacityDays, dayRate } = parseOptionalFigures(form)
-  const inMonthlyMode = capacityMode === 'monthly'
-  const capacityDays = inMonthlyMode ? monthlyTotal : totalCapacityDays
+  const capacityDays = isMonthlyMode ? monthlyTotal : totalCapacityDays
   const hasFigures = capacityDays !== undefined || dayRate !== undefined
 
   // In monthly mode the summary shows the months behind the total, so what is
   // about to be written is legible before it is written.
-  const monthlyBreakdown = inMonthlyMode
+  const monthlyBreakdown = isMonthlyMode
     ? months
         .filter((m) => m.key in monthValues)
         .map((m) => `${m.label} ${monthValues[m.key]}`)
@@ -2550,7 +2551,7 @@ function Step3Body({
           ...(capacityDays !== undefined
             ? [
                 {
-                  label: inMonthlyMode ? 'Capacity (monthly total)' : 'Capacity (days)',
+                  label: isMonthlyMode ? 'Capacity (monthly total)' : 'Capacity (days)',
                   value: String(capacityDays),
                 },
               ]
