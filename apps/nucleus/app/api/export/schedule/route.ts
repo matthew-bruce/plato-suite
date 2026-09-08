@@ -2,6 +2,8 @@ import ExcelJS from 'exceljs'
 import { getSupabaseServerComponentClient, resolveCostConfigurationByCode } from '@plato/schema/server'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
+import { computeScheduleTotals } from '@/lib/schedule/scheduleTotals'
+import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -37,6 +39,9 @@ interface CostItemRow {
   amount_pence: number
   sort_order: number
   cost_item_category: CostItemCategory
+  /** Ad-hoc items take VAT per this flag, exactly as the live page applies
+   *  it. ETP / Shared Services figures already embed VAT and are taken as-is. */
+  vat_applies: boolean
 }
 
 /* ── Filename derivation ──────────────────────────────────────────── */
@@ -273,7 +278,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Query 4: Platform cost items (split by category) ── */
   const { data: costItemsData } = await supabase
     .from('platform_cost_items')
-    .select('label, amount_pence, sort_order, cost_item_category')
+    .select('label, amount_pence, sort_order, cost_item_category, vat_applies')
     .eq('period_id', periodId)
     .is('deleted_at', null)
     .order('sort_order')
@@ -471,6 +476,7 @@ export async function GET(request: Request): Promise<Response> {
   const lastResourceRow = ws.rowCount
 
   /* ── Ad-hoc cost items (ADHOC category only) ── */
+  let firstAdhocRow = 0
   let lastAdhocRow = lastResourceRow
 
   if (adhocItems.length > 0) {
@@ -485,12 +491,18 @@ export async function GET(request: Request): Promise<Response> {
         item.label,
         '', '', '', '', '', '', '', '', '', '',
         item.amount_pence / 100,
+        // Placeholder — pass 2 replaces this with the VAT-uplifted formula
+        // once the VAT multiplier's row is known, for items that take VAT.
         { formula: `=L${rowNum}` },
       ])
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
       setRowFill(ws, rowNum, 'FFFAFAFA', NUM_COLS)
+      if (firstAdhocRow === 0) firstAdhocRow = rowNum
       lastAdhocRow = rowNum
+      // Ad-hoc items take VAT per their own flag — the live page's rule. Left
+      // off entirely before, which understated the platform total.
+      if (item.vat_applies) vatRows.push(rowNum)
     }
   }
 
@@ -520,20 +532,42 @@ export async function GET(request: Request): Promise<Response> {
     }
   }
 
-  // Last row that carries data — used for all SUBTOTAL/SUMIF ranges. Blank and
-  // label rows inside the range are ignored by SUBTOTAL/SUMIF.
-  const lastDataRow = Math.max(lastResourceRow, lastAdhocRow, lastEtpRow)
-
   /* ── Blank spacer ── */
   ws.addRow([])
 
-  /* ── Subtotal row ── */
+  /* ── Subtotal row ──
+     This is Total Platform Cost, and it has to mean the same thing the
+     Schedule page's card means: allocations the platform actually bears, plus
+     ad-hoc, plus ETP & Shared Services. So the resource part is summed by
+     planview code rather than over every row — BAU and NPC rows stay visible
+     with their own figures, but are not platform-borne and must not land in
+     this total (the page's isIncludedInBaseCost rule). The "<>" criterion also
+     drops the supplier band rows and any row with no planview code, matching
+     that rule's treatment of a missing code.
+
+     This replaces SUBTOTAL(9,…) over the whole block, which counted BAU/NPC
+     and so overstated both this figure and the Advised Rate below it. The
+     trade-off is that the total no longer responds to the sheet's autofilter;
+     it is a definition, not a view of the current selection — the same as
+     Total Billable Days below, which has always been a fixed SUMPRODUCT. */
+  const subtotalFormula = (col: 'L' | 'M') =>
+    buildPlatformTotalFormula({
+      column: col,
+      planviewColumn: 'E',
+      resources: { first: FIRST_DATA_ROW, last: lastResourceRow },
+      // Cost-item blocks are summed whole: every ad-hoc / ETP / SS row counts.
+      costSections: [
+        { first: firstAdhocRow, last: lastAdhocRow },
+        { first: firstEtpRow, last: lastEtpRow },
+      ],
+    })
+
   const subtotalRowNum = ws.rowCount + 1
   const subtotalRow = ws.addRow([
     'SUBTOTAL',
     '', '', '', '', '', '', '', '', '', '',
-    { formula: `=SUBTOTAL(9,L${FIRST_DATA_ROW}:L${lastDataRow})` },
-    { formula: `=SUBTOTAL(9,M${FIRST_DATA_ROW}:M${lastDataRow})` },
+    { formula: `=${subtotalFormula('L')}` },
+    { formula: `=${subtotalFormula('M')}` },
   ])
   setRowFill(ws, subtotalRowNum, HEADER_ARGB, NUM_COLS)
   subtotalRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -628,22 +662,20 @@ export async function GET(request: Request): Promise<Response> {
   const resRange = (col: string) => `${ref}!${col}${FIRST_DATA_ROW}:${col}${lastResourceRow}`
 
   /* ── Aggregates computed in TS (literal values — robust to layout) ── */
-  const resBaseVat = allocations.reduce((s, a) => {
-    const total = (a.utilisation_percent / 100) * (a.capacity_days ?? 0) * (a.day_rate / 100)
-    return s + (a.vat_applies ? total * vatMultiplier : total)
-  }, 0)
-  const adhocTotal = adhocItems.reduce((s, i) => s + i.amount_pence / 100, 0)
+  // One shared calculation with the Schedule page (lib/schedule/scheduleTotals),
+  // in integer pence with per-row rounding, so these headline figures agree
+  // with the page's Total Platform Cost card to the penny. This file used to
+  // compute its own versions and disagreed on two counts — it summed BAU and
+  // NPC allocations the page excludes, and never applied VAT to ad-hoc items.
+  const totals = computeScheduleTotals(allocations, costItems, vatMultiplier)
+
+  const resBaseVat = totals.resourcesVatPence / 100
+  const adhocTotal = totals.adhocVatPence / 100
   const resourcesAdhocVat = resBaseVat + adhocTotal
-  const etpSsTotal = etpSsItems.reduce((s, i) => s + i.amount_pence / 100, 0)
-  const grandTotalVat = resourcesAdhocVat + etpSsTotal
-  const xChargeableDays = allocations.reduce(
-    (s, a) =>
-      a.planview_code === 'PR'
-        ? s + (a.capacity_days ?? 0) * (a.utilisation_percent / 100)
-        : s,
-    0,
-  )
-  const advisedRate = xChargeableDays > 0 ? grandTotalVat / xChargeableDays : 0
+  const etpSsTotal = totals.etpSsPence / 100
+  const grandTotalVat = totals.totalPlatformPence / 100
+  const xChargeableDays = totals.xChargeableDays
+  const advisedRate = totals.advisedRatePence / 100
   const currentRate = blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
 
   /* ── Date range + working-day count for the hero ── */
@@ -1032,17 +1064,24 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawLastAllocRow = ws3.rowCount
 
+  // Ad-hoc items take VAT per their own flag; ETP / Shared Services figures
+  // already embed it. Both columns were previously written raw, which left
+  // this tab's subtotal short by the ad-hoc VAT.
+  const rawFirstCostRow = ws3.rowCount + 1
   for (const item of costItems) {
     const amount = item.amount_pence / 100
+    const vatInclusive =
+      item.cost_item_category === 'ADHOC' && item.vat_applies ? amount * vatMultiplier : amount
     const r = ws3.addRow([
       item.label, '', '', '', '',
       '', '', '', '', '', '',
       amount,
-      amount,
+      vatInclusive,
     ])
     r.getCell(12).numFmt = '£#,##0.00'
     r.getCell(13).numFmt = '£#,##0.00'
   }
+  const rawLastCostRow = ws3.rowCount
 
   /* ── Config section (plain, mirrors the original Finance spreadsheet) ── */
   const rawLastDataRow = ws3.rowCount
@@ -1050,9 +1089,20 @@ export async function GET(request: Request): Promise<Response> {
 
   ws3.getCell(rawSubtotalRow, 1).value = 'SUBTOTAL'
   ws3.getCell(rawSubtotalRow, 1).font = { bold: true }
-  ws3.getCell(rawSubtotalRow, 12).value = { formula: `=SUBTOTAL(9,L1:L${rawLastDataRow})` }
+  // Same definition as the Rate Calculator sheet's subtotal: allocations the
+  // platform bears (BAU/NPC excluded, though their rows remain above), plus
+  // every cost item. Row 1 is the header, so the allocation range starts at 2.
+  const rawSubtotalFormula = (col: 'L' | 'M') =>
+    buildPlatformTotalFormula({
+      column: col,
+      planviewColumn: 'E',
+      // Row 1 is the header, so the allocation rows start at 2.
+      resources: { first: 2, last: rawLastAllocRow },
+      costSections: [{ first: rawFirstCostRow, last: rawLastCostRow }],
+    })
+  ws3.getCell(rawSubtotalRow, 12).value = { formula: `=${rawSubtotalFormula('L')}` }
   ws3.getCell(rawSubtotalRow, 12).numFmt = '£#,##0.00'
-  ws3.getCell(rawSubtotalRow, 13).value = { formula: `=SUBTOTAL(9,M1:M${rawLastDataRow})` }
+  ws3.getCell(rawSubtotalRow, 13).value = { formula: `=${rawSubtotalFormula('M')}` }
   ws3.getCell(rawSubtotalRow, 13).numFmt = '£#,##0.00'
 
   const rawVatRow = rawSubtotalRow + 2
