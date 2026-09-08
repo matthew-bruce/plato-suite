@@ -13,12 +13,14 @@ import {
   connectKeepExisting,
   connectUseVacant,
   setAllocationDayRate,
+  setAllocationFigures,
   deleteAllocation,
 } from '@/app/actions/schedule-wizard'
 import type {
   ResourceSearchResult,
   SupplierOption,
   TeamOption,
+  DisciplineOptionRow,
   ConflictAllocation,
 } from '@/app/actions/schedule-wizard'
 import {
@@ -44,6 +46,7 @@ import {
   resolveUseResourceRate,
 } from '@/lib/schedule/rateConflict'
 import type { RateConflict } from '@/lib/schedule/rateConflict'
+import { suggestDiscipline } from '@/lib/schedule/disciplineMatch'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -174,9 +177,11 @@ export interface AddResourceWizardProps {
     allocationId: string,
     resourceId: string | null,
     resourceName: string | null,
-    /** Set only when the assign resolved a role-vs-resource rate difference,
-     *  so the caller can reflect the new rate on the row it already shows. */
-    dayRate?: number,
+    /** Figures the assign changed on the seat — a rate settled from a
+     *  role-vs-resource difference, or the starting figures entered for a new
+     *  person. The caller renders the row without re-fetching, so anything
+     *  omitted here stays on screen at its old value. */
+    figures?: { dayRate?: number; capacityDays?: number; monthlyDays?: Record<string, number> },
   ) => void
   /** Called after a same-period conflict is resolved by merging records (the
    *  "Connect and…" options), which soft-delete one row and rewrite another —
@@ -211,7 +216,7 @@ function StepPills({ step, isAssignMode }: { step: WizardStep; isAssignMode: boo
     // Three pills: Search → Teams → Confirm
     const pills = [
       { label: '1 · Search', active: step === 1, done: step > 1 },
-      { label: '2 · Teams', active: step === 2, done: step > 2 },
+      { label: '2 · Details', active: step === 2, done: step > 2 },
       { label: '3 · Confirm', active: step === 3, done: false },
     ]
     return (
@@ -286,6 +291,16 @@ export function AddResourceWizard({
 
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
   const [teams, setTeams] = useState<TeamOption[]>([])
+  const [disciplines, setDisciplines] = useState<DisciplineOptionRow[]>([])
+
+  // Assign mode, "add as new person": the details that used to be filled in by
+  // hand against the resources row afterwards. The suggested discipline is
+  // recorded separately from the chosen one so the "(suggested)" tag can be
+  // shown only while the suggestion still stands.
+  const [newPersonJobTitle, setNewPersonJobTitle] = useState('')
+  const [newPersonSupplierId, setNewPersonSupplierId] = useState('')
+  const [newPersonDisciplineId, setNewPersonDisciplineId] = useState('')
+  const [suggestedDisciplineId, setSuggestedDisciplineId] = useState<string | null>(null)
 
   // Multi-team builder rows
   const [teamRows, setTeamRows] = useState<TeamRow[]>([{ id: nextRowId(), teamId: '', pct: 100 }])
@@ -336,9 +351,10 @@ export function AddResourceWizard({
   useEffect(() => {
     if (!open) return
     fetchWizardData()
-      .then(({ suppliers: s, teams: t }) => {
+      .then(({ suppliers: s, teams: t, disciplines: d }) => {
         setSuppliers(s)
         setTeams(t)
+        setDisciplines(d)
         if (activeTeamFilter !== 'all') {
           const match = t.find((x) => x.team_name === activeTeamFilter)
           if (match) {
@@ -384,6 +400,10 @@ export function AddResourceWizard({
       setMonthDrafts({})
       setRateConflict(null)
       setChosenDayRate(null)
+      setNewPersonJobTitle('')
+      setNewPersonSupplierId('')
+      setNewPersonDisciplineId('')
+      setSuggestedDisciplineId(null)
       setForm(defaultForm())
     }
   }, [open, defaultForm])
@@ -486,6 +506,10 @@ export function AddResourceWizard({
       // stands unchallenged.
       setRateConflict(null)
       setChosenDayRate(null)
+      // Seed the new person's details from what the vacant seat already knows:
+      // its budgeted supplier, and the role title it is being filled against.
+      setNewPersonSupplierId(assignMode!.supplierId ?? '')
+      setNewPersonJobTitle(assignMode!.roleTitle ?? '')
       setForm((prev) => ({ ...prev, roleTitle: name }))
       setStep(2)
       return
@@ -524,6 +548,20 @@ export function AddResourceWizard({
     })
     setStep(2)
   }
+
+  // Best-guess discipline for a new person, from the role title being filled.
+  // Runs once the discipline list has loaded and only while the user has not
+  // chosen one themselves, so re-entering the step never overwrites a choice.
+  useEffect(() => {
+    if (!isAssignMode || mode !== 'new' || disciplines.length === 0) return
+    if (newPersonDisciplineId !== '') return
+    const match = suggestDiscipline(assignMode?.roleTitle ?? '', disciplines)
+    if (match) {
+      setNewPersonDisciplineId(match.disciplineId)
+      setSuggestedDisciplineId(match.disciplineId)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAssignMode, mode, disciplines])
 
   // Duplicate advisory check when entering step 2 in new mode
   useEffect(() => {
@@ -691,7 +729,7 @@ export function AddResourceWizard({
           allocationId,
           selectedResource.resource_id,
           selectedResource.resource_name,
-          appliedRate,
+          appliedRate === undefined ? undefined : { dayRate: appliedRate },
         )
         onClose()
         return
@@ -703,7 +741,16 @@ export function AddResourceWizard({
           setSubmitError("Enter the person's name")
           return
         }
-        const insertResult = await insertResource(form.roleTitle, supplierId, form.resourceLocation)
+        const insertResult = await insertResource(
+          form.roleTitle,
+          // The supplier the user confirmed, which defaults to the seat's own
+          // budgeted supplier but may differ — a new person does not have to
+          // belong to the supplier the role was budgeted against.
+          newPersonSupplierId || supplierId,
+          form.resourceLocation,
+          newPersonJobTitle,
+          newPersonDisciplineId || null,
+        )
         if (!insertResult.success || !insertResult.resourceId) {
           setIsSubmitting(false)
           setSubmitError(insertResult.error ?? 'Failed to create resource')
@@ -715,13 +762,51 @@ export function AddResourceWizard({
           setSubmitError(assignResult.error ?? 'Failed to assign resource')
           return
         }
+
+        // Starting figures for the seat now being filled. Unlike the create
+        // path there is no insert to carry them — the allocation already
+        // exists — so they are written straight onto it, and only when the
+        // user actually entered them.
+        const { capacityDays: typedCapacity, dayRate: typedRate } = parseOptionalFigures(form)
+        const newCapacity = isMonthlyMode ? monthlyTotal : typedCapacity
+        const figuresResult = await setAllocationFigures(allocationId, {
+          capacityDays: newCapacity,
+          dayRate: typedRate,
+        })
+        if (!figuresResult.success) {
+          setIsSubmitting(false)
+          setSubmitError(figuresResult.error ?? 'Could not save the starting figures.')
+          return
+        }
+
+        // The monthly breakdown, if one was entered. The allocation_id already
+        // exists here, so this is a plain second write rather than the create
+        // path's two-phase insert-then-attach.
+        if (isMonthlyMode) {
+          const monthlyResult = await setAllocationMonthlyDays(
+            allocationId,
+            months.map((m) => m.key),
+            months.map((m) => (m.key in monthValues ? monthValues[m.key] : null)),
+          )
+          if (!monthlyResult.success) {
+            setIsSubmitting(false)
+            setSubmitError(
+              monthlyResult.error ?? 'Could not save the monthly breakdown. Please try again.',
+            )
+            return
+          }
+        }
         const teamAssignments = teamRows
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
         // Always call updateTeamAssignments — clears any pre-existing rows before inserting.
         await updateTeamAssignments(insertResult.resourceId, periodId, teamAssignments)
         setIsSubmitting(false)
-        onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle)
+        onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle, {
+          dayRate: typedRate,
+          capacityDays: newCapacity,
+          monthlyDays: isMonthlyMode ? monthValues : undefined,
+        })
         onClose()
         return
       }
@@ -1114,6 +1199,76 @@ export function AddResourceWizard({
                 )}
               </div>
 
+              {/* A brand-new person's own details. Previously the wizard
+                  recorded only their name and location and the rest was filled
+                  in by hand against the resources row afterwards. */}
+              {mode === 'new' && (
+                <>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Supplier</label>
+                    <select
+                      value={newPersonSupplierId}
+                      onChange={(e) => setNewPersonSupplierId(e.target.value)}
+                      style={selectStyle}
+                    >
+                      <option value="">—</option>
+                      {suppliers.map((s) => (
+                        <option key={s.supplier_id} value={s.supplier_id}>
+                          {s.supplier_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>
+                      Discipline
+                      {/* Only tagged while the suggestion still stands — once
+                          the user picks something else it is their choice, not
+                          a suggestion. */}
+                      {suggestedDisciplineId !== null &&
+                        newPersonDisciplineId === suggestedDisciplineId && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                              color: AMBER,
+                            }}
+                          >
+                            (suggested)
+                          </span>
+                        )}
+                    </label>
+                    <select
+                      value={newPersonDisciplineId}
+                      onChange={(e) => setNewPersonDisciplineId(e.target.value)}
+                      style={selectStyle}
+                    >
+                      <option value="">—</option>
+                      {disciplines.map((d) => (
+                        <option key={d.discipline_id} value={d.discipline_id}>
+                          {d.discipline_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Job title</label>
+                    <input
+                      type="text"
+                      value={newPersonJobTitle}
+                      onChange={(e) => setNewPersonJobTitle(e.target.value)}
+                      placeholder="e.g. Senior Backend Engineer"
+                      style={inputStyle}
+                    />
+                  </div>
+                </>
+              )}
+
               <div style={fieldWrap}>
                 <label style={labelStyle}>Location</label>
                 <select
@@ -1126,6 +1281,33 @@ export function AddResourceWizard({
                   <option value="offshore">Offshore</option>
                 </select>
               </div>
+
+              {/* The seat's own figures, so a new person can be priced and
+                  sized here rather than inline afterwards. Same control as the
+                  Add role / resource path. */}
+              {mode === 'new' && (
+                <CapacityAndRateFields
+                  capacityDaysValue={form.capacityDays ?? ''}
+                  dayRateValue={form.dayRate ?? ''}
+                  onCapacityDaysChange={(v) => setForm((prev) => ({ ...prev, capacityDays: v }))}
+                  onDayRateChange={(v) => setForm((prev) => ({ ...prev, dayRate: v }))}
+                  canEnterMonthly={canEnterMonthly}
+                  isMonthlyMode={isMonthlyMode}
+                  months={months}
+                  monthDrafts={monthDrafts}
+                  onMonthDraftChange={(key, val) =>
+                    setMonthDrafts((prev) => ({ ...prev, [key]: val }))
+                  }
+                  onClearMonths={clearMonths}
+                  monthlyTotal={monthlyTotal}
+                  onPopulateWorkingDays={populateWorkingDays}
+                  populateDisabled={populateDisabled}
+                  populateTitle={populateTitle}
+                  inputStyle={inputStyle}
+                  labelStyle={labelStyle}
+                  fieldWrap={fieldWrap}
+                />
+              )}
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Team(s)</label>
@@ -2294,138 +2476,25 @@ function Step2Body({
           inline afterwards. Offered on every path that creates a row — a
           known person, a new person and a vacant TBC seat alike. */}
       {mode !== 'edit-teams' && (
-        <>
-          {/* Capacity, laid out in the same order as the inline row editor:
-              the month inputs, the populate-working-days button, the total,
-              then the clear ✕. Like that row, the total is freely editable
-              until any month carries a value, at which point it mirrors the
-              sum and the ✕ is the way back to manual entry. */}
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Capacity (days)</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' }}>
-              {canEnterMonthly &&
-                months.map((m) => (
-                  <div key={m.key} style={{ flex: '1 1 56px', minWidth: 52 }}>
-                    <label
-                      style={{
-                        ...labelStyle,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        color: INACTIVE_GREY,
-                        marginBottom: 2,
-                      }}
-                    >
-                      {m.label}
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.5"
-                      aria-label={`${m.label} ${m.year} days`}
-                      value={monthDrafts[m.key] ?? ''}
-                      onChange={(e) => onMonthDraftChange(m.key, e.target.value)}
-                      style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
-                    />
-                  </div>
-                ))}
-
-              {canEnterMonthly && (
-                <button
-                  type="button"
-                  onClick={onPopulateWorkingDays}
-                  disabled={populateDisabled}
-                  title={populateTitle}
-                  aria-label="Populate working days"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    width: 30,
-                    height: 30,
-                    border: '1px solid #D0D0D0',
-                    borderRadius: 6,
-                    background: '#fff',
-                    color: populateDisabled ? INACTIVE_GREY : '#404044',
-                    cursor: populateDisabled ? 'not-allowed' : 'pointer',
-                    opacity: populateDisabled ? 0.5 : 1,
-                  }}
-                >
-                  <CalendarCheck size={14} strokeWidth={1.75} aria-hidden />
-                </button>
-              )}
-
-              {/* The total. Read-only grey while the months drive it, exactly
-                  as the row editor's total behaves. */}
-              <div style={{ flex: '1 1 72px', minWidth: 64 }}>
-                <label
-                  style={{
-                    ...labelStyle,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: INACTIVE_GREY,
-                    marginBottom: 2,
-                  }}
-                >
-                  Total
-                </label>
-                {isMonthlyMode ? (
-                  <input
-                    type="number"
-                    value={monthlyTotal}
-                    readOnly
-                    aria-readonly="true"
-                    title="Total is the sum of the monthly breakdown — clear it to type a total directly"
-                    style={{
-                      ...inputStyle,
-                      padding: '6px 8px',
-                      textAlign: 'right',
-                      background: '#F1F2F5',
-                      color: INACTIVE_GREY,
-                      cursor: 'not-allowed',
-                    }}
-                  />
-                ) : (
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.capacityDays ?? ''}
-                    onChange={(e) => onFormChange('capacityDays', e.target.value)}
-                    // No placeholder, matching the row editor's total: at this
-                    // width any hint text clips, and the "Total" label above
-                    // already names the field.
-                    style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
-                  />
-                )}
-              </div>
-
-              {isMonthlyMode && (
-                <div style={{ paddingBottom: 8 }}>
-                  <RedXButton
-                    onClick={onClearMonths}
-                    title="Clear the monthly breakdown and enter a total directly"
-                    ariaLabel="Clear monthly breakdown"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Day rate gets its own full-width row — it is unrelated to the
-              month/total interplay above and reads as a separate figure. */}
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Day rate (£)</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.dayRate ?? ''}
-              onChange={(e) => onFormChange('dayRate', e.target.value)}
-              placeholder="Optional"
-              style={inputStyle}
-            />
-          </div>
-        </>
+        <CapacityAndRateFields
+          capacityDaysValue={form.capacityDays ?? ''}
+          dayRateValue={form.dayRate ?? ''}
+          onCapacityDaysChange={(v) => onFormChange('capacityDays', v)}
+          onDayRateChange={(v) => onFormChange('dayRate', v)}
+          canEnterMonthly={canEnterMonthly}
+          isMonthlyMode={isMonthlyMode}
+          months={months}
+          monthDrafts={monthDrafts}
+          onMonthDraftChange={onMonthDraftChange}
+          onClearMonths={onClearMonths}
+          monthlyTotal={monthlyTotal}
+          onPopulateWorkingDays={onPopulateWorkingDays}
+          populateDisabled={populateDisabled}
+          populateTitle={populateTitle}
+          inputStyle={inputStyle}
+          labelStyle={labelStyle}
+          fieldWrap={fieldWrap}
+        />
       )}
     </div>
   )
@@ -2586,6 +2655,190 @@ function Step3Body({
         </p>
       )}
     </div>
+  )
+}
+
+
+/* ── Capacity + day rate fields ─────────────────────────── */
+
+/**
+ * The starting-figures block, shared by both of the wizard's Details steps
+ * (the Add role / resource path and the Assign resource path's new-person
+ * path). One component rather than two copies, so the capacity row's layout
+ * and its month/total behaviour can only ever be defined once — the monthly
+ * derivation itself lives further up still, in the parent's hasAnyMonthlyValue
+ * call.
+ */
+function CapacityAndRateFields({
+  capacityDaysValue,
+  dayRateValue,
+  onCapacityDaysChange,
+  onDayRateChange,
+  canEnterMonthly,
+  isMonthlyMode,
+  months,
+  monthDrafts,
+  onMonthDraftChange,
+  onClearMonths,
+  monthlyTotal,
+  onPopulateWorkingDays,
+  populateDisabled,
+  populateTitle,
+  inputStyle,
+  labelStyle,
+  fieldWrap,
+}: {
+  capacityDaysValue: string
+  dayRateValue: string
+  onCapacityDaysChange: (val: string) => void
+  onDayRateChange: (val: string) => void
+  canEnterMonthly: boolean
+  isMonthlyMode: boolean
+  months: PeriodMonth[]
+  monthDrafts: Record<string, string>
+  onMonthDraftChange: (monthKey: string, val: string) => void
+  onClearMonths: () => void
+  monthlyTotal: number
+  onPopulateWorkingDays: () => void
+  populateDisabled: boolean
+  populateTitle: string
+  inputStyle: React.CSSProperties
+  labelStyle: React.CSSProperties
+  fieldWrap: React.CSSProperties
+}) {
+  return (
+    <>
+      {/* Capacity, laid out in the same order as the inline row editor:
+          the month inputs, the populate-working-days button, the total,
+          then the clear ✕. Like that row, the total is freely editable
+          until any month carries a value, at which point it mirrors the
+          sum and the ✕ is the way back to manual entry. */}
+      <div style={fieldWrap}>
+        <label style={labelStyle}>Capacity (days)</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' }}>
+          {canEnterMonthly &&
+            months.map((m) => (
+              <div key={m.key} style={{ flex: '1 1 56px', minWidth: 52 }}>
+                <label
+                  style={{
+                    ...labelStyle,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: INACTIVE_GREY,
+                    marginBottom: 2,
+                  }}
+                >
+                  {m.label}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.5"
+                  aria-label={`${m.label} ${m.year} days`}
+                  value={monthDrafts[m.key] ?? ''}
+                  onChange={(e) => onMonthDraftChange(m.key, e.target.value)}
+                  style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
+                />
+              </div>
+            ))}
+
+          {canEnterMonthly && (
+            <button
+              type="button"
+              onClick={onPopulateWorkingDays}
+              disabled={populateDisabled}
+              title={populateTitle}
+              aria-label="Populate working days"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                width: 30,
+                height: 30,
+                border: '1px solid #D0D0D0',
+                borderRadius: 6,
+                background: '#fff',
+                color: populateDisabled ? INACTIVE_GREY : '#404044',
+                cursor: populateDisabled ? 'not-allowed' : 'pointer',
+                opacity: populateDisabled ? 0.5 : 1,
+              }}
+            >
+              <CalendarCheck size={14} strokeWidth={1.75} aria-hidden />
+            </button>
+          )}
+
+          {/* The total. Read-only grey while the months drive it, exactly
+              as the row editor's total behaves. */}
+          <div style={{ flex: '1 1 72px', minWidth: 64 }}>
+            <label
+              style={{
+                ...labelStyle,
+                fontSize: 11,
+                fontWeight: 500,
+                color: INACTIVE_GREY,
+                marginBottom: 2,
+              }}
+            >
+              Total
+            </label>
+            {isMonthlyMode ? (
+              <input
+                type="number"
+                value={monthlyTotal}
+                readOnly
+                aria-readonly="true"
+                title="Total is the sum of the monthly breakdown — clear it to type a total directly"
+                style={{
+                  ...inputStyle,
+                  padding: '6px 8px',
+                  textAlign: 'right',
+                  background: '#F1F2F5',
+                  color: INACTIVE_GREY,
+                  cursor: 'not-allowed',
+                }}
+              />
+            ) : (
+              <input
+                type="number"
+                min={0}
+                value={capacityDaysValue}
+                onChange={(e) => onCapacityDaysChange(e.target.value)}
+                // No placeholder, matching the row editor's total: at this
+                // width any hint text clips, and the "Total" label above
+                // already names the field.
+                style={{ ...inputStyle, padding: '6px 8px', textAlign: 'right' }}
+              />
+            )}
+          </div>
+
+          {isMonthlyMode && (
+            <div style={{ paddingBottom: 8 }}>
+              <RedXButton
+                onClick={onClearMonths}
+                title="Clear the monthly breakdown and enter a total directly"
+                ariaLabel="Clear monthly breakdown"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Day rate gets its own full-width row — it is unrelated to the
+          month/total interplay above and reads as a separate figure. */}
+      <div style={fieldWrap}>
+        <label style={labelStyle}>Day rate (£)</label>
+        <input
+          type="number"
+          min={0}
+          step="0.01"
+          value={dayRateValue}
+          onChange={(e) => onDayRateChange(e.target.value)}
+          placeholder="Optional"
+          style={inputStyle}
+        />
+      </div>
+    </>
   )
 }
 
