@@ -670,20 +670,25 @@ export function SchedulePageClient({ data }: Props) {
     allocationId: string,
     _resourceId: string | null,
     resourceName: string | null,
-    dayRate?: number,
+    figures?: { dayRate?: number; capacityDays?: number; monthlyDays?: Record<string, number> },
   ): void {
     setLocalAllocations((prev) =>
       prev.map((a) => {
         if (a.allocation_id !== allocationId) return a
         const next = { ...a, resource_name: resourceName }
-        // The assign settled a rate difference, so the row's own figure — and
-        // everything derived from it — moves with it rather than waiting for
-        // a re-fetch.
-        if (dayRate === undefined) return next
-        const base = Math.round(dayRate * (next.capacity_days ?? 0) * (next.utilisation_percent / 100))
+        // The assign changed figures on the seat — a settled rate, or the
+        // starting figures entered for a new person — so the row and
+        // everything derived from it move with them rather than waiting for a
+        // re-fetch. Anything the assign did not touch keeps its current value.
+        if (!figures) return next
+        const dayRate = figures.dayRate ?? next.day_rate
+        const capacityDays = figures.capacityDays ?? next.capacity_days
+        const base = Math.round(dayRate * (capacityDays ?? 0) * (next.utilisation_percent / 100))
         return {
           ...next,
           day_rate: dayRate,
+          capacity_days: capacityDays,
+          monthly_days: figures.monthlyDays ?? next.monthly_days,
           base_total_pence: base,
           vat_total_pence: next.vat_applies !== false ? Math.round(base * (1 + vatPct / 100)) : base,
         }
@@ -3386,8 +3391,36 @@ function AllocationRow({
         {/* 1 Resource + assign/unassign + delete */}
         <Cell>
           {unassignConfirm ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-              <span style={{ fontSize: 11, color: '#DA202A', fontWeight: 500, flex: 1, minWidth: 0 }}>Remove {row.resource_name} and keep as TBC?</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', minWidth: 0 }}>
+              {/* The prompt lives in the narrow Resource column alongside its
+                  own Yes/No buttons, so it is built as a frame around a
+                  shrinkable name rather than one sentence: "Remove" and
+                  "→ TBC?" always survive, and only the name ellipsises as the
+                  column narrows. Previously this was a single span with
+                  flex:1 and min-width:0 but no overflow handling of its own,
+                  so a long name overflowed its box and painted over the
+                  buttons instead of being trimmed. The full sentence stays
+                  available on hover. */}
+              <span
+                title={`Remove ${row.resource_name ?? 'this person'} and keep this row as TBC?`}
+                style={{
+                  fontSize: 11,
+                  color: '#DA202A',
+                  fontWeight: 500,
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 3,
+                  overflow: 'hidden',
+                }}
+              >
+                <span style={{ flexShrink: 0 }}>Remove</span>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {row.resource_name}
+                </span>
+                <span style={{ flexShrink: 0 }}>→ TBC?</span>
+              </span>
               <button type="button" onClick={() => { void onUnassignResource(row.allocation_id); setUnassignConfirm(false) }} style={{ background: '#DA202A', color: '#fff', border: 'none', borderRadius: 3, padding: '2px 7px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flexShrink: 0 }}>Yes</button>
               <button type="button" onClick={() => setUnassignConfirm(false)} style={{ background: 'transparent', border: '1px solid #C0C0C0', borderRadius: 3, padding: '2px 7px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--rmg-font-body)', flexShrink: 0 }}>No</button>
             </div>
