@@ -9,6 +9,7 @@ import {
   EMPTY_GROUP_TOTAL,
 } from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
+import { LOCATION_BUCKETS, locationBucket } from '@/lib/schedule/ui'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -415,9 +416,6 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Pass 1: supplier band rows + resource rows (VAT placeholder until VAT row known) ── */
   const vatRows: number[] = []
 
-  const capitalise = (s: string | null): string =>
-    s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
-
   for (const group of supplierGroupsOrdered) {
     // Band header row immediately before this supplier's resource rows.
     const bandRowNum = ws.rowCount + 1
@@ -440,7 +438,7 @@ export async function GET(request: Request): Promise<Response> {
         alloc.team_name,
         alloc.planview_code ?? '',
         alloc.supplier_name ?? '',
-        capitalise(alloc.resource_location),
+        locationBucket(alloc.resource_location),
         alloc.utilisation_percent / 100,
         alloc.capacity_days ?? 0,
         alloc.day_rate / 100,
@@ -825,16 +823,19 @@ export async function GET(request: Request): Promise<Response> {
      stops counting them — including in the headcounts, so a supplier's cost
      and its resource count always describe the same set of rows. */
   const bySupplier = computeTotalsByGroup(allocations, (a) => a.supplier_name, vatMultiplier)
+  // Grouped by bucket rather than by raw value, so a deliberate 'unspecified'
+  // and a genuine NULL report as one "Unspecified" row instead of vanishing
+  // from the breakdown and leaving it short of the headline above it.
   const byLocation = computeTotalsByGroup(
     allocations,
-    (a) => capitalise(a.resource_location) || null,
+    (a) => locationBucket(a.resource_location),
     vatMultiplier,
   )
   // Location headcounts per supplier come off the same filtered population.
   const costedAllocations = includedAllocations(allocations)
   const countAt = (supplierName: string, location: string) =>
     costedAllocations.filter(
-      (a) => a.supplier_name === supplierName && capitalise(a.resource_location) === location,
+      (a) => a.supplier_name === supplierName && locationBucket(a.resource_location) === location,
     ).length
 
   for (const supplierName of orderedSuppliers) {
@@ -891,12 +892,18 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).value = 'LOCATION TOTALS'
   s2Row++
 
-  const locMeta: { name: string; fill: string; font: string; col: number }[] = [
-    { name: 'Onshore', fill: 'FFF0F4FF', font: 'FF1A2B5B', col: 5 },
-    { name: 'Nearshore', fill: 'FFFFF8F0', font: 'FF7A4400', col: 6 },
-    { name: 'Offshore', fill: 'FFF0FFF4', font: 'FF1B5E20', col: 7 },
-  ]
-  for (const loc of locMeta) {
+  /* One row per bucket, in LOCATION_BUCKETS order. Unspecified carries no
+     count column of its own — the supplier table above only has Onshore /
+     Nearshore / Offshore columns — so it shows a dash across all three and
+     reports its headcount in the Total column, like the others do. */
+  const locMeta: Record<string, { fill: string; font: string; col: number }> = {
+    Onshore: { fill: 'FFF0F4FF', font: 'FF1A2B5B', col: 5 },
+    Nearshore: { fill: 'FFFFF8F0', font: 'FF7A4400', col: 6 },
+    Offshore: { fill: 'FFF0FFF4', font: 'FF1B5E20', col: 7 },
+    Unspecified: { fill: 'FFF5F5F5', font: 'FF6B6B6B', col: 0 },
+  }
+  for (const name of LOCATION_BUCKETS) {
+    const loc = { name, ...locMeta[name] }
     for (let c = 1; c <= 8; c++) {
       applyFill(ws2.getCell(s2Row, c), loc.fill)
       ws2.getCell(s2Row, c).font = { italic: true, color: { argb: loc.font } }
@@ -1087,7 +1094,7 @@ export async function GET(request: Request): Promise<Response> {
       alloc.team_name,
       alloc.planview_code ?? '',
       alloc.supplier_name ?? '',
-      capitalise(alloc.resource_location),
+      locationBucket(alloc.resource_location),
       alloc.utilisation_percent / 100,
       alloc.capacity_days ?? 0,
       alloc.day_rate / 100,

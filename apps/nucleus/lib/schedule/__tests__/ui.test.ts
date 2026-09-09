@@ -8,6 +8,8 @@ import {
   withDerivedChargeable,
   PLANVIEW_CODES,
   getLocationColour,
+  locationBucket,
+  LOCATION_BUCKETS,
   getPlanBadgeStyle,
   getTextColour,
   withAlpha,
@@ -157,6 +159,37 @@ describe('PLANVIEW_CODES', () => {
     const selectValue = row.planview_code ?? 'BAU'
     expect(selectValue).toBe('NPC')
     expect(PLANVIEW_CODES.map((pc) => pc.value)).toContain(selectValue)
+  })
+})
+
+describe('locationBucket', () => {
+  it('maps each enum value to its display name', () => {
+    expect(locationBucket('onshore')).toBe('Onshore')
+    expect(locationBucket('nearshore')).toBe('Nearshore')
+    expect(locationBucket('offshore')).toBe('Offshore')
+    expect(locationBucket('unspecified')).toBe('Unspecified')
+  })
+
+  it('is case- and whitespace-insensitive', () => {
+    expect(locationBucket('  Offshore ')).toBe('Offshore')
+    expect(locationBucket('NEARSHORE')).toBe('Nearshore')
+  })
+
+  it('reports a NULL, an empty string and a literal unspecified identically', () => {
+    // Finance has no use for the distinction between "no row in resources" and
+    // "someone chose Unspecified" — both mean no location has been decided.
+    expect(locationBucket(null)).toBe('Unspecified')
+    expect(locationBucket(undefined)).toBe('Unspecified')
+    expect(locationBucket('')).toBe('Unspecified')
+    expect(locationBucket('unspecified')).toBe('Unspecified')
+  })
+
+  it('never returns a name outside the four the breakdown lists', () => {
+    // A fifth enum value added later must land somewhere, or a breakdown built
+    // from these buckets silently stops adding up to its own total.
+    for (const input of ['nearshore', 'hybrid', 'Remote', '???', null]) {
+      expect(LOCATION_BUCKETS).toContain(locationBucket(input))
+    }
   })
 })
 

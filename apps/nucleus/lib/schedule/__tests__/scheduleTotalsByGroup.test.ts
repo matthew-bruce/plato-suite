@@ -6,6 +6,7 @@ import {
   EMPTY_GROUP_TOTAL,
 } from '../scheduleTotals'
 import type { TotalsAllocation } from '../scheduleTotals'
+import { locationBucket } from '../ui'
 import {
   Q3_ALLOCATIONS,
   Q3_COST_ITEMS,
@@ -197,13 +198,24 @@ describe('supplier and location breakdowns over a realistic schedule', () => {
     expect([...groups.keys()].sort()).toEqual(['EPAM', 'TCS'])
   })
 
-  it('a blank location leaves the location rows short of the supplier total', () => {
-    // Pre-existing and independent of this fix: the sheet lists only Onshore,
-    // Nearshore and Offshore, so any row without a location is in none of them.
+  it('a blank location is short when grouped raw, and ties once bucketed', () => {
+    // Grouping on the raw column drops any row whose location is blank — the
+    // export did exactly that, against a hard-coded list of three names, and
+    // so lost every 'unspecified' row from a breakdown that still sat under a
+    // headline counting them. locationBucket() is what closed it: the same
+    // rows, grouped by a function that always returns one of four names.
     const withBlank = [...SCHEDULE, alloc({ supplier_name: 'EPAM', resource_location: null })]
     const suppliers = computeTotalsByGroup(withBlank, (a) => a.supplier_name, vat)
-    const locations = computeTotalsByGroup(withBlank, (a) => a.resource_location, vat)
-    expect(sumGroups(locations).vatPence).toBeLessThan(sumGroups(suppliers).vatPence)
-    expect(sumGroups(suppliers).vatPence - sumGroups(locations).vatPence).toBe(500000)
+    const raw = computeTotalsByGroup(withBlank, (a) => a.resource_location, vat)
+    expect(sumGroups(suppliers).vatPence - sumGroups(raw).vatPence).toBe(500000)
+
+    const bucketed = computeTotalsByGroup(
+      withBlank,
+      (a) => locationBucket(a.resource_location),
+      vat,
+    )
+    expect(sumGroups(bucketed).vatPence).toBe(sumGroups(suppliers).vatPence)
+    expect(sumGroups(bucketed).count).toBe(sumGroups(suppliers).count)
+    expect(bucketed.get('Unspecified')!.vatPence).toBe(500000)
   })
 })
