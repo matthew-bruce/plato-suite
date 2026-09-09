@@ -200,6 +200,7 @@ export async function GET(request: Request): Promise<Response> {
       utilisation_percent,
       capacity_days,
       vat_applies,
+      resource_location,
       resources:resource_id!left ( resource_name, resource_location ),
       suppliers:supplier_id ( supplier_name, sort_order, supplier_colour )
     `)
@@ -217,6 +218,7 @@ export async function GET(request: Request): Promise<Response> {
     utilisation_percent: number | string
     capacity_days: number | string | null
     vat_applies: boolean | null
+    resource_location: string | null
     resource_id?: string | null
     resources: { resource_name: string; resource_location: string | null } | { resource_name: string; resource_location: string | null }[] | null
     suppliers: { supplier_name: string; sort_order: number | null; supplier_colour: string | null } | { supplier_name: string; sort_order: number | null; supplier_colour: string | null }[] | null
@@ -265,7 +267,14 @@ export async function GET(request: Request): Promise<Response> {
         supplier_name: supplier?.supplier_name ?? null,
         supplier_sort_order: supplier?.sort_order ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
-        resource_location: resource?.resource_location ?? '',
+        // The allocation's own location wins; the resource's is only a
+        // fallback for legacy rows that predate the per-allocation field.
+        // This mirrors the Schedule page exactly (schedule.ts: row.
+        // resource_location ?? resource?.resource_location). Reading the
+        // resource alone lost the location of every vacant seat — a vacant
+        // allocation has no resources row to join to — and filed any row
+        // whose two values disagree under the wrong one.
+        resource_location: r.resource_location ?? resource?.resource_location ?? '',
         utilisation_percent: Number(r.utilisation_percent),
         capacity_days: r.capacity_days === null ? null : Number(r.capacity_days),
         day_rate: r.day_rate,
