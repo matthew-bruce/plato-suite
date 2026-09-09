@@ -97,17 +97,27 @@ describe('Q3 FY 26/27 — the breakdown ties to the headline', () => {
     expect(gbp(unfilteredVat - sumGroups(bySupplier).vatPence)).toBe(Q3_EXPECTED.excludedRowsGbp)
   })
 
-  it('the location rows fall short only by the rows that carry no location', () => {
-    // Pre-existing and unrelated to this fix: the sheet lists Onshore,
-    // Nearshore and Offshore only, so an allocation with no location appears
-    // in none of them. Four of Q3's rows are like that.
-    const blank = includedAllocations(Q3_ALLOCATIONS).filter((a) => !a.resource_location)
-    expect(blank.length).toBe(Q3_EXPECTED.blankLocationRows)
-    const shortfall = sumGroups(bySupplier).vatPence - sumGroups(byLocation).vatPence
-    expect(gbp(shortfall)).toBe(Q3_EXPECTED.blankLocationGbp)
-    expect(sumGroups(byLocation).count).toBe(
-      sumGroups(bySupplier).count - Q3_EXPECTED.blankLocationRows,
-    )
+  it('the location rows tie to the headline too, with nothing left over', () => {
+    // Every allocation carries a location on its own row, so the three
+    // location rows account for the whole resource component — no shortfall.
+    // The export used to read location from the joined resources table
+    // instead, which lost every vacant seat (no resources row to join to)
+    // and misfiled rows whose two values disagreed.
+    expect(sumGroups(byLocation).vatPence).toBe(headline.resourcesVatPence)
+    expect(sumGroups(byLocation).vatPence).toBe(sumGroups(bySupplier).vatPence)
+    expect(sumGroups(byLocation).count).toBe(sumGroups(bySupplier).count)
+    expect(includedAllocations(Q3_ALLOCATIONS).every((a) => a.resource_location)).toBe(true)
+  })
+
+  it('splits across the three locations as the page does', () => {
+    expect(gbp(byLocation.get('Onshore')!.vatPence)).toBe(Q3_EXPECTED.locationGbp.Onshore)
+    expect(gbp(byLocation.get('Nearshore')!.vatPence)).toBe(Q3_EXPECTED.locationGbp.Nearshore)
+    expect(gbp(byLocation.get('Offshore')!.vatPence)).toBe(Q3_EXPECTED.locationGbp.Offshore)
+    const sum =
+      Q3_EXPECTED.locationGbp.Onshore +
+      Q3_EXPECTED.locationGbp.Nearshore +
+      Q3_EXPECTED.locationGbp.Offshore
+    expect(sum).toBe(Q3_EXPECTED.includedResourcesGbp)
   })
 })
 

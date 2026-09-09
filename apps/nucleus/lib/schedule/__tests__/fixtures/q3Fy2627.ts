@@ -1,27 +1,27 @@
 // Q3 FY 26/27 (period 10cfda7c-8c57-4da3-9dab-b8210032b030) — a frozen
-// snapshot of the period the Rate Calculator export was found to disagree
-// with the Schedule page on.
+// snapshot taken 2026-09-09 15:31 UTC (the period's last edit at the time:
+// 12:25 UTC). This period is actively edited, so every figure below belongs
+// to that instant and to each other; nothing here is mixed from another read.
 //
-// The export had two defects, pulling opposite ways, which is why the net gap
-// looked smaller than either:
-//   - it summed the BAU and NPC allocations the page excludes  (+£89,597)
-//   - it never applied VAT to the ad-hoc items                  (−£9,297)
-// The Summary tab's supplier and location breakdown carried the first of
-// those too, so its rows did not add up to the headline figure sitting
-// directly above them — on this period all £89,597 of it is Capgemini, whose
-// ten allocations are every one NPC.
+// It backs three fixes to the Rate Calculator export, all found by asking
+// whether the workbook agrees with the Schedule page it exports:
 //
-// NOTE ON THE FIGURES. The incident was originally reported against this
-// period showing £2,671,777 on the page and £2,752,077 in the export. The
-// period has been edited since (87 of its 103 rows), so this snapshot totals
-// £2,678,041 instead. The two defect sizes above are unchanged — they are
-// what characterises the bug, and what these tests pin. Every figure in
-// Q3_EXPECTED comes from this one snapshot, taken at a single instant, so the
-// reconciliations hold exactly rather than approximately.
+//   1. The export summed the BAU and NPC allocations the page excludes
+//      (+£89,597 here) and never applied VAT to ad-hoc items (−£9,297),
+//      so its Total Platform Cost and Advised Rate were both wrong.
+//   2. The Summary tab's supplier and location breakdown had the first of
+//      those defects too, so its rows did not add up to the headline above
+//      them — all £89,597 of it Capgemini, whose ten rows are every one NPC.
+//   3. The export read each row's location from the resources table alone,
+//      while the page reads the allocation's own column and falls back to
+//      the resource only for legacy rows. Vacant seats have no resources
+//      row, so their location vanished; five named rows carried a different
+//      location on the allocation than on the resource and were filed under
+//      the wrong one.
 //
 // Rows are [planview, utilisation %, capacity days, day rate pence,
-// vat_applies, supplier, location]. A blank location is real in this data,
-// not a placeholder: four allocations carry none.
+// vat_applies, supplier, location]. The location here is the page's — the
+// allocation's own value, which every row in this snapshot carries.
 
 import type { TotalsAllocation, TotalsCostItem } from '../../scheduleTotals'
 
@@ -37,7 +37,7 @@ export interface Q3Allocation extends TotalsAllocation {
 type RawRow = [string, number, number, number, number, string, string]
 
 const Q3_RAW: RawRow[] = [
-  ['NPC', 100, 22, 31370, 1, 'Capgemini', 'Offshore'],
+  ['NPC', 100, 22, 31370, 1, 'Capgemini', 'Onshore'],
   ['NPC', 100, 22, 27557, 1, 'Capgemini', 'Offshore'],
   ['NPC', 100, 5, 15559, 1, 'Capgemini', 'Offshore'],
   ['NPC', 100, 22, 37980, 1, 'Capgemini', 'Offshore'],
@@ -72,7 +72,7 @@ const Q3_RAW: RawRow[] = [
   ['PR', 100, 64, 45000, 1, 'Happy Team', 'Nearshore'],
   ['PR', 100, 64, 45000, 1, 'Happy Team', 'Nearshore'],
   ['PR', 100, 64, 34000, 1, 'Happy Team', 'Nearshore'],
-  ['PR', 100, 64, 45000, 1, 'Happy Team', ''],
+  ['PR', 100, 64, 45000, 1, 'Happy Team', 'Nearshore'],
   ['PR', 100, 64, 45000, 1, 'Happy Team', 'Nearshore'],
   ['PR', 100, 64, 60000, 1, 'Happy Team', 'Nearshore'],
   ['PR', 100, 64, 45000, 1, 'Happy Team', 'Nearshore'],
@@ -99,11 +99,11 @@ const Q3_RAW: RawRow[] = [
   ['PR', 90, 64, 58000, 0, 'Royal Mail Group', 'Onshore'],
   ['PR', 90, 64, 58000, 0, 'Royal Mail Group', 'Onshore'],
   ['PR', 90, 64, 58000, 0, 'Royal Mail Group', 'Onshore'],
-  ['PR', 90, 64, 91485, 1, 'Royal Mail Group', 'Onshore'],
+  ['PR', 90, 27, 91485, 1, 'Royal Mail Group', 'Onshore'],
   ['PR', 90, 64, 40000, 1, 'TAAS', 'Onshore'],
-  ['F_Gov', 100, 63, 18000, 1, 'Tata Consultancy Services', ''],
-  ['F_Gov', 100, 15, 55000, 1, 'Tata Consultancy Services', 'Offshore'],
-  ['F_Gov', 100, 63, 20000, 1, 'Tata Consultancy Services', 'Onshore'],
+  ['F_Gov', 100, 63, 18000, 1, 'Tata Consultancy Services', 'Offshore'],
+  ['F_Gov', 100, 15, 55000, 1, 'Tata Consultancy Services', 'Onshore'],
+  ['F_Gov', 100, 63, 20000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 64, 40000, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 64, 56000, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 51, 16000, 1, 'Tata Consultancy Services', 'Offshore'],
@@ -114,15 +114,15 @@ const Q3_RAW: RawRow[] = [
   ['PR', 100, 63, 15000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 64, 55000, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 41, 13500, 1, 'Tata Consultancy Services', 'Offshore'],
-  ['PR', 100, 42, 40000, 1, 'Tata Consultancy Services', ''],
+  ['PR', 100, 42, 40000, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 63, 16000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 63, 25000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 64, 45000, 1, 'Tata Consultancy Services', 'Onshore'],
-  ['PR', 100, 63, 18000, 1, 'Tata Consultancy Services', 'Onshore'],
+  ['PR', 100, 63, 18000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 63, 15000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 31, 25000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 63, 18000, 1, 'Tata Consultancy Services', 'Offshore'],
-  ['PR', 100, 64, 85000, 1, 'Tata Consultancy Services', 'Offshore'],
+  ['PR', 100, 64, 85000, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 51, 15000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 64, 47500, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 63, 15000, 1, 'Tata Consultancy Services', 'Offshore'],
@@ -135,7 +135,7 @@ const Q3_RAW: RawRow[] = [
   ['PR', 100, 56, 13500, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 41, 30000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 21, 22500, 1, 'Tata Consultancy Services', 'Offshore'],
-  ['PR', 100, 63, 20000, 1, 'Tata Consultancy Services', ''],
+  ['PR', 100, 63, 20000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 64, 42500, 1, 'Tata Consultancy Services', 'Onshore'],
   ['PR', 100, 21, 20000, 1, 'Tata Consultancy Services', 'Offshore'],
   ['PR', 100, 63, 18000, 1, 'Tata Consultancy Services', 'Offshore'],
@@ -160,30 +160,34 @@ export const Q3_COST_ITEMS: TotalsCostItem[] = [
   { cost_item_category: 'ADHOC', amount_pence: 1632500, vat_applies: true },
 ]
 
-/** What the live Schedule page shows for this snapshot. */
+/** What the live Schedule page shows for this snapshot. Every value is
+ *  derived from the rows above, so the two cannot drift apart. */
 export const Q3_EXPECTED = {
-  totalPlatformGbp: 2678041,
-  advisedRateGbp: 578.49,
-  xChargeableDays: 4629.4,
-  /** The allocations that count toward cost, VAT-inclusive. */
-  includedResourcesGbp: 2537460,
+  totalPlatformGbp: 2645419,
+  advisedRateGbp: 575.58,
+  xChargeableDays: 4596.1,
+  /** The allocations that count toward cost, VAT-inclusive. The supplier,
+   *  location and planview breakdowns each sum to exactly this. */
+  includedResourcesGbp: 2504838,
   /** BAU + NPC, VAT-inclusive — what the old export wrongly added. */
   excludedRowsGbp: 89597,
   /** Ad-hoc VAT — what the old export wrongly left off. */
   adhocVatGbp: 9297,
   /** What the old export produced from this snapshot. */
-  oldExportTotalGbp: 2758341,
-  oldExportAdvisedRateGbp: 595.83,
+  oldExportTotalGbp: 2725719,
+  oldExportAdvisedRateGbp: 593.05,
   /** Every allocation row on the schedule, costed or not. */
   allocationRows: 103,
   /** Rows excluded from cost: ten NPC (all Capgemini) and one BAU. */
   excludedRows: 11,
-  /** Capgemini's ten rows are every one NPC, so after the fix it contributes
-   *  nothing — the most visible consequence of correcting the breakdown. */
+  /** Capgemini's ten rows are every one NPC, so it contributes nothing. */
   capgeminiVatGbpBefore: 89597,
-  /** Allocations with no location, so absent from the three location rows. */
-  blankLocationRows: 4,
-  /** Their cost, which is why the location rows fall short of the supplier
-   *  total — pre-existing, and unrelated to the BAU/NPC fix. */
-  blankLocationGbp: 74465,
+  /** The location breakdown, VAT-inclusive, costed rows only. These three
+   *  add up to includedResourcesGbp with nothing left over — every row in
+   *  this period carries a location on its allocation. */
+  locationGbp: {
+    Onshore: 1473869,
+    Nearshore: 758167,
+    Offshore: 272802,
+  },
 } as const
