@@ -126,7 +126,11 @@ describe('withDerivedChargeable', () => {
     })
   })
   it('leaves the payload untouched when planview_code is not part of the update', () => {
-    expect(withDerivedChargeable({ day_rate: 50000 })).toEqual({ day_rate: 50000 })
+    // Typed rather than a bare literal: the generic constrains T to an object
+    // carrying planview_code, so an inline literal without it trips excess
+    // property checking even though the call is exactly what this asserts.
+    const payload: { planview_code?: string | null; day_rate: number } = { day_rate: 50000 }
+    expect(withDerivedChargeable(payload)).toEqual({ day_rate: 50000 })
   })
 })
 
