@@ -1124,6 +1124,7 @@ export function AddResourceWizard({
                   <option value="onshore">Onshore</option>
                   <option value="nearshore">Nearshore</option>
                   <option value="offshore">Offshore</option>
+                  <option value="unspecified">Unspecified</option>
                 </select>
               </div>
 
@@ -2285,6 +2286,7 @@ function Step2Body({
             <option value="onshore">Onshore</option>
             <option value="nearshore">Nearshore</option>
             <option value="offshore">Offshore</option>
+            <option value="unspecified">Unspecified</option>
           </select>
         </div>
       )}
