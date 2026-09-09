@@ -32,7 +32,7 @@ describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
 
   it('does not produce the old, wrong export figures', () => {
     expect(gbp(totals.totalPlatformPence)).not.toBe(Q3_EXPECTED.oldExportTotalGbp)
-    expect(Math.round(totals.advisedRatePence / 100)).not.toBe(594)
+    expect(totals.advisedRatePence / 100).not.toBeCloseTo(Q3_EXPECTED.oldExportAdvisedRateGbp, 2)
   })
 
   it('excluding BAU/NPC is worth the £89,597 the old export wrongly included', () => {

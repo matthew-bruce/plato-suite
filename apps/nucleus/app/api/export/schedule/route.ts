@@ -2,7 +2,12 @@ import ExcelJS from 'exceljs'
 import { getSupabaseServerComponentClient, resolveCostConfigurationByCode } from '@plato/schema/server'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
-import { computeScheduleTotals } from '@/lib/schedule/scheduleTotals'
+import {
+  computeScheduleTotals,
+  computeTotalsByGroup,
+  includedAllocations,
+  EMPTY_GROUP_TOTAL,
+} from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
 
 const WEB_PLATFORM_CODE = 'WEB'
@@ -658,8 +663,11 @@ export async function GET(request: Request): Promise<Response> {
   /* ══════════════════════════════════════════════════════════════════
      Tab 2 (created first for tab order): write the Summary content (v4)
   ══════════════════════════════════════════════════════════════════ */
-  const ref = `'${tab1Name}'` // cross-sheet reference prefix
-  const resRange = (col: string) => `${ref}!${col}${FIRST_DATA_ROW}:${col}${lastResourceRow}`
+  /* The Summary's figures are all literals now, computed from the same
+     scheduleTotals module as the headline rather than SUMIF'd back out of the
+     Rate Calculator sheet — which is what let the breakdown count rows the
+     headline excluded. Nothing on this tab cross-references that sheet, so the
+     range helper it used is gone. */
 
   /* ── Aggregates computed in TS (literal values — robust to layout) ── */
   // One shared calculation with the Schedule page (lib/schedule/scheduleTotals),
@@ -795,28 +803,49 @@ export async function GET(request: Request): Promise<Response> {
 
   const supplierDataStart = s2Row
   const supplierTotalRow = supplierDataStart + orderedSuppliers.length
-  const sF = resRange('F') // organisation column on Rate Calc
-  const sG = resRange('G') // location column
-  const sL = resRange('L') // base cost
-  const sM = resRange('M') // +VAT cost
+
+  /* This breakdown explains the Total Platform Cost directly above it, so it
+     is built from the same population that figure is — allocations passing
+     isIncludedInBaseCost, via the shared scheduleTotals module. It used to be
+     SUMIF/COUNTIF formulas over every row on the Rate Calculator sheet, which
+     counted the BAU and NPC rows the headline excludes, so the parts did not
+     add up to the whole they sit under.
+
+     Those rows are untouched on the Rate Calculator and Raw Data sheets: they
+     are still listed with their own figures. It is only this aggregate that
+     stops counting them — including in the headcounts, so a supplier's cost
+     and its resource count always describe the same set of rows. */
+  const bySupplier = computeTotalsByGroup(allocations, (a) => a.supplier_name, vatMultiplier)
+  const byLocation = computeTotalsByGroup(
+    allocations,
+    (a) => capitalise(a.resource_location) || null,
+    vatMultiplier,
+  )
+  // Location headcounts per supplier come off the same filtered population.
+  const costedAllocations = includedAllocations(allocations)
+  const countAt = (supplierName: string, location: string) =>
+    costedAllocations.filter(
+      (a) => a.supplier_name === supplierName && capitalise(a.resource_location) === location,
+    ).length
 
   for (const supplierName of orderedSuppliers) {
     const colour = supplierColourMap.get(supplierName) ?? '#888888'
+    const group = bySupplier.get(supplierName) ?? EMPTY_GROUP_TOTAL
     for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), supplierTint(colour))
     ws2.getCell(s2Row, 1).value = squareRich(colour, supplierName, 'FF2A2A2D')
-    ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sF},"${supplierName}",${sL})` }
+    ws2.getCell(s2Row, 2).value = group.basePence / 100
     ws2.getCell(s2Row, 2).numFmt = '£#,##0'
     ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sF},"${supplierName}",${sM})` }
+    ws2.getCell(s2Row, 3).value = group.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
     ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
-    ws2.getCell(s2Row, 5).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Onshore")` }
-    ws2.getCell(s2Row, 6).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Nearshore")` }
-    ws2.getCell(s2Row, 7).value = { formula: `=COUNTIFS(${sF},"${supplierName}",${sG},"Offshore")` }
-    ws2.getCell(s2Row, 8).value = { formula: `=COUNTIF(${sF},"${supplierName}")` }
+    ws2.getCell(s2Row, 5).value = countAt(supplierName, 'Onshore')
+    ws2.getCell(s2Row, 6).value = countAt(supplierName, 'Nearshore')
+    ws2.getCell(s2Row, 7).value = countAt(supplierName, 'Offshore')
+    ws2.getCell(s2Row, 8).value = group.count
     ws2.getCell(s2Row, 8).font = { bold: true }
     for (let c = 5; c <= 8; c++) ws2.getCell(s2Row, c).alignment = { horizontal: 'center' }
     s2Row++
@@ -863,11 +892,12 @@ export async function GET(request: Request): Promise<Response> {
       applyFill(ws2.getCell(s2Row, c), loc.fill)
       ws2.getCell(s2Row, c).font = { italic: true, color: { argb: loc.font } }
     }
+    const locGroup = byLocation.get(loc.name) ?? EMPTY_GROUP_TOTAL
     ws2.getCell(s2Row, 1).value = `↳ ${loc.name}`
-    ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sG},"${loc.name}",${sL})` }
+    ws2.getCell(s2Row, 2).value = locGroup.basePence / 100
     ws2.getCell(s2Row, 2).numFmt = '£#,##0'
     ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sG},"${loc.name}",${sM})` }
+    ws2.getCell(s2Row, 3).value = locGroup.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
     ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
@@ -875,11 +905,10 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     // Count only appears in this location's own column; the others show a dash
     for (const col of [5, 6, 7]) {
-      ws2.getCell(s2Row, col).value =
-        col === loc.col ? { formula: `=COUNTIF(${sG},"${loc.name}")` } : '—'
+      ws2.getCell(s2Row, col).value = col === loc.col ? locGroup.count : '—'
       ws2.getCell(s2Row, col).alignment = { horizontal: 'center' }
     }
-    ws2.getCell(s2Row, 8).value = { formula: `=COUNTIF(${sG},"${loc.name}")` }
+    ws2.getCell(s2Row, 8).value = locGroup.count
     ws2.getCell(s2Row, 8).font = { bold: true, italic: true, color: { argb: loc.font } }
     ws2.getCell(s2Row, 8).alignment = { horizontal: 'center' }
     s2Row++
@@ -893,32 +922,33 @@ export async function GET(request: Request): Promise<Response> {
   sectionHeader('PLANVIEW CODE SPLIT')
   colHeaderRow(['Code', 'Base Cost', '+VAT Cost', 'Headcount'], { 2: 'right', 3: 'right', 4: 'center' })
 
-  const planviewRows: { code: string; label: string; fill: string; font: string; zero?: boolean }[] = [
+  const planviewRows: { code: string; label: string; fill: string; font: string }[] = [
     { code: 'PR', label: 'PR  Platform Request — recoverable', fill: 'FFE8F5E9', font: 'FF1B5E20' },
     { code: 'F_Gov', label: 'F_Gov  Factory Governance — overhead', fill: 'FFE3F2FD', font: 'FF0D47A1' },
-    { code: 'BAU', label: 'BAU  Business as Usual — not platform-borne', fill: 'FFF5F5F5', font: 'FF888888', zero: true },
+    { code: 'BAU', label: 'BAU  Business as Usual — not platform-borne', fill: 'FFF5F5F5', font: 'FF888888' },
   ]
-  const sE = resRange('E') // planview column on Rate Calc
+  /* From the same grouped source as the breakdown above, so PR + F_Gov ties
+     exactly to the supplier total and to the headline's resource component.
+     BAU needs no special case: it is excluded from cost, so its group is
+     simply absent and the row reads £0 — which is what "not platform-borne"
+     means, and what this row was previously hardcoded to show. */
+  const byPlanview = computeTotalsByGroup(allocations, (a) => a.planview_code, vatMultiplier)
   for (const pv of planviewRows) {
+    const group = byPlanview.get(pv.code) ?? EMPTY_GROUP_TOTAL
     for (let c = 1; c <= 8; c++) {
       applyFill(ws2.getCell(s2Row, c), pv.fill)
       ws2.getCell(s2Row, c).font = { color: { argb: pv.font } }
     }
     ws2.getCell(s2Row, 1).value = squareRich(pv.font, pv.label, pv.font)
-    if (pv.zero) {
-      ws2.getCell(s2Row, 2).value = 0
-      ws2.getCell(s2Row, 3).value = 0
-    } else {
-      ws2.getCell(s2Row, 2).value = { formula: `=SUMIF(${sE},"${pv.code}",${sL})` }
-      ws2.getCell(s2Row, 3).value = { formula: `=SUMIF(${sE},"${pv.code}",${sM})` }
-    }
+    ws2.getCell(s2Row, 2).value = group.basePence / 100
+    ws2.getCell(s2Row, 3).value = group.vatPence / 100
     ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
     ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: pv.font } }
     ws2.getCell(s2Row, 2).alignment = { horizontal: 'right' }
     ws2.getCell(s2Row, 3).numFmt = '£#,##0.00'
     ws2.getCell(s2Row, 3).font = { bold: true, color: { argb: pv.font } }
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 4).value = { formula: `=COUNTIF(${sE},"${pv.code}")` }
+    ws2.getCell(s2Row, 4).value = group.count
     ws2.getCell(s2Row, 4).font = { bold: true, color: { argb: pv.font } }
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     s2Row++

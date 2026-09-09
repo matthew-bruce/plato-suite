@@ -57,6 +57,16 @@ export interface ScheduleTotals {
   advisedRatePence: number
 }
 
+/**
+ * The allocations that count toward cost — the single filter every total on
+ * the Schedule page and in the export runs through. Callers that need to group
+ * or count the same population (the export's supplier and location breakdown)
+ * start from this rather than re-deriving the rule.
+ */
+export function includedAllocations<T extends TotalsAllocation>(allocations: T[]): T[] {
+  return allocations.filter((a) => isIncludedInBaseCost(a.planview_code))
+}
+
 /** One allocation's cost before VAT, in pence — the page's own formula. */
 export function allocationBasePence(a: TotalsAllocation): number {
   return Math.round(a.day_rate * (a.capacity_days ?? 0) * (a.utilisation_percent / 100))
@@ -79,6 +89,50 @@ function isEtpOrSharedServices(item: TotalsCostItem): boolean {
     item.cost_item_category === 'ETP' || item.cost_item_category === 'SHARED_SERVICES'
   )
 }
+
+/** One row of a grouped breakdown — by supplier, by location, or otherwise. */
+export interface GroupTotal {
+  /** Rows in this group that count toward cost. */
+  count: number
+  basePence: number
+  vatPence: number
+}
+
+/**
+ * The same cost rule, grouped.
+ *
+ * The export's Summary tab breaks Total Platform Cost down by supplier and by
+ * location directly beneath the headline figure, so those rows have to be
+ * built from the same population the headline is — otherwise the parts do not
+ * add up to the whole they sit under, which is exactly the inconsistency this
+ * module was written to end. Allocations excluded from cost are excluded here
+ * too, and are not counted.
+ *
+ * @param keyOf the group a row belongs to; a null key drops the row (it belongs
+ *   to no group the breakdown shows).
+ */
+export function computeTotalsByGroup<T extends TotalsAllocation>(
+  allocations: T[],
+  keyOf: (allocation: T) => string | null | undefined,
+  vatMultiplier: number,
+): Map<string, GroupTotal> {
+  const groups = new Map<string, GroupTotal>()
+
+  for (const a of includedAllocations(allocations)) {
+    const key = keyOf(a)
+    if (!key) continue
+    const group = groups.get(key) ?? { count: 0, basePence: 0, vatPence: 0 }
+    group.count += 1
+    group.basePence += allocationBasePence(a)
+    group.vatPence += allocationVatPence(a, vatMultiplier)
+    groups.set(key, group)
+  }
+
+  return groups
+}
+
+/** A group that contributed nothing — used for a supplier with no costed rows. */
+export const EMPTY_GROUP_TOTAL: GroupTotal = { count: 0, basePence: 0, vatPence: 0 }
 
 /**
  * @param vatMultiplier 1 + vat_uplift_percent/100 (e.g. 1.07082).

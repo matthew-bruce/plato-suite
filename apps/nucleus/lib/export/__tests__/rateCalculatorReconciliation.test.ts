@@ -21,7 +21,7 @@ import {
    Before the fix they disagreed with the Schedule page and, in the case of
    the two formula tabs, would have disagreed with the Summary as well once
    the Summary was corrected. This builds each tab's rows from the same Q3
-   data and checks all three land on the page's £2,671,777.
+   data and checks all three land on the page's own figure.
 ══════════════════════════════════════════════════════════════════════ */
 
 const vat = Q3_VAT_MULTIPLIER
@@ -156,14 +156,14 @@ describe('Q3 FY 26/27 — all three tabs agree with the live page', () => {
     expect(Math.round(rawDataGbp)).toBe(Math.round(summaryGbp))
   })
 
-  it('the Advised Rate that follows from each is the page\'s £577.13', () => {
+  it('the Advised Rate that follows from each is the page\'s', () => {
     const days = Q3_EXPECTED.xChargeableDays
     expect(summaryGbp / days).toBeCloseTo(Q3_EXPECTED.advisedRateGbp, 2)
     expect(rateCalcGbp / days).toBeCloseTo(Q3_EXPECTED.advisedRateGbp, 2)
     expect(rawDataGbp / days).toBeCloseTo(Q3_EXPECTED.advisedRateGbp, 2)
   })
 
-  it('none of the three reproduces the old £2,752,077', () => {
+  it('none of the three reproduces the old, unfiltered total', () => {
     for (const figure of [summaryGbp, rateCalcGbp, rawDataGbp]) {
       expect(Math.round(figure)).not.toBe(Q3_EXPECTED.oldExportTotalGbp)
     }
