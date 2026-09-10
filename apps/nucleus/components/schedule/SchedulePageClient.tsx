@@ -956,6 +956,7 @@ export function SchedulePageClient({ data }: Props) {
                   { value: 'onshore', label: 'Onshore' },
                   { value: 'nearshore', label: 'Nearshore' },
                   { value: 'offshore', label: 'Offshore' },
+                  { value: 'unspecified', label: 'Unspecified' },
                 ]}
               />
               <CustomSelect
@@ -3512,6 +3513,7 @@ function AllocationRow({
             <option value="onshore">Onshore</option>
             <option value="nearshore">Nearshore</option>
             <option value="offshore">Offshore</option>
+            <option value="unspecified">Unspecified</option>
           </select>
         </Cell>
         {/* 8 Monthly day breakdown — optional; populating any month locks the
