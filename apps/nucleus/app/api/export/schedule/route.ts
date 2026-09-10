@@ -10,6 +10,7 @@ import {
 } from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
 import { LOCATION_BUCKETS, locationBucket } from '@/lib/schedule/ui'
+import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -692,6 +693,13 @@ export async function GET(request: Request): Promise<Response> {
   const xChargeableDays = totals.xChargeableDays
   const advisedRate = totals.advisedRatePence / 100
   const currentRate = blendedDayRateOverridePence !== null ? blendedDayRateOverridePence / 100 : 0
+  // The page's own comparison (lib/schedule/recoveryVariance), not a second
+  // one computed here: this file used to work out (advised − current) itself
+  // and hard-code a "▲ Shortfall" / "under-recovery" label onto it regardless
+  // of the actual sign, so a surplus rendered as a shortfall. Both the hero
+  // KPI and the Blended Rate Summary block below read direction/wording off
+  // this single value.
+  const recovery = computeRecoveryVariance(currentRate, advisedRate, xChargeableDays)
 
   /* ── Date range + working-day count for the hero ── */
   const pStart = new Date(period.period_start_date)
@@ -760,9 +768,24 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 3).value = currentRate
   ws2.getCell(s2Row, 3).numFmt = '£#,##0" / day"'
   ws2.getCell(s2Row, 3).font = { bold: true, color: { argb: 'FF7EC8A4' }, size: 17 }
-  ws2.getCell(s2Row, 4).value = advisedRate - currentRate
-  ws2.getCell(s2Row, 4).numFmt = '"▲ "£#,##0" / day";"▼ "£#,##0" / day"'
-  ws2.getCell(s2Row, 4).font = { bold: true, color: { argb: 'FFF07070' }, size: 17 }
+  // Current − Advised, not Advised − Current: positive means Current Rate
+  // recovers more than cost (a surplus), which is what "▲" in the format
+  // below has to mean. The old (advised − current) formula was the negation,
+  // so this cell used to show "▲" — and a fixed red font — on a surplus.
+  ws2.getCell(s2Row, 4).value = recovery.perUnitVariance
+  ws2.getCell(s2Row, 4).numFmt = '"▲ "£#,##0" / day";"▼ "£#,##0" / day";"● "£0" / day"'
+  ws2.getCell(s2Row, 4).font = {
+    bold: true,
+    color: {
+      argb:
+        recovery.direction === 'surplus'
+          ? 'FF7EC8A4' // same light green as the Current Rate cell beside it
+          : recovery.direction === 'shortfall'
+          ? 'FFF07070'
+          : 'FFCCCCCC',
+    },
+    size: 17,
+  }
   s2Row++
   // Row 7 — blank separator
   ws2.getRow(s2Row).height = 6
@@ -1030,26 +1053,46 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 3).value = 'Rate in effect as agreed with Finance and Platform Directors'
   ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF999999' } }
   s2Row++
-  // Shortfall
-  const shortfallRowNum = s2Row
-  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFFEECEC')
-  ws2.getCell(s2Row, 1).value = '▲ Shortfall'
-  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF721C24' } }
-  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFE2001A' } } }
-  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryAdvisedRateRow}-B${summaryCurrentRateRow}` }
-  ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
-  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF721C24' } }
+  // Recovery variance — surplus when Current Rate exceeds Advised Rate
+  // (recovering more than cost), shortfall when it falls short. This row used
+  // to be hard-coded "▲ Shortfall" over an (advised − current) formula, so a
+  // surplus — Current Rate above the break-even Advised Rate — rendered as a
+  // deficit with a negative figure. Direction and wording now come from the
+  // same computeRecoveryVariance() the Schedule page's Recovery Variance card
+  // uses, not a second comparison worked out here.
+  const varianceRowNum = s2Row
+  const isSurplus = recovery.direction === 'surplus'
+  const isShortfall = recovery.direction === 'shortfall'
+  const varianceFill = isSurplus ? 'FFE8F5E9' : isShortfall ? 'FFFEECEC' : 'FFF5F5F5'
+  const varianceFont = isSurplus ? 'FF1B5E20' : isShortfall ? 'FF721C24' : 'FF555555'
+  const varianceBorder = isSurplus ? 'FF66BB6A' : isShortfall ? 'FFE2001A' : 'FFAAAAAA'
+  const varianceLabel = isSurplus ? '▲ Surplus' : isShortfall ? '▼ Shortfall' : '● On Target'
+  const recoveryWord = isSurplus ? 'Over-recovery' : isShortfall ? 'Under-recovery' : 'Recovery'
+
+  for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), varianceFill)
+  ws2.getCell(s2Row, 1).value = varianceLabel
+  ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: varianceFont } }
+  ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: varianceBorder } } }
+  // Current − Advised, not Advised − Current: positive is a surplus.
+  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryCurrentRateRow}-B${summaryAdvisedRateRow}` }
+  ws2.getCell(s2Row, 2).numFmt = '"+"£#,##0.00" / day";"−"£#,##0.00" / day";£0.00" / day"'
+  ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: varianceFont } }
   ws2.getCell(s2Row, 3).value = {
-    formula: `="Under-recovery at current rate — "&TEXT(B${shortfallRowNum}*${xChargeableDays},"£#,##0")&" over the quarter"`,
+    formula: `="${recoveryWord} at current rate — "&TEXT(B${varianceRowNum}*${xChargeableDays},"+£#,##0;−£#,##0;£0")&" over the quarter"`,
   }
-  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: 'FF721C24' } }
+  ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: varianceFont } }
   s2Row += 2
 
   // Final empty row at the bottom of the sheet
   ws2.getCell(s2Row, 1).value = ''
 
-  /* ── Conditional formatting: shortfall cell (five-tier symmetric) ── */
-  const shortfallCf = [
+  /* ── Conditional formatting: variance cell (five-tier symmetric) ──
+     Symmetric around zero by magnitude, not by direction, so flipping the
+     cell's sign (above) to make positive mean surplus needed no change here:
+     a large deviation either way — big surplus or big shortfall — still
+     lands in the outermost (red) band, a moderate one in amber, and
+     near-target in green. */
+  const varianceCf = [
     { operator: 'greaterThan', formulae: ['50'], priority: 1, fill: 'FFFDE8E8', font: 'FF8B0000' },
     { operator: 'greaterThan', formulae: ['20'], priority: 2, fill: 'FFFEF9C3', font: 'FF7A5A00' },
     { operator: 'between', formulae: ['-20', '20'], priority: 3, fill: 'FFE8F5E9', font: 'FF1B5E20' },
@@ -1058,8 +1101,8 @@ export async function GET(request: Request): Promise<Response> {
   ] as const
 
   ws2.addConditionalFormatting({
-    ref: `B${shortfallRowNum}`,
-    rules: shortfallCf.map(({ operator, formulae, priority, fill, font }) => ({
+    ref: `B${varianceRowNum}`,
+    rules: varianceCf.map(({ operator, formulae, priority, fill, font }) => ({
       type: 'cellIs' as const,
       operator,
       formulae: [...formulae],

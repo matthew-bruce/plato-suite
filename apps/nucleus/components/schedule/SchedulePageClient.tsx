@@ -89,6 +89,7 @@ import {
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
+import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
@@ -1234,17 +1235,17 @@ function KpiStrip({
   const currentRate = (costConfig?.blended_day_rate_override ?? 0) / 100
   const advisedRate = Math.round(totals.calcRateIncEtp) / 100
   const totalPRDays = totals.chargeableDays
-  const recoveryVariance = (currentRate - advisedRate) * totalPRDays
-  const recoveryVarianceFormatted = Math.abs(recoveryVariance).toLocaleString('en-GB', { maximumFractionDigits: 0 })
+  const recovery = computeRecoveryVariance(currentRate, advisedRate, totalPRDays)
+  const recoveryVarianceFormatted = Math.abs(recovery.totalVariance).toLocaleString('en-GB', { maximumFractionDigits: 0 })
 
   let recoveryVarianceValue: string
   let recoveryVarianceColor: string
   let recoveryVarianceSub: string
-  if (recoveryVariance < 0) {
+  if (recovery.direction === 'shortfall') {
     recoveryVarianceValue = `−£${recoveryVarianceFormatted}`
     recoveryVarianceColor = '#C8102E'
     recoveryVarianceSub = 'shortfall this period'
-  } else if (recoveryVariance > 0) {
+  } else if (recovery.direction === 'surplus') {
     recoveryVarianceValue = `+£${recoveryVarianceFormatted}`
     recoveryVarianceColor = '#3B6D11'
     recoveryVarianceSub = 'surplus this period'
@@ -1453,10 +1454,20 @@ function AppliedBlendedRateCard({
   // Live variance preview against the advised-rate formula (recovery variance):
   // (proposed rate − advised rate) × chargeable PR days.
   const proposed = parseFloat(rate) || 0
-  const previewVariance = (proposed - advisedRate) * totalPRDays
-  const previewColour = previewVariance < 0 ? '#C8102E' : previewVariance > 0 ? '#3B6D11' : '#2A2A2D'
+  const previewRecovery = computeRecoveryVariance(proposed, advisedRate, totalPRDays)
+  const previewVariance = previewRecovery.totalVariance
+  const previewColour =
+    previewRecovery.direction === 'shortfall'
+      ? '#C8102E'
+      : previewRecovery.direction === 'surplus'
+      ? '#3B6D11'
+      : '#2A2A2D'
   const previewLabel =
-    previewVariance < 0 ? 'shortfall' : previewVariance > 0 ? 'surplus' : 'on target'
+    previewRecovery.direction === 'shortfall'
+      ? 'shortfall'
+      : previewRecovery.direction === 'surplus'
+      ? 'surplus'
+      : 'on target'
 
   const card: React.CSSProperties = {
     background: 'white',
