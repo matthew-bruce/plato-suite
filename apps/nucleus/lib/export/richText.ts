@@ -32,6 +32,25 @@ export function toArgb(hex: string, fallback = 'FF888888'): string {
   return fallback
 }
 
+/**
+ * A supplier's brand colour blended 12% into white — the pale ground a
+ * supplier's own colour can sit on and stay readable, used for the Rate
+ * Calculator's row tints and for the supplier code chip on the Team and
+ * Supplier Schedules.
+ *
+ * Returns opaque white for anything that is not a bare 6-digit hex, which is
+ * the safe direction to fail: an unreadable chip beats invalid XML.
+ */
+export function supplierTint(hex: string): string {
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6) return 'FFFFFFFF'
+  const blend = (start: number): string => {
+    const channel = Math.round(parseInt(clean.slice(start, start + 2), 16) * 0.12 + 255 * 0.88)
+    return channel.toString(16).padStart(2, '0').toUpperCase()
+  }
+  return `FF${blend(0)}${blend(2)}${blend(4)}`
+}
+
 export interface RichTextValue {
   richText: { text: string; font: { color: { argb: string }; size: number } }[]
 }

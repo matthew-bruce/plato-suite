@@ -63,7 +63,7 @@ import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
 import { ExportCurrentViewModal } from './ExportCurrentViewModal'
 import { ExportChoiceModal } from './ExportChoiceModal'
-import type { ExportVariantId } from '@/lib/export/exportVariants'
+import type { ExportSelection } from './ExportChoiceModal'
 import type { ExportRow } from '@/lib/schedule/exportView'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
@@ -328,6 +328,29 @@ export function SchedulePageClient({ data }: Props) {
     return Array.from(set).sort()
   }, [localAllocations])
 
+  // Scope pickers for the team- and supplier-scoped exports. Built from the
+  // period's own allocations rather than the full teams/suppliers tables, so
+  // the modal can only offer a scope that would actually produce rows.
+  const exportTeamOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const a of localAllocations) {
+      for (const t of a.teams ?? []) byId.set(t.teamId, t.teamName)
+    }
+    return [...byId.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [localAllocations])
+
+  const exportSupplierOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const a of localAllocations) {
+      if (a.supplier_id && a.supplier_name) byId.set(a.supplier_id, a.supplier_name)
+    }
+    return [...byId.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [localAllocations])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return localAllocations.filter((a) => {
@@ -471,13 +494,19 @@ export function SchedulePageClient({ data }: Props) {
     locationFilter === 'all' &&
     teamFilter === 'all'
 
-  async function handleExportToExcel(variantId: ExportVariantId) {
+  async function handleExportToExcel(selection: ExportSelection) {
+    const { variantId } = selection
     setExportChoiceOpen(false)
     setLoading('Building export', period.period_name)
     try {
-      const response = await fetch(
-        `/api/export/schedule?periodId=${activePeriodId}&variant=${variantId}`,
-      )
+      const params = new URLSearchParams({
+        periodId: activePeriodId,
+        variant: variantId,
+        costVisibility: selection.costVisibility,
+      })
+      if (selection.teamId) params.set('teamId', selection.teamId)
+      if (selection.supplierId) params.set('supplierId', selection.supplierId)
+      const response = await fetch(`/api/export/schedule?${params.toString()}`)
       if (!response.ok) throw new Error('Export failed')
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
@@ -1144,8 +1173,10 @@ export function SchedulePageClient({ data }: Props) {
     <ExportChoiceModal
       open={exportChoiceOpen}
       periodName={period.period_name}
+      teams={exportTeamOptions}
+      suppliers={exportSupplierOptions}
       onClose={() => setExportChoiceOpen(false)}
-      onConfirm={(variantId) => void handleExportToExcel(variantId)}
+      onConfirm={(selection) => void handleExportToExcel(selection)}
     />
     <ExportCurrentViewModal
       open={exportViewOpen}

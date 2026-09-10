@@ -1,52 +1,111 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_EXPORT_VARIANT_ID,
   EXPORT_VARIANTS,
+  RATE_SENSITIVE_WARNING,
+  getExportVariant,
+  isRateSensitive,
 } from '@/lib/export/exportVariants'
-import type { ExportVariantId } from '@/lib/export/exportVariants'
+import type {
+  CostVisibility,
+  ExportVariant,
+  ExportVariantId,
+} from '@/lib/export/exportVariants'
 
 /**
- * Which workbook to export for this period.
+ * Which workbook to export for this period, and — for the variants that need
+ * it — what to scope it to.
  *
- * Renders whatever EXPORT_VARIANTS contains rather than a two-way toggle:
- * team-scoped and supplier-scoped variants are planned, and adding one should
- * mean appending an entry to that array, not restructuring this component.
- * Nothing here knows how many options there are or what any particular one
- * means.
+ * Renders whatever EXPORT_VARIANTS contains rather than a fixed set of
+ * options, and renders each variant's extra controls from what that variant
+ * DECLARES it needs (a team picker, a supplier picker, a cost-visibility
+ * choice) rather than from an `if (id === 'team-schedule')` here. Adding a
+ * fifth variant that needs a picker means adding a `scope` to its registry
+ * entry; this component does not need to know it happened.
  *
  * Styling is inline against --rmg-* tokens per ADR-023 — no hardcoded hex, and
  * the same overlay/card/header/footer shape the other Schedule modals use
  * (EditTeamsModal, CreatePeriodWizard) rather than a new pattern.
  */
+export interface ExportScopeOption {
+  id: string
+  label: string
+}
+
+/** Everything the export route needs to build the chosen file. */
+export interface ExportSelection {
+  variantId: ExportVariantId
+  teamId?: string
+  supplierId?: string
+  costVisibility: CostVisibility
+}
+
 export interface ExportChoiceModalProps {
   open: boolean
   periodName: string
+  /** Teams present in this period, for the team-scoped variants' picker. */
+  teams: readonly ExportScopeOption[]
+  /** Suppliers present in this period, for the supplier-scoped variants' picker. */
+  suppliers: readonly ExportScopeOption[]
   /** True while the chosen file is being built, to hold the modal open. */
   busy?: boolean
   onClose: () => void
-  onConfirm: (variantId: ExportVariantId) => void
+  onConfirm: (selection: ExportSelection) => void
 }
+
+const COST_VISIBILITY_OPTIONS: { value: CostVisibility; label: string; hint: string }[] = [
+  {
+    value: 'internal',
+    label: 'Internal (blended) only',
+    hint: 'The cross-charge rate. No supplier rates in the file.',
+  },
+  {
+    value: 'commercial',
+    label: 'Commercial (supplier rates) only',
+    hint: 'What each supplier actually charges.',
+  },
+  { value: 'both', label: 'Both', hint: 'Internal and commercial side by side.' },
+]
 
 export function ExportChoiceModal({
   open,
   periodName,
+  teams,
+  suppliers,
   busy = false,
   onClose,
   onConfirm,
 }: ExportChoiceModalProps) {
   const [selected, setSelected] = useState<ExportVariantId>(DEFAULT_EXPORT_VARIANT_ID)
   const [hovered, setHovered] = useState<ExportVariantId | null>(null)
+  const [teamId, setTeamId] = useState<string>('')
+  const [supplierId, setSupplierId] = useState<string>('')
+  const [costVisibility, setCostVisibility] = useState<CostVisibility>('internal')
+
+  const variant = useMemo(() => getExportVariant(selected), [selected])
 
   // Reopening always starts from the Finance-safe default rather than
-  // remembering the last, broader choice.
+  // remembering the last, broader choice — including the cost visibility,
+  // which is the setting most costly to inherit by accident.
   useEffect(() => {
-    if (open) {
-      setSelected(DEFAULT_EXPORT_VARIANT_ID)
-      setHovered(null)
-    }
+    if (!open) return
+    setSelected(DEFAULT_EXPORT_VARIANT_ID)
+    setHovered(null)
+    setTeamId('')
+    setSupplierId('')
+    setCostVisibility('internal')
   }, [open])
+
+  // Changing variant resets the cost visibility to that variant's own default,
+  // so a choice made under one variant never silently carries into another.
+  useEffect(() => {
+    const control = getExportVariant(selected).costVisibility
+    if (control.kind === 'choice') setCostVisibility(control.default)
+    else if (control.kind === 'fixed') setCostVisibility(control.value)
+    else setCostVisibility('internal')
+  }, [selected])
 
   useEffect(() => {
     if (!open) return
@@ -58,6 +117,9 @@ export function ExportChoiceModal({
   }, [open, busy, onClose])
 
   if (!open) return null
+
+  const scopeChosen =
+    variant.scope === 'team' ? teamId !== '' : variant.scope === 'supplier' ? supplierId !== '' : true
 
   const overlay: React.CSSProperties = {
     position: 'fixed',
@@ -95,6 +157,136 @@ export function ExportChoiceModal({
     borderRadius: 6,
     padding: '7px 16px',
     border: 'none',
+  }
+
+  const fieldLabel: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
+    color: 'var(--rmg-color-text-light)',
+  }
+
+  const selectStyle: React.CSSProperties = {
+    fontFamily: 'var(--rmg-font-body)',
+    fontSize: 13,
+    padding: '7px 9px',
+    borderRadius: 6,
+    border: '1px solid var(--rmg-color-grey-2)',
+    background: 'var(--rmg-color-surface-white)',
+    color: 'var(--rmg-color-text-heading)',
+    width: '100%',
+    maxWidth: '100%',
+    cursor: busy ? 'not-allowed' : 'pointer',
+  }
+
+  function renderScopePicker(v: ExportVariant) {
+    if (!v.scope) return null
+    const isTeam = v.scope === 'team'
+    const options = isTeam ? teams : suppliers
+    const value = isTeam ? teamId : supplierId
+    const setValue = isTeam ? setTeamId : setSupplierId
+    const noun = isTeam ? 'team' : 'supplier'
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <span style={fieldLabel}>{isTeam ? 'Team' : 'Supplier'}</span>
+        {options.length === 0 ? (
+          <span style={{ fontSize: 12, color: 'var(--rmg-color-text-light)' }}>
+            No {noun}s in this period.
+          </span>
+        ) : (
+          <select
+            value={value}
+            disabled={busy}
+            onChange={(e) => setValue(e.target.value)}
+            style={selectStyle}
+            aria-label={`Choose a ${noun}`}
+          >
+            <option value="">Choose a {noun}…</option>
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    )
+  }
+
+  function renderCostVisibility(v: ExportVariant) {
+    const control = v.costVisibility
+    if (control.kind === 'none') return null
+
+    if (control.kind === 'fixed') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <span style={fieldLabel}>Cost shown</span>
+          <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--rmg-color-text-light)' }}>
+            {control.note}
+          </span>
+        </div>
+      )
+    }
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={fieldLabel}>Cost shown</span>
+        {COST_VISIBILITY_OPTIONS.map((opt) => (
+          <label
+            key={opt.value}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8,
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <input
+              type="radio"
+              name="cost-visibility"
+              value={opt.value}
+              checked={costVisibility === opt.value}
+              disabled={busy}
+              onChange={() => setCostVisibility(opt.value)}
+              style={{
+                marginTop: 2,
+                accentColor: 'var(--rmg-color-red)',
+                flexShrink: 0,
+                cursor: busy ? 'not-allowed' : 'pointer',
+              }}
+            />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 13, color: 'var(--rmg-color-text-heading)' }}>
+                {opt.label}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--rmg-color-text-light)' }}>{opt.hint}</span>
+            </span>
+          </label>
+        ))}
+        {/* Shown only once the choice actually exposes supplier rates —
+            a warning that is always on stops being read. */}
+        {isRateSensitive(costVisibility) && (
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: 1.45,
+              // Dark text on the orange tint rather than the orange token on
+              // it: this is a warning that has to be read, and orange-on-orange
+              // is the pairing that stops it being read.
+              color: 'var(--rmg-color-text-heading)',
+              background: 'var(--rmg-color-tint-orange)',
+              borderRadius: 5,
+              padding: '6px 9px',
+            }}
+          >
+            {RATE_SENSITIVE_WARNING}
+          </span>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -153,21 +345,17 @@ export function ExportChoiceModal({
             gap: 10,
           }}
         >
-          {EXPORT_VARIANTS.map((variant) => {
-            const isSelected = variant.id === selected
-            const isHovered = variant.id === hovered
+          {EXPORT_VARIANTS.map((v) => {
+            const isSelected = v.id === selected
+            const isHovered = v.id === hovered
+            const hasExtras = Boolean(v.scope) || v.costVisibility.kind !== 'none'
             return (
-              <label
-                key={variant.id}
-                onMouseEnter={() => setHovered(variant.id)}
+              <div
+                key={v.id}
+                onMouseEnter={() => setHovered(v.id)}
                 onMouseLeave={() => setHovered(null)}
                 style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 12,
-                  padding: '14px 16px',
                   borderRadius: 8,
-                  cursor: busy ? 'not-allowed' : 'pointer',
                   border: `1.5px solid ${
                     isSelected ? 'var(--rmg-color-red)' : 'var(--rmg-color-grey-2)'
                   }`,
@@ -177,67 +365,97 @@ export function ExportChoiceModal({
                     ? 'var(--rmg-color-grey-4)'
                     : 'var(--rmg-color-surface-white)',
                   transition: 'background 120ms ease, border-color 120ms ease',
+                  overflow: 'hidden',
                 }}
               >
-                <input
-                  type="radio"
-                  name="export-variant"
-                  value={variant.id}
-                  checked={isSelected}
-                  disabled={busy}
-                  onChange={() => setSelected(variant.id)}
+                {/* The radio and its description stay inside a <label> so the
+                    whole block is a click target; the extra controls below sit
+                    OUTSIDE it, or using a picker would re-toggle the radio. */}
+                <label
                   style={{
-                    marginTop: 3,
-                    accentColor: 'var(--rmg-color-red)',
-                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 12,
+                    padding: '14px 16px',
                     cursor: busy ? 'not-allowed' : 'pointer',
                   }}
-                />
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                  <span
+                >
+                  <input
+                    type="radio"
+                    name="export-variant"
+                    value={v.id}
+                    checked={isSelected}
+                    disabled={busy}
+                    onChange={() => setSelected(v.id)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      flexWrap: 'wrap',
+                      marginTop: 3,
+                      accentColor: 'var(--rmg-color-red)',
+                      flexShrink: 0,
+                      cursor: busy ? 'not-allowed' : 'pointer',
                     }}
-                  >
+                  />
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
                     <span
                       style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: 'var(--rmg-color-text-heading)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {variant.label}
+                      <span
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: 'var(--rmg-color-text-heading)',
+                        }}
+                      >
+                        {v.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          letterSpacing: 0.3,
+                          textTransform: 'uppercase',
+                          padding: '2px 7px',
+                          borderRadius: 999,
+                          background: 'var(--rmg-color-grey-3)',
+                          color: 'var(--rmg-color-text-light)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {v.audience}
+                      </span>
                     </span>
                     <span
                       style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: 0.3,
-                        textTransform: 'uppercase',
-                        padding: '2px 7px',
-                        borderRadius: 999,
-                        background: 'var(--rmg-color-grey-3)',
+                        fontSize: 12,
+                        lineHeight: 1.45,
                         color: 'var(--rmg-color-text-light)',
-                        whiteSpace: 'nowrap',
                       }}
                     >
-                      {variant.audience}
+                      {v.description}
                     </span>
                   </span>
-                  <span
+                </label>
+
+                {isSelected && hasExtras && (
+                  <div
                     style={{
-                      fontSize: 12,
-                      lineHeight: 1.45,
-                      color: 'var(--rmg-color-text-light)',
+                      borderTop: '1px solid var(--rmg-color-grey-3)',
+                      padding: '12px 16px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                      background: 'var(--rmg-color-surface-white)',
                     }}
                   >
-                    {variant.description}
-                  </span>
-                </span>
-              </label>
+                    {renderScopePicker(v)}
+                    {renderCostVisibility(v)}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>
@@ -271,13 +489,21 @@ export function ExportChoiceModal({
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(selected)}
-            disabled={busy}
+            disabled={busy || !scopeChosen}
+            onClick={() =>
+              onConfirm({
+                variantId: selected,
+                teamId: variant.scope === 'team' ? teamId : undefined,
+                supplierId: variant.scope === 'supplier' ? supplierId : undefined,
+                costVisibility,
+              })
+            }
             style={{
               ...btnBase,
-              background: busy ? 'var(--rmg-color-grey-2)' : 'var(--rmg-color-red)',
+              background:
+                busy || !scopeChosen ? 'var(--rmg-color-grey-2)' : 'var(--rmg-color-red)',
               color: 'var(--rmg-color-white)',
-              cursor: busy ? 'not-allowed' : 'pointer',
+              cursor: busy || !scopeChosen ? 'not-allowed' : 'pointer',
             }}
           >
             {busy ? 'Building…' : 'Export as .xlsx'}

@@ -16,10 +16,15 @@ import {
 } from '@/lib/schedule/ui'
 import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 import { isVisibleInRateCalculatorExport } from '@/lib/export/rateCalculatorVisibility'
-import { parseExportVariantId } from '@/lib/export/exportVariants'
+import { parseExportVariantId, resolveCostVisibility } from '@/lib/export/exportVariants'
 import type { ExportVariantId } from '@/lib/export/exportVariants'
+import type { TeamAssignmentRef, VariantAllocationRow } from '@/lib/export/scheduleVariantRows'
+import { rowsForTeam, rowsForSupplier } from '@/lib/export/scheduleVariantRows'
+import { buildTeamScheduleSheet } from '@/lib/export/teamScheduleSheet'
+import { buildSupplierScheduleSheet } from '@/lib/export/supplierScheduleSheet'
 import { isNamedPerson } from '@/lib/export/rowPopulations'
-import { squareRich, toArgb } from '@/lib/export/richText'
+import { squareRich, toArgb, supplierTint } from '@/lib/export/richText'
+import { planviewStyle } from '@/lib/export/planviewColours'
 import { formulaCell } from '@/lib/export/formulaCell'
 
 const WEB_PLATFORM_CODE = 'WEB'
@@ -40,7 +45,9 @@ interface AllocationRow {
   role_title: string | null
   resource_name: string | null
   planview_code: string | null
+  supplier_id: string | null
   supplier_name: string | null
+  supplier_abbreviation: string | null
   supplier_sort_order: number | null
   supplier_colour: string | null
   resource_location: string | null
@@ -48,7 +55,10 @@ interface AllocationRow {
   capacity_days: number | null
   day_rate: number
   vat_applies: boolean
+  /** The largest-split team — what the Rate Calculator and Platform Schedule show. */
   team_name: string
+  /** Every team and its split, as the Schedule page carries it. */
+  teams: TeamAssignmentRef[]
 }
 
 interface CostItemRow {
@@ -69,10 +79,25 @@ interface CostItemRow {
 const VARIANT_FILENAME_STEM: Record<ExportVariantId, string> = {
   'rate-calculator': 'Rate_Calculator',
   'platform-schedule': 'Platform_Schedule',
+  'team-schedule': 'Team_Schedule',
+  'supplier-schedule': 'Supplier_Schedule',
 }
 
-function deriveFilename(periodName: string, stamp: string, variant: ExportVariantId): string {
-  const stem = VARIANT_FILENAME_STEM[variant]
+/** "Shared Resources" → "Shared_Resources"; keeps a filename safe on any OS. */
+function filenameSegment(label: string): string {
+  return label.trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function deriveFilename(
+  periodName: string,
+  stamp: string,
+  variant: ExportVariantId,
+  /** Team or supplier name, for the variants scoped to one of them. */
+  scopeLabel?: string | null,
+): string {
+  const base = VARIANT_FILENAME_STEM[variant]
+  const scope = scopeLabel ? filenameSegment(scopeLabel) : ''
+  const stem = scope ? `${base}_${scope}` : base
   // Match "Q<n> FY <yy>/<yy>" pattern
   const match = periodName.match(/Q(\d)\s+FY\s+(\d{2}\/\d{2})/)
   if (!match) return `${stem}_Web_${stamp}.xlsx`
@@ -114,16 +139,6 @@ function setRowFill(ws: ExcelJS.Worksheet, rowNum: number, argb: string, cols: n
       fgColor: { argb },
     }
   }
-}
-
-// Blends the supplier hex colour with white at 12% intensity to produce a subtle tint.
-function supplierTint(hex: string): string {
-  const clean = hex.replace('#', '')
-  if (clean.length !== 6) return 'FFFFFFFF'
-  const r = Math.round(parseInt(clean.slice(0, 2), 16) * 0.12 + 255 * 0.88)
-  const g = Math.round(parseInt(clean.slice(2, 4), 16) * 0.12 + 255 * 0.88)
-  const b = Math.round(parseInt(clean.slice(4, 6), 16) * 0.12 + 255 * 0.88)
-  return `FF${r.toString(16).padStart(2, '0').toUpperCase()}${g.toString(16).padStart(2, '0').toUpperCase()}${b.toString(16).padStart(2, '0').toUpperCase()}`
 }
 
 function applyFill(cell: ExcelJS.Cell, argb: string): void {
@@ -197,12 +212,26 @@ export async function GET(request: Request): Promise<Response> {
      Rate Calculator rather than erroring. */
   const variant: ExportVariantId = parseExportVariantId(searchParams.get('variant'))
   const isPlatformSchedule = variant === 'platform-schedule'
+  const isTeamSchedule = variant === 'team-schedule'
+  const isSupplierSchedule = variant === 'supplier-schedule'
+  const isScopedVariant = isTeamSchedule || isSupplierSchedule
+
+  /* The scope a team- or supplier-scoped file is built for, and whose rates it
+     may show. resolveCostVisibility ignores the requested value for a variant
+     that fixes its own — a hand-edited ?costVisibility= cannot widen the
+     Supplier Schedule or narrow it below the commercial figures it exists for. */
+  const scopeTeamId = searchParams.get('teamId')
+  const scopeSupplierId = searchParams.get('supplierId')
+  const costVisibility = resolveCostVisibility(variant, searchParams.get('costVisibility'))
 
   /* Row visibility. The Rate Calculator hides NPC entirely (those roles never
-     appear on a supplier SOW); the Platform Schedule is explicitly the
-     show-everything file and lists them. */
+     appear on a supplier SOW); every other variant lists them — the Platform
+     Schedule because it is explicitly the show-everything file, and the two
+     scoped variants because their own team/supplier filter is what narrows
+     them. Whether an NPC row then carries a COST figure is a separate
+     question, answered per variant in lib/export/scheduleVariantRows.ts. */
   const showsRow = (planviewCode: string | null | undefined): boolean =>
-    isPlatformSchedule ? true : isVisibleInRateCalculatorExport(planviewCode)
+    variant === 'rate-calculator' ? isVisibleInRateCalculatorExport(planviewCode) : true
 
   const supabase = await getSupabaseServerComponentClient()
 
@@ -245,7 +274,7 @@ export async function GET(request: Request): Promise<Response> {
       vat_applies,
       resource_location,
       resources:resource_id!left ( resource_name, resource_location ),
-      suppliers:supplier_id ( supplier_name, sort_order, supplier_colour )
+      suppliers:supplier_id ( supplier_id, supplier_name, supplier_abbreviation, sort_order, supplier_colour )
     `)
     .eq('period_id', periodId)
     .is('deleted_at', null)
@@ -264,7 +293,15 @@ export async function GET(request: Request): Promise<Response> {
     resource_location: string | null
     resource_id?: string | null
     resources: { resource_name: string; resource_location: string | null } | { resource_name: string; resource_location: string | null }[] | null
-    suppliers: { supplier_name: string; sort_order: number | null; supplier_colour: string | null } | { supplier_name: string; sort_order: number | null; supplier_colour: string | null }[] | null
+    suppliers: SupplierEmbed | SupplierEmbed[] | null
+  }
+
+  type SupplierEmbed = {
+    supplier_id: string
+    supplier_name: string
+    supplier_abbreviation: string | null
+    sort_order: number | null
+    supplier_colour: string | null
   }
 
   function pickOne<T>(v: T | T[] | null | undefined): T | null {
@@ -299,37 +336,100 @@ export async function GET(request: Request): Promise<Response> {
     .map((r) => r.resource_id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
 
-  const teamMap = new Map<string, string>()
+  // Every team a resource is assigned to, with its split — the same shape the
+  // Schedule page carries (packages/schema/src/queries/schedule.ts), not just
+  // the largest one. The Rate Calculator and Platform Schedule still read only
+  // the first entry (`team_name` below), so their output is unchanged; the two
+  // scoped variants need the whole array to scope by team and to print the
+  // "Pluto 50%, Cygnus 50%" split the page shows.
+  type TeamAssignmentEmbed = {
+    resource_id: string | null
+    allocation_id: string | null
+    team_id: string
+    capacity_split: number | string
+    teams: { team_name: string } | { team_name: string }[] | null
+  }
+
+  const teamsByResource = new Map<string, TeamAssignmentRef[]>()
   if (resourceIds.length > 0) {
     const { data: teamData } = await supabase
       .from('resource_team_assignments')
-      .select('resource_id, capacity_split, teams ( team_name )')
+      .select('resource_id, allocation_id, team_id, capacity_split, teams ( team_name )')
       .in('resource_id', resourceIds)
       .eq('period_id', periodId)
       .is('deleted_at', null)
       .order('capacity_split', { ascending: false })
 
-    for (const r of (teamData ?? []) as unknown as { resource_id: string; teams: { team_name: string } | { team_name: string }[] | null }[]) {
+    for (const r of (teamData ?? []) as unknown as TeamAssignmentEmbed[]) {
       const team = pickOne(r.teams)
-      if (team?.team_name && !teamMap.has(r.resource_id)) {
-        teamMap.set(r.resource_id, team.team_name)
-      }
+      if (!team?.team_name || !r.resource_id) continue
+      const existing = teamsByResource.get(r.resource_id) ?? []
+      existing.push({
+        teamId: r.team_id,
+        teamName: team.team_name,
+        capacitySplit: Number(r.capacity_split),
+      })
+      teamsByResource.set(r.resource_id, existing)
     }
   }
+
+  // Vacant/TBC rows have no resource_id, so their team assignments key on
+  // allocation_id instead — the same fallback the Schedule page uses. Without
+  // it a vacant seat silently belongs to no team and vanishes from a
+  // team-scoped file.
+  //
+  // Only the scoped variants need it, so only they pay for the round trip:
+  // the Rate Calculator and Platform Schedule read team_name from the
+  // resource-keyed map alone, exactly as they always have.
+  const vacantAllocationIds = isScopedVariant
+    ? rawRows.filter((r) => !r.resource_id).map((r) => r.allocation_id)
+    : []
+
+  const teamsByAllocation = new Map<string, TeamAssignmentRef[]>()
+  if (vacantAllocationIds.length > 0) {
+    const { data: tbcTeamData } = await supabase
+      .from('resource_team_assignments')
+      .select('resource_id, allocation_id, team_id, capacity_split, teams ( team_name )')
+      .in('allocation_id', vacantAllocationIds)
+      .is('resource_id', null)
+      .is('deleted_at', null)
+      .order('capacity_split', { ascending: false })
+
+    for (const r of (tbcTeamData ?? []) as unknown as TeamAssignmentEmbed[]) {
+      const team = pickOne(r.teams)
+      if (!team?.team_name || !r.allocation_id) continue
+      const existing = teamsByAllocation.get(r.allocation_id) ?? []
+      existing.push({
+        teamId: r.team_id,
+        teamName: team.team_name,
+        capacitySplit: Number(r.capacity_split),
+      })
+      teamsByAllocation.set(r.allocation_id, existing)
+    }
+  }
+
+  const teamsFor = (row: { resource_id?: string | null; allocation_id: string }): TeamAssignmentRef[] =>
+    row.resource_id
+      ? (teamsByResource.get(row.resource_id) ?? [])
+      : (teamsByAllocation.get(row.allocation_id) ?? [])
 
   const allocations: AllocationRow[] = rawRows
     .map((r): AllocationRow => {
       const resource = pickOne(r.resources)
       const supplier = pickOne(r.suppliers)
+      const teams = teamsFor(r)
       return {
         allocation_id: r.allocation_id,
         resource_id: r.resource_id ?? null,
         role_title: r.role_title,
         resource_name: resource?.resource_name ?? 'TBC / Vacant',
         planview_code: r.planview_code,
+        supplier_id: supplier?.supplier_id ?? null,
         supplier_name: supplier?.supplier_name ?? null,
+        supplier_abbreviation: supplier?.supplier_abbreviation ?? null,
         supplier_sort_order: supplier?.sort_order ?? null,
         supplier_colour: supplier?.supplier_colour ?? null,
+        teams,
         // The allocation's own location wins; the resource's is only a
         // fallback for legacy rows that predate the per-allocation field.
         // This mirrors the Schedule page exactly (schedule.ts: row.
@@ -342,7 +442,16 @@ export async function GET(request: Request): Promise<Response> {
         capacity_days: r.capacity_days === null ? null : Number(r.capacity_days),
         day_rate: r.day_rate,
         vat_applies: r.vat_applies ?? true,
-        team_name: r.resource_id ? (teamMap.get(r.resource_id) ?? '') : '',
+        // Resource-keyed only, and the largest split, exactly as before:
+        // assignments arrive ordered by capacity_split descending, so [0] is
+        // the value the old first-wins map produced. Deliberately NOT read
+        // from `teams` below — that now includes the allocation-keyed
+        // assignments of vacant seats, which the Rate Calculator and Platform
+        // Schedule have always shown blank here. Widening this field would
+        // change two files that are in production and confirmed correct.
+        team_name: r.resource_id
+          ? (teamsByResource.get(r.resource_id)?.[0]?.teamName ?? '')
+          : '',
       }
     })
     .sort((a, b) => {
@@ -391,6 +500,99 @@ export async function GET(request: Request): Promise<Response> {
 
   const sanitiseSheetName = (name: string): string =>
     name.replace(/[\\/?*[\]:]/g, '-').slice(0, 31)
+
+  /* ── Team- and supplier-scoped variants ──
+     Single-sheet files, built and returned here rather than threaded through
+     the three-tab layout below: they share this route's data-gathering (so
+     their rows are shaped exactly as the Schedule page shapes them) but none
+     of its workbook structure. Returning early also guarantees the Rate
+     Calculator and Platform Schedule paths below are untouched by any of
+     this. */
+  if (isScopedVariant) {
+    const scopedRows: VariantAllocationRow[] = allocations.map((a) => ({
+      allocation_id: a.allocation_id,
+      resource_id: a.resource_id,
+      resource_name: a.resource_id ? a.resource_name : null,
+      role_title: a.role_title,
+      planview_code: a.planview_code,
+      supplier_name: a.supplier_name,
+      supplier_abbreviation: a.supplier_abbreviation,
+      supplier_colour: a.supplier_colour,
+      resource_location: a.resource_location,
+      utilisation_percent: a.utilisation_percent,
+      capacity_days: a.capacity_days,
+      day_rate: a.day_rate,
+      vat_applies: a.vat_applies,
+      teams: a.teams,
+    }))
+
+    // Deliberately no working-day count in the date range here: it varies by
+    // resource location, so there is no one figure that is true for the file.
+    const sStart = new Date(period.period_start_date)
+    const sEnd = new Date(period.period_end_date)
+    const fmtScoped = (d: Date) =>
+      `${pad(d.getUTCDate())} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+    const scopedRange = `${fmtScoped(sStart)} – ${fmtScoped(sEnd)}`
+
+    let scopeLabel: string
+    if (isTeamSchedule) {
+      const team = scopeTeamId
+        ? scopedRows.flatMap((r) => r.teams).find((t) => t.teamId === scopeTeamId)
+        : undefined
+      if (!scopeTeamId || !team) {
+        return new Response('Team Schedule needs a teamId for a team in this period', {
+          status: 400,
+        })
+      }
+      scopeLabel = team.teamName
+      const ws = wb.addWorksheet(sanitiseSheetName(scopeLabel))
+      buildTeamScheduleSheet({
+        ws,
+        rows: rowsForTeam(scopedRows, scopeTeamId),
+        teamName: scopeLabel,
+        periodName: period.period_name,
+        dateRange: scopedRange,
+        exportedAt,
+        vatMultiplier,
+        blendedDayRatePence: blendedDayRateOverridePence ?? 0,
+        costVisibility,
+      })
+    } else {
+      const supplierRow = scopeSupplierId
+        ? allocations.find((a) => a.supplier_id === scopeSupplierId)
+        : undefined
+      if (!scopeSupplierId || !supplierRow?.supplier_name) {
+        return new Response('Supplier Schedule needs a supplierId present in this period', {
+          status: 400,
+        })
+      }
+      scopeLabel = supplierRow.supplier_name
+      const ws = wb.addWorksheet(sanitiseSheetName(scopeLabel))
+      buildSupplierScheduleSheet({
+        ws,
+        rows: rowsForSupplier(scopedRows, scopeLabel),
+        supplierName: scopeLabel,
+        periodName: period.period_name,
+        dateRange: scopedRange,
+        exportedAt,
+        vatMultiplier,
+      })
+    }
+
+    const scopedBuffer = await wb.xlsx.writeBuffer()
+    return new Response(scopedBuffer as ArrayBuffer, {
+      headers: {
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${deriveFilename(
+          period.period_name,
+          stamp,
+          variant,
+          scopeLabel,
+        )}"`,
+      },
+    })
+  }
 
   // Tab order follows creation order in ExcelJS: create Summary first so it is
   // the leftmost (first) tab, then the Rate Calculator. Both are written below.
@@ -1073,24 +1275,22 @@ export async function GET(request: Request): Promise<Response> {
   sectionHeader('PLANVIEW CODE SPLIT')
   colHeaderRow(['Code', 'Base Cost', '+VAT Cost', 'Headcount'], { 2: 'right', 3: 'right', 4: 'center' })
 
-  const planviewRows: { code: string; label: string; fill: string; font: string }[] = [
-    { code: 'PR', label: 'PR  Platform Request — recoverable', fill: 'FFE8F5E9', font: 'FF1B5E20' },
-    { code: 'F_Gov', label: 'F_Gov  Factory Governance — overhead', fill: 'FFE3F2FD', font: 'FF0D47A1' },
-    { code: 'BAU', label: 'BAU  Business as Usual — not platform-borne', fill: 'FFF5F5F5', font: 'FF888888' },
+  // Colours and legend text come from the shared planview palette
+  // (lib/export/planviewColours.ts) so this legend and the Team/Supplier
+  // Schedule sheets can't colour the same code two different ways.
+  const planviewLegendCodes = [
+    'PR',
+    'F_Gov',
+    'BAU',
     // NPC exists only on the Platform Schedule, which is the variant that
     // lists those rows at all. Adding it on the Rate Calculator would print a
     // permanently empty row, since its NPC allocations never reach the file.
-    ...(isPlatformSchedule
-      ? [
-          {
-            code: 'NPC',
-            label: 'NPC  Non Platform Cost — borne elsewhere',
-            fill: 'FFFFF3E0',
-            font: 'FF7A4400',
-          },
-        ]
-      : []),
+    ...(isPlatformSchedule ? ['NPC'] : []),
   ]
+  const planviewRows = planviewLegendCodes.map((code) => {
+    const style = planviewStyle(code)
+    return { code, label: style.legendLabel, fill: style.fill, font: style.font }
+  })
   /* From the same grouped source as the breakdown above, so PR + F_Gov ties
      exactly to the supplier total and to the headline's resource component.
      BAU needs no special case: it is excluded from cost, so its group is
