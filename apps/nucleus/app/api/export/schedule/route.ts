@@ -20,6 +20,7 @@ import { parseExportVariantId } from '@/lib/export/exportVariants'
 import type { ExportVariantId } from '@/lib/export/exportVariants'
 import { isNamedPerson } from '@/lib/export/rowPopulations'
 import { squareRich, toArgb } from '@/lib/export/richText'
+import { formulaCell } from '@/lib/export/formulaCell'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -524,10 +525,10 @@ export async function GET(request: Request): Promise<Response> {
         alloc.utilisation_percent / 100,
         alloc.capacity_days ?? 0,
         alloc.day_rate / 100,
-        { formula: `=IF(E${rowNum}="PR","Yes","No")` },
-        { formula: `=(H${rowNum}*I${rowNum})*J${rowNum}` },
+        formulaCell(`IF(E${rowNum}="PR","Yes","No")`),
+        formulaCell(`(H${rowNum}*I${rowNum})*J${rowNum}`),
         // Placeholder — replaced in pass 2 once VAT row is known
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
         // Column N, Platform Schedule only. A literal Y/N rather than a
         // formula: the rule is isIncludedInBaseCost, which is more than
         // "is the code PR" (F_Gov counts too), and restating it as an in-sheet
@@ -595,7 +596,7 @@ export async function GET(request: Request): Promise<Response> {
         item.amount_pence / 100,
         // Placeholder — pass 2 replaces this with the VAT-uplifted formula
         // once the VAT multiplier's row is known, for items that take VAT.
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
       ])
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
@@ -624,7 +625,7 @@ export async function GET(request: Request): Promise<Response> {
         item.label,
         '', '', '', '', '', '', '', '', '', '',
         item.amount_pence / 100,
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
       ])
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
@@ -668,8 +669,8 @@ export async function GET(request: Request): Promise<Response> {
   const subtotalRow = ws.addRow([
     'SUBTOTAL',
     '', '', '', '', '', '', '', '', '', '',
-    { formula: `=${subtotalFormula('L')}` },
-    { formula: `=${subtotalFormula('M')}` },
+    formulaCell(subtotalFormula('L')),
+    formulaCell(subtotalFormula('M')),
   ])
   setRowFill(ws, subtotalRowNum, HEADER_ARGB, NUM_COLS)
   subtotalRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -699,7 +700,7 @@ export async function GET(request: Request): Promise<Response> {
     // Range is the resource rows only (not lastDataRow) — the AD-HOC/ETP
     // cost-item rows pad columns H/I/K with text "" placeholders, and
     // SUMPRODUCT raises #VALUE! if any cell in its array is text.
-    { formula: `=SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastResourceRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastResourceRow})*(I${FIRST_DATA_ROW}:I${lastResourceRow}))` },
+    formulaCell(`SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastResourceRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastResourceRow})*(I${FIRST_DATA_ROW}:I${lastResourceRow}))`),
   ])
   billableRow.getCell(1).font = { bold: true }
 
@@ -713,7 +714,7 @@ export async function GET(request: Request): Promise<Response> {
   const xChargeableRowNum = ws.rowCount + 1
   const xChargeableRow = ws.addRow([
     'X-Chargeable Days', '', '', '', '', '', '', '',
-    { formula: `=I${utilisationRowNum}*I${billableDaysRowNum}` },
+    formulaCell(`I${utilisationRowNum}*I${billableDaysRowNum}`),
   ])
   xChargeableRow.getCell(1).font = { bold: true }
 
@@ -726,7 +727,7 @@ export async function GET(request: Request): Promise<Response> {
   const dayRateRowNum = ws.rowCount + 1
   const dayRateRow = ws.addRow([
     'Advised Rate', '', '', '', '', '', '', '',
-    { formula: `=M${subtotalRowNum}/I${xChargeableRowNum}` },
+    formulaCell(`M${subtotalRowNum}/I${xChargeableRowNum}`),
   ])
   dayRateRow.getCell(9).numFmt = '£#,##0.00'
 
@@ -753,7 +754,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Pass 2: back-fill VAT formulas with the now-known VAT multiplier cell ── */
   for (const rowNum of vatRows) {
     const cell = ws.getCell(rowNum, 13) // M column
-    cell.value = { formula: `=L${rowNum}*$I$${vatMultiplierRowNum}` }
+    cell.value = formulaCell(`L${rowNum}*$I$${vatMultiplierRowNum}`)
     cell.numFmt = '£#,##0.00'
   }
 
@@ -983,7 +984,7 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 3).value = group.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).value = formulaCell(`IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})`)
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     ws2.getCell(s2Row, 5).value = countAt(supplierName, 'Onshore')
@@ -1000,14 +1001,14 @@ export async function GET(request: Request): Promise<Response> {
   for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
   ws2.getCell(s2Row, 1).value = 'Supplier total'
   ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=SUM(B${supplierDataStart}:B${supplierDataEnd})` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`SUM(B${supplierDataStart}:B${supplierDataEnd})`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0'
-  ws2.getCell(s2Row, 3).value = { formula: `=SUM(C${supplierDataStart}:C${supplierDataEnd})` }
+  ws2.getCell(s2Row, 3).value = formulaCell(`SUM(C${supplierDataStart}:C${supplierDataEnd})`)
   ws2.getCell(s2Row, 3).numFmt = '£#,##0'
   ws2.getCell(s2Row, 4).value = '100%'
   for (let c = 5; c <= 8; c++) {
     const cl = String.fromCharCode(64 + c)
-    ws2.getCell(s2Row, c).value = { formula: `=SUM(${cl}${supplierDataStart}:${cl}${supplierDataEnd})` }
+    ws2.getCell(s2Row, c).value = formulaCell(`SUM(${cl}${supplierDataStart}:${cl}${supplierDataEnd})`)
   }
   for (let c = 1; c <= 8; c++) {
     ws2.getCell(s2Row, c).font = { bold: true }
@@ -1050,7 +1051,7 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 3).value = locGroup.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).value = formulaCell(`IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})`)
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     // Count only appears in this location's own column; the others show a dash
@@ -1144,7 +1145,7 @@ export async function GET(request: Request): Promise<Response> {
   const blendedTotalRow = s2Row
   ws2.getCell(s2Row, 1).value = 'Total platform cost (inc. VAT)'
   ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=B${s2Row - 2}+B${s2Row - 1}` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`B${s2Row - 2}+B${s2Row - 1}`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 2).font = { bold: true }
   for (const c of [1, 2]) {
@@ -1164,7 +1165,7 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).value = 'Advised Rate'
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF5A4000' } }
   ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFFDDA24' } } }
-  ws2.getCell(s2Row, 2).value = { formula: `=IF(B${xChargRow}=0,0,B${blendedTotalRow}/B${xChargRow})` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`IF(B${xChargRow}=0,0,B${blendedTotalRow}/B${xChargRow})`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF5A4000' } }
   ws2.getCell(s2Row, 3).value = 'Cost recovery rate based on current schedule decisions'
@@ -1203,12 +1204,12 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: varianceFont } }
   ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: varianceBorder } } }
   // Current − Advised, not Advised − Current: positive is a surplus.
-  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryCurrentRateRow}-B${summaryAdvisedRateRow}` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`B${summaryCurrentRateRow}-B${summaryAdvisedRateRow}`)
   ws2.getCell(s2Row, 2).numFmt = '"+"£#,##0.00" / day";"−"£#,##0.00" / day";£0.00" / day"'
   ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: varianceFont } }
-  ws2.getCell(s2Row, 3).value = {
-    formula: `="${recoveryWord} at current rate — "&TEXT(B${varianceRowNum}*${xChargeableDays},"+£#,##0;−£#,##0;£0")&" over the quarter"`,
-  }
+  ws2.getCell(s2Row, 3).value = formulaCell(
+    `"${recoveryWord} at current rate — "&TEXT(B${varianceRowNum}*${xChargeableDays},"+£#,##0;−£#,##0;£0")&" over the quarter"`,
+  )
   ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: varianceFont } }
   s2Row += 2
 
@@ -1323,9 +1324,9 @@ export async function GET(request: Request): Promise<Response> {
       resources: { first: 2, last: rawLastAllocRow },
       costSections: [{ first: rawFirstCostRow, last: rawLastCostRow }],
     })
-  ws3.getCell(rawSubtotalRow, 12).value = { formula: `=${rawSubtotalFormula('L')}` }
+  ws3.getCell(rawSubtotalRow, 12).value = formulaCell(rawSubtotalFormula('L'))
   ws3.getCell(rawSubtotalRow, 12).numFmt = '£#,##0.00'
-  ws3.getCell(rawSubtotalRow, 13).value = { formula: `=${rawSubtotalFormula('M')}` }
+  ws3.getCell(rawSubtotalRow, 13).value = formulaCell(rawSubtotalFormula('M'))
   ws3.getCell(rawSubtotalRow, 13).numFmt = '£#,##0.00'
 
   const rawVatRow = rawSubtotalRow + 2
@@ -1339,7 +1340,7 @@ export async function GET(request: Request): Promise<Response> {
   // text header row ("Utilisation", "Days", "Chargeable"), and SUMPRODUCT
   // raises #VALUE! if any cell in its array is text. Also excludes the
   // appended cost-item rows, which pad these columns with "" placeholders.
-  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))` }
+  ws3.getCell(rawBillableRow, 9).value = formulaCell(`SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))`)
 
   const rawUtilRow = rawSubtotalRow + 4
   ws3.getCell(rawUtilRow, 1).value = 'Utilisation'
@@ -1347,12 +1348,12 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawXChargRow = rawSubtotalRow + 5
   ws3.getCell(rawXChargRow, 1).value = 'X-Chargeable Days'
-  ws3.getCell(rawXChargRow, 9).value = { formula: `=I${rawBillableRow}*I${rawUtilRow}` }
+  ws3.getCell(rawXChargRow, 9).value = formulaCell(`I${rawBillableRow}*I${rawUtilRow}`)
 
   const rawAdvisedRow = rawSubtotalRow + 6
   ws3.getCell(rawAdvisedRow, 1).value = 'Advised Rate'
   ws3.getCell(rawAdvisedRow, 1).font = { bold: true }
-  ws3.getCell(rawAdvisedRow, 9).value = { formula: `=M${rawSubtotalRow}/I${rawXChargRow}` }
+  ws3.getCell(rawAdvisedRow, 9).value = formulaCell(`M${rawSubtotalRow}/I${rawXChargRow}`)
   ws3.getCell(rawAdvisedRow, 9).numFmt = '£#,##0.00'
 
   const rawCurrentRow = rawSubtotalRow + 7
