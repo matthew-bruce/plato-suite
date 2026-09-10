@@ -62,6 +62,8 @@ import type { WizardSuccessPayload, AssignModeConfig } from './AddResourceWizard
 import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
 import { ExportCurrentViewModal } from './ExportCurrentViewModal'
+import { ExportChoiceModal } from './ExportChoiceModal'
+import type { ExportVariantId } from '@/lib/export/exportVariants'
 import type { ExportRow } from '@/lib/schedule/exportView'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
@@ -236,6 +238,9 @@ export function SchedulePageClient({ data }: Props) {
   } | null>(null)
   const [assignWizardTarget, setAssignWizardTarget] = useState<AssignModeConfig | null>(null)
   const [exportViewOpen, setExportViewOpen] = useState(false)
+  // Which .xlsx to build — the toolbar's Export button opens this chooser
+  // rather than going straight to the Rate Calculator.
+  const [exportChoiceOpen, setExportChoiceOpen] = useState(false)
   const [createPeriodOpen, setCreatePeriodOpen] = useState(false)
 
   // The most recent existing period drives the Create-New-Period pre-fill and
@@ -466,10 +471,13 @@ export function SchedulePageClient({ data }: Props) {
     locationFilter === 'all' &&
     teamFilter === 'all'
 
-  async function handleExportToExcel() {
+  async function handleExportToExcel(variantId: ExportVariantId) {
+    setExportChoiceOpen(false)
     setLoading('Building export', period.period_name)
     try {
-      const response = await fetch(`/api/export/schedule?periodId=${activePeriodId}`)
+      const response = await fetch(
+        `/api/export/schedule?periodId=${activePeriodId}&variant=${variantId}`,
+      )
       if (!response.ok) throw new Error('Export failed')
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
@@ -477,7 +485,9 @@ export function SchedulePageClient({ data }: Props) {
       a.href = url
       const disposition = response.headers.get('Content-Disposition')
       const match = disposition?.match(/filename="(.+)"/)
-      a.download = match?.[1] ?? 'Rate_Calculator.xlsx'
+      // The route names the file per variant; this fallback only matters if the
+      // header is missing, so it must not assume the Rate Calculator either.
+      a.download = match?.[1] ?? `${variantId}.xlsx`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -913,7 +923,7 @@ export function SchedulePageClient({ data }: Props) {
         locked={isLocked}
         onLockToggle={handleToggleLocked}
         lockPending={lockPending}
-        onExport={handleExportToExcel}
+        onExport={() => setExportChoiceOpen(true)}
       />
 
       <KpiStrip
@@ -1131,6 +1141,12 @@ export function SchedulePageClient({ data }: Props) {
         onClose={() => setEditTeamsTarget(null)}
       />
     )}
+    <ExportChoiceModal
+      open={exportChoiceOpen}
+      periodName={period.period_name}
+      onClose={() => setExportChoiceOpen(false)}
+      onConfirm={(variantId) => void handleExportToExcel(variantId)}
+    />
     <ExportCurrentViewModal
       open={exportViewOpen}
       onClose={() => setExportViewOpen(false)}

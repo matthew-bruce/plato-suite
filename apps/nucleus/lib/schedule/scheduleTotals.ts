@@ -110,27 +110,44 @@ export interface GroupTotal {
  * are two different populations (see isIncludedInBaseCost vs
  * isCountedInHeadcount in ./ui): a group's basePence/vatPence come only from
  * its cost-included rows, while its count comes from its headcount-included
- * rows — a strictly larger set, since BAU counts toward headcount without
- * costing anything. Do not collapse these back into one filter; that
- * conflation is the exact regression this function's tests guard against.
+ * rows. Do not collapse these back into one filter; that conflation is the
+ * exact regression this function's tests guard against.
+ *
+ * The two gates are evaluated INDEPENDENTLY, per row, because neither
+ * population reliably contains the other. On the Rate Calculator's own rule
+ * headcount happens to be the larger set (BAU is headcount without cost), but
+ * the Platform Schedule export counts named people only — and a vacant PR seat
+ * is cost without a person in it. Gating the loop on headcount first, as this
+ * did, would silently drop that seat's cost.
  *
  * @param keyOf the group a row belongs to; a null key drops the row (it belongs
  *   to no group the breakdown shows).
+ * @param countsTowardHeadcount which rows the `count` field counts. Defaults to
+ *   isCountedInHeadcount — the Rate Calculator's rule — so existing callers are
+ *   unaffected. The Platform Schedule export passes its own, broader rule
+ *   (every named person) without touching cost, which never varies.
  */
 export function computeTotalsByGroup<T extends TotalsAllocation>(
   allocations: T[],
   keyOf: (allocation: T) => string | null | undefined,
   vatMultiplier: number,
+  countsTowardHeadcount: (allocation: T) => boolean = (a) =>
+    isCountedInHeadcount(a.planview_code),
 ): Map<string, GroupTotal> {
   const groups = new Map<string, GroupTotal>()
 
   for (const a of allocations) {
-    if (!isCountedInHeadcount(a.planview_code)) continue
+    const counts = countsTowardHeadcount(a)
+    const costs = isIncludedInBaseCost(a.planview_code)
+    // A row that does neither belongs in no group at all — leaving it out
+    // keeps a group from being created empty (e.g. a supplier whose every row
+    // is NPC should be absent, not present at zero).
+    if (!counts && !costs) continue
     const key = keyOf(a)
     if (!key) continue
     const group = groups.get(key) ?? { count: 0, basePence: 0, vatPence: 0 }
-    group.count += 1
-    if (isIncludedInBaseCost(a.planview_code)) {
+    if (counts) group.count += 1
+    if (costs) {
       group.basePence += allocationBasePence(a)
       group.vatPence += allocationVatPence(a, vatMultiplier)
     }

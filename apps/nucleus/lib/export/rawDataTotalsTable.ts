@@ -1,4 +1,5 @@
 import type ExcelJS from 'exceljs'
+import { formulaCell } from './formulaCell'
 
 /**
  * Writes the "Totals" reflection table to the bottom of the Raw Data tab.
@@ -57,13 +58,13 @@ export function buildRawDataTotalsTable(
     const row = firstSupplierRow + i
     const summaryRow = summaryFirstSupplierRow + i
     ws.getCell(row, 1).value = name
-    ws.getCell(row, 2).value = {
-      formula: `='${summarySheetName}'!${summaryCostColumn}${summaryRow}`,
-    }
+    ws.getCell(row, 2).value = formulaCell(
+      `'${summarySheetName}'!${summaryCostColumn}${summaryRow}`,
+    )
     ws.getCell(row, 2).numFmt = '£#,##0.00'
-    ws.getCell(row, 3).value = {
-      formula: `='${summarySheetName}'!${summaryResourceColumn}${summaryRow}`,
-    }
+    ws.getCell(row, 3).value = formulaCell(
+      `'${summarySheetName}'!${summaryResourceColumn}${summaryRow}`,
+    )
     ws.getCell(row, 3).numFmt = '0'
   })
   const lastSupplierRow = firstSupplierRow + supplierNames.length - 1
@@ -71,10 +72,10 @@ export function buildRawDataTotalsTable(
   const totalRow = lastSupplierRow + 1
   ws.getCell(totalRow, 1).value = 'Total'
   ws.getCell(totalRow, 1).font = { bold: true }
-  ws.getCell(totalRow, 2).value = { formula: `=SUM(B${firstSupplierRow}:B${lastSupplierRow})` }
+  ws.getCell(totalRow, 2).value = formulaCell(`SUM(B${firstSupplierRow}:B${lastSupplierRow})`)
   ws.getCell(totalRow, 2).numFmt = '£#,##0.00'
   ws.getCell(totalRow, 2).font = { bold: true }
-  ws.getCell(totalRow, 3).value = { formula: `=SUM(C${firstSupplierRow}:C${lastSupplierRow})` }
+  ws.getCell(totalRow, 3).value = formulaCell(`SUM(C${firstSupplierRow}:C${lastSupplierRow})`)
   ws.getCell(totalRow, 3).numFmt = '0'
   ws.getCell(totalRow, 3).font = { bold: true }
   for (let c = 1; c <= 3; c++) {

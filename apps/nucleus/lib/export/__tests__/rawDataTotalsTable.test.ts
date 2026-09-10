@@ -29,17 +29,21 @@ describe('buildRawDataTotalsTable', () => {
     supplierNames.forEach((name, i) => {
       const row = result.firstSupplierRow + i
       expect(ws.getCell(row, 1).value).toBe(name)
-      expect(ws.getCell(row, 2).value).toEqual({ formula: `='Summary'!C${10 + i}` })
-      expect(ws.getCell(row, 3).value).toEqual({ formula: `='Summary'!H${10 + i}` })
+      // No leading "=": ExcelJS's { formula } shape stores the formula's own
+      // text, without the "=" it adds itself when writing <f>. A leading "="
+      // here used to store as "==...", invalid OOXML with no cached value —
+      // see formulaCell.ts.
+      expect(ws.getCell(row, 2).value).toEqual({ formula: `'Summary'!C${10 + i}` })
+      expect(ws.getCell(row, 3).value).toEqual({ formula: `'Summary'!H${10 + i}` })
     })
 
     // Total row sums exactly the supplier rows written above, no more, no less.
     expect(ws.getCell(result.totalRow, 1).value).toBe('Total')
     expect(ws.getCell(result.totalRow, 2).value).toEqual({
-      formula: `=SUM(B${result.firstSupplierRow}:B${result.lastSupplierRow})`,
+      formula: `SUM(B${result.firstSupplierRow}:B${result.lastSupplierRow})`,
     })
     expect(ws.getCell(result.totalRow, 3).value).toEqual({
-      formula: `=SUM(C${result.firstSupplierRow}:C${result.lastSupplierRow})`,
+      formula: `SUM(C${result.firstSupplierRow}:C${result.lastSupplierRow})`,
     })
   })
 
@@ -57,6 +61,6 @@ describe('buildRawDataTotalsTable', () => {
       headerFillArgb: 'FF404044',
     })
     expect(result.totalRow).toBe(result.firstSupplierRow + 1)
-    expect(ws.getCell(result.totalRow, 2).value).toEqual({ formula: 'SUM(B2:B2)'.replace('SUM', '=SUM') })
+    expect(ws.getCell(result.totalRow, 2).value).toEqual({ formula: 'SUM(B2:B2)' })
   })
 })
