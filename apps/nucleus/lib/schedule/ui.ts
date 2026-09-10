@@ -81,6 +81,24 @@ export function sumFilteredDays<T extends DaysRow>(
   }, 0)
 }
 
+// Sums capacity_days across groups/rows the same way sumFilteredDays does,
+// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost.
+// This is the capacity base for "Internal Run Rate": F_Gov and BAU cost the
+// platform and stay in the BASE/+VAT footer via isIncludedInBaseCost, but
+// they are not cross-charged, so they must not inflate the recoverable-days
+// figure stakeholders are shown per team. NPC is excluded from both rules.
+export function sumChargeableDays<T extends DaysRow>(
+  groups: { rows: T[] }[],
+  activeTeamFilter: string | null,
+): number {
+  return groups.reduce((s, g) => {
+    return s + g.rows.reduce((rs, r) => {
+      if (!isChargeableRow(r.planview_code)) return rs
+      return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
+    }, 0)
+  }, 0)
+}
+
 // Formats a Days total: plain whole numbers, halves keep one decimal,
 // never a forced trailing zero (48 not 48.0, 48.5 stays 48.5).
 export function formatDaysTotal(days: number): string {

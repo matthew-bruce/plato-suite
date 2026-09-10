@@ -17,6 +17,7 @@ import {
   sortAllocations,
   pickDefaultPeriodId,
   sumFilteredDays,
+  sumChargeableDays,
   formatDaysTotal,
 } from '../ui'
 
@@ -473,6 +474,78 @@ describe('sumFilteredDays', () => {
       },
     ]
     expect(sumFilteredDays(groupOf(rows), 'Alpha')).toBe(5)
+  })
+})
+
+describe('sumChargeableDays', () => {
+  type Row = {
+    capacity_days: number | null
+    planview_code: string | null
+    teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
+  }
+  function groupOf(rows: Row[]) {
+    return [{ rows }]
+  }
+
+  it('returns 0 for an empty array', () => {
+    expect(sumChargeableDays([], null)).toBe(0)
+  })
+
+  it('sums PR rows only', () => {
+    const rows: Row[] = [
+      { capacity_days: 10, planview_code: 'PR' },
+      { capacity_days: 20, planview_code: 'PR' },
+    ]
+    expect(sumChargeableDays(groupOf(rows), null)).toBe(30)
+  })
+
+  // The regression this task exists to fix: Internal Run Rate's capacity
+  // base ("Capacity Days" / "Full Quarter" / "Per Sprint") was summing every
+  // row regardless of planview_code, so NPC and F_Gov resources — neither of
+  // which is cross-charged — inflated the figure stakeholders are shown.
+  // A resource with either code must contribute zero days here while still
+  // counting toward headcount/base-cost totals via the separate rules those
+  // use (isCountedInHeadcount, isIncludedInBaseCost).
+  it('excludes NPC and F_Gov rows, unlike sumFilteredDays which includes F_Gov', () => {
+    const rows: Row[] = [
+      { capacity_days: 548, planview_code: 'PR' },
+      { capacity_days: 11, planview_code: 'NPC' },
+      { capacity_days: 6, planview_code: 'NPC' },
+      { capacity_days: 25, planview_code: 'F_Gov' },
+      { capacity_days: 99, planview_code: 'BAU' },
+    ]
+    expect(sumChargeableDays(groupOf(rows), null)).toBe(548)
+    // sumFilteredDays (the BASE/+VAT footer's rule) keeps F_Gov — the two
+    // helpers must diverge there, not agree, or this is the same bug again
+    // under a different name.
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(548 + 25)
+  })
+
+  it('reproduces the reported Cygnus example: 565 total, 548 PR-only after excluding 17 NPC days', () => {
+    const rows: Row[] = [
+      { capacity_days: 548, planview_code: 'PR' },
+      { capacity_days: 6, planview_code: 'NPC' },
+      { capacity_days: 11, planview_code: 'NPC' },
+    ]
+    const totalAllCodes = rows.reduce((s, r) => s + (r.capacity_days ?? 0), 0)
+    expect(totalAllCodes).toBe(565)
+    expect(sumChargeableDays(groupOf(rows), null)).toBe(548)
+  })
+
+  it('applies the team capacity split when a team filter is active', () => {
+    const rows: Row[] = [
+      {
+        capacity_days: 10,
+        planview_code: 'PR',
+        teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
+      },
+      {
+        capacity_days: 40,
+        planview_code: 'NPC',
+        teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
+      },
+    ]
+    expect(sumChargeableDays(groupOf(rows), 'Alpha')).toBe(5)
   })
 })
 
