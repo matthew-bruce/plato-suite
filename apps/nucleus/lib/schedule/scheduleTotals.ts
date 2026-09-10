@@ -24,7 +24,7 @@
 // derives base_total_pence / vat_total_pence, so the two agree to the penny
 // rather than to the nearest pound.
 
-import { isIncludedInBaseCost, isChargeableRow } from './ui'
+import { isIncludedInBaseCost, isChargeableRow, isCountedInHeadcount } from './ui'
 
 export interface TotalsAllocation {
   planview_code: string | null | undefined
@@ -92,21 +92,27 @@ function isEtpOrSharedServices(item: TotalsCostItem): boolean {
 
 /** One row of a grouped breakdown — by supplier, by location, or otherwise. */
 export interface GroupTotal {
-  /** Rows in this group that count toward cost. */
+  /** Rows in this group counted toward HEADCOUNT (isCountedInHeadcount) —
+   *  BAU included, NPC excluded. Deliberately NOT the same population as
+   *  basePence/vatPence below: BAU rows contribute to count but not to cost. */
   count: number
   basePence: number
   vatPence: number
 }
 
 /**
- * The same cost rule, grouped.
+ * The cost and headcount rules, grouped.
  *
- * The export's Summary tab breaks Total Platform Cost down by supplier and by
- * location directly beneath the headline figure, so those rows have to be
- * built from the same population the headline is — otherwise the parts do not
- * add up to the whole they sit under, which is exactly the inconsistency this
- * module was written to end. Allocations excluded from cost are excluded here
- * too, and are not counted.
+ * The export's Summary tab breaks Total Platform Cost — and headcount — down
+ * by supplier and by location directly beneath the headline figures, so those
+ * rows have to be built from the same populations the headlines are, or the
+ * parts do not add up to the wholes they sit under. But cost and headcount
+ * are two different populations (see isIncludedInBaseCost vs
+ * isCountedInHeadcount in ./ui): a group's basePence/vatPence come only from
+ * its cost-included rows, while its count comes from its headcount-included
+ * rows — a strictly larger set, since BAU counts toward headcount without
+ * costing anything. Do not collapse these back into one filter; that
+ * conflation is the exact regression this function's tests guard against.
  *
  * @param keyOf the group a row belongs to; a null key drops the row (it belongs
  *   to no group the breakdown shows).
@@ -118,13 +124,16 @@ export function computeTotalsByGroup<T extends TotalsAllocation>(
 ): Map<string, GroupTotal> {
   const groups = new Map<string, GroupTotal>()
 
-  for (const a of includedAllocations(allocations)) {
+  for (const a of allocations) {
+    if (!isCountedInHeadcount(a.planview_code)) continue
     const key = keyOf(a)
     if (!key) continue
     const group = groups.get(key) ?? { count: 0, basePence: 0, vatPence: 0 }
     group.count += 1
-    group.basePence += allocationBasePence(a)
-    group.vatPence += allocationVatPence(a, vatMultiplier)
+    if (isIncludedInBaseCost(a.planview_code)) {
+      group.basePence += allocationBasePence(a)
+      group.vatPence += allocationVatPence(a, vatMultiplier)
+    }
     groups.set(key, group)
   }
 

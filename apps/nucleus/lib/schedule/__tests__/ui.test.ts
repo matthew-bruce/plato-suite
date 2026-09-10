@@ -3,6 +3,7 @@ import {
   formatMoney,
   getUtilColour,
   isIncludedInBaseCost,
+  isCountedInHeadcount,
   isChargeableRow,
   deriveIsChargeable,
   withDerivedChargeable,
@@ -66,6 +67,35 @@ describe('isIncludedInBaseCost', () => {
   it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
     expect(isIncludedInBaseCost(undefined)).toBe(false)
+  })
+})
+
+describe('isCountedInHeadcount', () => {
+  it('includes PR / F_Gov / ETP', () => {
+    expect(isCountedInHeadcount('PR')).toBe(true)
+    expect(isCountedInHeadcount('F_Gov')).toBe(true)
+    expect(isCountedInHeadcount('ETP')).toBe(true)
+  })
+  it('includes BAU — unlike isIncludedInBaseCost', () => {
+    expect(isCountedInHeadcount('BAU')).toBe(true)
+  })
+  it('excludes NPC', () => {
+    expect(isCountedInHeadcount('NPC')).toBe(false)
+  })
+  it('excludes null/empty', () => {
+    expect(isCountedInHeadcount(null)).toBe(false)
+    expect(isCountedInHeadcount(undefined)).toBe(false)
+  })
+  // The two rules must diverge on exactly one code (BAU) and agree on every
+  // other one. This pins the divergence down directly, independent of any
+  // fixture, so reimplementing isCountedInHeadcount as a delegate to
+  // isIncludedInBaseCost — the regression that has happened twice — fails
+  // here first.
+  it('diverges from isIncludedInBaseCost on BAU only', () => {
+    for (const code of ['PR', 'F_Gov', 'ETP', 'NPC', null, undefined]) {
+      expect(isCountedInHeadcount(code)).toBe(isIncludedInBaseCost(code))
+    }
+    expect(isCountedInHeadcount('BAU')).not.toBe(isIncludedInBaseCost('BAU'))
   })
 })
 

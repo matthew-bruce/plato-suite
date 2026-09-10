@@ -83,7 +83,7 @@ describe.each(PERIODS)(
       const unspecified = allocations.filter(
         (a) => locationBucket(a.resource_location) === 'Unspecified',
       )
-      expect(unspecified.length).toBe(expected.locationRowCounts.Unspecified)
+      expect(unspecified.length).toBe(expected.locationHeadcounts.Unspecified)
       // The point of this period: it has rows the old breakdown could drop.
       expect(unspecified.length).toBeGreaterThan(0)
     })
@@ -100,18 +100,27 @@ describe.each(PERIODS)(
       expect(gbp(reconciled)).toBe(expected.totalPlatformGbp)
     })
 
-    it('every costed row lands in exactly one of the four buckets', () => {
+    it('every headcounted row (BAU included, NPC excluded) lands in exactly one of the four buckets', () => {
+      // Not the costed population (which also excludes BAU) — the export's
+      // headcount columns use isCountedInHeadcount, a strictly larger set.
+      const headcounted = allocations.filter((a) => a.planview_code !== 'NPC')
+      expect(sumGroups(byLocation).count).toBe(headcounted.length)
+      expect([...byLocation.keys()].every((k) => (LOCATION_BUCKETS as readonly string[]).includes(k))).toBe(true)
+    })
+
+    it('BAU counts toward headcount but not cost — the two populations differ by exactly the BAU rows', () => {
       const costed = allocations.filter(
         (a) => a.planview_code !== 'BAU' && a.planview_code !== 'NPC',
       )
-      expect(sumGroups(byLocation).count).toBe(costed.length)
-      expect([...byLocation.keys()].every((k) => (LOCATION_BUCKETS as readonly string[]).includes(k))).toBe(true)
+      const bauRows = allocations.filter((a) => a.planview_code === 'BAU')
+      expect(bauRows.length).toBeGreaterThan(0)
+      expect(sumGroups(byLocation).count - costed.length).toBe(bauRows.length)
     })
 
     it('splits across the four buckets as the page does', () => {
       for (const name of LOCATION_BUCKETS) {
         expect(gbp(byLocation.get(name)?.vatPence ?? 0)).toBe(expected.locationGbp[name])
-        expect(byLocation.get(name)?.count ?? 0).toBe(expected.locationRowCounts[name])
+        expect(byLocation.get(name)?.count ?? 0).toBe(expected.locationHeadcounts[name])
       }
       const summed = LOCATION_BUCKETS.reduce((s, n) => s + expected.locationGbp[n], 0)
       expect(summed).toBe(expected.includedResourcesGbp)
@@ -141,7 +150,7 @@ describe.each(PERIODS)(
       const totals = computeScheduleTotals(withNull, costItems, vat)
       expect(sumGroups(groups).vatPence).toBe(totals.resourcesVatPence)
       expect(groups.get('Unspecified')!.count).toBe(
-        expected.locationRowCounts.Unspecified + 1,
+        expected.locationHeadcounts.Unspecified + 1,
       )
     })
   },

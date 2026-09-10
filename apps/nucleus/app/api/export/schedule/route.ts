@@ -5,12 +5,13 @@ import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
 import {
   computeScheduleTotals,
   computeTotalsByGroup,
-  includedAllocations,
   EMPTY_GROUP_TOTAL,
 } from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
-import { LOCATION_BUCKETS, locationBucket } from '@/lib/schedule/ui'
+import { LOCATION_BUCKETS, locationBucket, isCountedInHeadcount } from '@/lib/schedule/ui'
 import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
+import { isVisibleInRateCalculatorExport } from '@/lib/export/rateCalculatorVisibility'
+import { squareRich } from '@/lib/export/richText'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -231,7 +232,27 @@ export async function GET(request: Request): Promise<Response> {
     return Array.isArray(v) ? (v[0] ?? null) : v
   }
 
-  const rawRows = (rawAllocs ?? []) as unknown as RawAllocRow[]
+  // NPC-coded roles must not appear anywhere in this export — not just
+  // excluded from cost (that's isIncludedInBaseCost, unrelated and
+  // unchanged), but absent from every tab: Summary, the Rate Calculator
+  // sheet, and Raw Data. They never appear on supplier SOWs and are
+  // irrelevant to Finance's reconciliation, so their mere presence in the
+  // file invites questions this export shouldn't raise. Filtered here,
+  // before team assignments are even looked up, so `allocations` below and
+  // everything built from it (all three tabs) never sees an NPC row.
+  //
+  // BAU is NOT filtered here — it is a real, known person who costs the
+  // platform nothing, and Finance already expects to see them. This rule is
+  // deliberately narrower than isIncludedInBaseCost (which excludes both
+  // BAU and NPC from cost): isVisibleInRateCalculatorExport excludes only
+  // NPC. See lib/export/rateCalculatorVisibility.ts.
+  //
+  // Scoped to this export only — do not apply to the separate Team Schedule
+  // export (not yet built), which is explicitly the "show everything
+  // including NPC" variant.
+  const rawRows = ((rawAllocs ?? []) as unknown as RawAllocRow[]).filter((r) =>
+    isVisibleInRateCalculatorExport(r.planview_code),
+  )
 
   // Fetch team assignments for all resources
   const resourceIds = rawRows
@@ -714,14 +735,6 @@ export async function GET(request: Request): Promise<Response> {
     console.log('[export/schedule] advised rate:', advisedRate > 0 ? `£${advisedRate.toFixed(2)}/day` : 'n/a (0 PR days)')
   }
 
-  /* ── Rich-text coloured square indicator ── */
-  const squareRich = (colourHex: string, text: string, textArgb: string, size = 11) => ({
-    richText: [
-      { text: '■ ', font: { color: { argb: 'FF' + colourHex.replace('#', '') }, size } },
-      { text, font: { color: { argb: textArgb }, size } },
-    ],
-  })
-
   const DARK = 'FF2A2A2D'
   let s2Row = 1
 
@@ -854,10 +867,17 @@ export async function GET(request: Request): Promise<Response> {
     (a) => locationBucket(a.resource_location),
     vatMultiplier,
   )
-  // Location headcounts per supplier come off the same filtered population.
-  const costedAllocations = includedAllocations(allocations)
+  // Location headcounts per supplier: the HEADCOUNT population
+  // (isCountedInHeadcount — BAU included, NPC excluded), not the cost
+  // population. Using the cost population here dropped BAU from its own
+  // location column while bySupplier's Total column (above) correctly
+  // counted it, so a supplier's own Onshore+Nearshore+Offshore+Unspecified
+  // no longer summed to its own Total — the same regression as the
+  // headcount columns elsewhere on this tab, just easier to miss because
+  // both totals still looked plausible individually.
+  const headcountAllocations = allocations.filter((a) => isCountedInHeadcount(a.planview_code))
   const countAt = (supplierName: string, location: string) =>
-    costedAllocations.filter(
+    headcountAllocations.filter(
       (a) => a.supplier_name === supplierName && locationBucket(a.resource_location) === location,
     ).length
 

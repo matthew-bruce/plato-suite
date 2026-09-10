@@ -158,8 +158,20 @@ export const Q2_EXPECTED = {
     Offshore: 391409,
     Unspecified: 3140,
   },
-  locationRowCounts: {
+  /** Rows per bucket counted toward COST (isIncludedInBaseCost — BAU and
+   *  NPC both excluded). This period's one BAU row is Onshore, so this is
+   *  one less than locationHeadcounts.Onshore below. */
+  locationCostedRowCounts: {
     Onshore: 43,
+    Nearshore: 27,
+    Offshore: 31,
+    Unspecified: 1,
+  },
+  /** Rows per bucket counted toward HEADCOUNT (isCountedInHeadcount — BAU
+   *  included, NPC excluded). The export's Summary tab counts headcount
+   *  this way, not the cost way above — see scheduleTotals.ts. */
+  locationHeadcounts: {
+    Onshore: 44,
     Nearshore: 27,
     Offshore: 31,
     Unspecified: 1,
