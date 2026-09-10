@@ -84,6 +84,7 @@ import {
   withAlpha,
   sortAllocations as sortByColumn,
   sumFilteredDays,
+  sumChargeableDays,
   formatDaysTotal,
   calculateConfirmedCount,
   type SortableCol,
@@ -1816,13 +1817,11 @@ function ScheduleTable({
   const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
   const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
 
-  const totalCapacityDays = activeTeamFilter
-    ? groups.reduce((s, g) => {
-        return s + g.rows.reduce((rs, r) => {
-          return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams, activeTeamFilter)
-        }, 0)
-      }, 0)
-    : 0
+  // Internal Run Rate's capacity base: only PR (isChargeableRow) rows count,
+  // same as sumFilteredDays does for isIncludedInBaseCost — F_Gov and BAU
+  // cost the platform but are not cross-charged, and NPC is excluded from
+  // both rules. See sumChargeableDays in lib/schedule/ui.ts.
+  const totalCapacityDays = activeTeamFilter ? sumChargeableDays(groups, activeTeamFilter) : 0
 
   return (
     <div className={styles.tableScroller}>
