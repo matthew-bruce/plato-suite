@@ -31,9 +31,15 @@ export interface TeamOption {
   team_name: string
 }
 
+export interface DisciplineOptionRow {
+  discipline_id: string
+  discipline_name: string
+}
+
 export interface WizardData {
   suppliers: SupplierOption[]
   teams: TeamOption[]
+  disciplines: DisciplineOptionRow[]
 }
 
 type RawResourceRow = {
@@ -97,12 +103,16 @@ export async function searchResources(
 export async function fetchWizardData(): Promise<WizardData> {
   const supabase = await getSupabaseServerComponentClient()
 
-  const [suppliersResult, teamsResult] = await Promise.all([
+  const [suppliersResult, teamsResult, disciplinesResult] = await Promise.all([
     supabase
       .from('suppliers')
       .select('supplier_id, supplier_name, supplier_colour, sort_order')
       .order('sort_order', { ascending: true }),
     supabase.from('teams').select('team_id, team_name').order('team_name'),
+    supabase
+      .from('disciplines')
+      .select('discipline_id, discipline_name')
+      .order('discipline_name'),
   ])
 
   type RawSupplier = {
@@ -127,7 +137,11 @@ export async function fetchWizardData(): Promise<WizardData> {
     team_name: t.team_name,
   }))
 
-  return { suppliers, teams }
+  const disciplines: DisciplineOptionRow[] = (
+    (disciplinesResult.data ?? []) as unknown as DisciplineOptionRow[]
+  ).map((d) => ({ discipline_id: d.discipline_id, discipline_name: d.discipline_name }))
+
+  return { suppliers, teams, disciplines }
 }
 
 /**
@@ -463,6 +477,49 @@ export async function setAllocationDayRate(
 }
 
 /**
+ * Set the starting figures on an allocation the Assign resource wizard has
+ * just filled. Unlike the Add role / resource path there is no insert to carry
+ * them, because the allocation already exists — the vacant seat is being
+ * filled, not created. Only the figures the user actually entered are written,
+ * so leaving a field blank keeps whatever the role was budgeted at.
+ */
+export async function setAllocationFigures(
+  allocationId: string,
+  figures: { capacityDays?: number; dayRate?: number },
+): Promise<{ success: boolean; error?: string }> {
+  const updates: Record<string, unknown> = {}
+  if (figures.capacityDays !== undefined) {
+    if (!Number.isFinite(figures.capacityDays) || figures.capacityDays < 0) {
+      return { success: false, error: 'Capacity days must be a non-negative number' }
+    }
+    updates['capacity_days'] = figures.capacityDays
+  }
+  if (figures.dayRate !== undefined) {
+    if (!Number.isFinite(figures.dayRate) || figures.dayRate < 0) {
+      return { success: false, error: 'Day rate must be a non-negative number of pence' }
+    }
+    updates['day_rate'] = Math.round(figures.dayRate)
+  }
+  if (Object.keys(updates).length === 0) return { success: true }
+
+  updates['updated_at'] = new Date().toISOString()
+
+  const supabase = await getSupabaseServerComponentClient()
+  const { data, error } = await supabase
+    .from('resource_period_allocations')
+    .update(updates)
+    .eq('allocation_id', allocationId)
+    .is('deleted_at', null)
+    .select('allocation_id')
+
+  if (error) return { success: false, error: error.message }
+  if (!data || (data as unknown[]).length === 0) {
+    return { success: false, error: 'Allocation not found' }
+  }
+  return { success: true }
+}
+
+/**
  * Soft-delete an allocation the wizard has just created. Only used to roll
  * back the first phase of a two-phase monthly submit: if the monthly-days RPC
  * fails after the row landed, the row would otherwise be left carrying no
@@ -533,6 +590,11 @@ export async function insertResource(
   resourceName: string,
   supplierId: string | null,
   resourceLocation: ResourceLocation,
+  /** The person's job title. Seeded from the role being filled, editable in
+   *  the wizard — previously left null and filled in by hand afterwards. */
+  jobTitle?: string | null,
+  /** Best-guess discipline confirmed by the user in the wizard. */
+  disciplineId?: string | null,
 ): Promise<{ success: boolean; resourceId?: string; error?: string }> {
   const supabase = await getSupabaseServerComponentClient()
 
@@ -541,6 +603,8 @@ export async function insertResource(
     resource_location: resourceLocation,
   }
   if (supplierId) payload['supplier_id'] = supplierId
+  if (jobTitle && jobTitle.trim() !== '') payload['resource_job_title'] = jobTitle.trim()
+  if (disciplineId) payload['discipline_id'] = disciplineId
 
   const { data, error } = await supabase
     .from('resources')
