@@ -396,7 +396,9 @@ export function PeriodContextStrip({
       }}
     >
       <DownloadIcon />
-      Export Rate Calculator as .xlsx
+      {/* Variant-neutral: this button now opens a chooser rather than
+          producing one specific workbook, and more variants are planned. */}
+      Export as .xlsx
     </button>
   )
 

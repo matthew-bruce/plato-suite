@@ -8,10 +8,19 @@ import {
   EMPTY_GROUP_TOTAL,
 } from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
-import { LOCATION_BUCKETS, locationBucket, isCountedInHeadcount } from '@/lib/schedule/ui'
+import {
+  LOCATION_BUCKETS,
+  locationBucket,
+  isCountedInHeadcount,
+  isIncludedInBaseCost,
+} from '@/lib/schedule/ui'
 import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 import { isVisibleInRateCalculatorExport } from '@/lib/export/rateCalculatorVisibility'
-import { squareRich } from '@/lib/export/richText'
+import { parseExportVariantId } from '@/lib/export/exportVariants'
+import type { ExportVariantId } from '@/lib/export/exportVariants'
+import { isNamedPerson } from '@/lib/export/rowPopulations'
+import { squareRich, toArgb } from '@/lib/export/richText'
+import { formulaCell } from '@/lib/export/formulaCell'
 
 const WEB_PLATFORM_CODE = 'WEB'
 
@@ -54,14 +63,22 @@ interface CostItemRow {
 
 /* ── Filename derivation ──────────────────────────────────────────── */
 // "Q4 FY 25/26" → "Rate_Calculator_FY25-26_Q4_Web.xlsx"
+//                 "Platform_Schedule_FY25-26_Q4_Web.xlsx"
 
-function deriveFilename(periodName: string, stamp: string): string {
+/** Filename stem per variant, so the two files are never confused on disk. */
+const VARIANT_FILENAME_STEM: Record<ExportVariantId, string> = {
+  'rate-calculator': 'Rate_Calculator',
+  'platform-schedule': 'Platform_Schedule',
+}
+
+function deriveFilename(periodName: string, stamp: string, variant: ExportVariantId): string {
+  const stem = VARIANT_FILENAME_STEM[variant]
   // Match "Q<n> FY <yy>/<yy>" pattern
   const match = periodName.match(/Q(\d)\s+FY\s+(\d{2}\/\d{2})/)
-  if (!match) return `Rate_Calculator_Web_${stamp}.xlsx`
+  if (!match) return `${stem}_Web_${stamp}.xlsx`
   const q = match[1]
   const fy = match[2].replace('/', '-')
-  return `Rate_Calculator_FY${fy}_Q${q}_Web_${stamp}.xlsx`
+  return `${stem}_FY${fy}_Q${q}_Web_${stamp}.xlsx`
 }
 
 // "Q4 FY 25/26" → { quarterLabel: "Q4", fyShort: "25-26" }
@@ -136,9 +153,16 @@ function writeSupplierBandRow(
   supplierColour: string,
   resourceCount: number,
   avgDayRate: number,
+  lastCol = 13,
 ): void {
-  const argb = 'FF' + supplierColour.replace('#', '')
-  for (let c = 1; c <= 13; c++) {
+  // toArgb rather than 'FF' + colour.replace('#',''): that unconditional
+  // prefix produces a 10-character, invalid-OOXML value the moment it is
+  // handed a colour that already carries an alpha byte. Harmless today
+  // because supplier_colour is always a bare #RRGGBB, but it is the same
+  // defect already fixed in the rich-text runs, and the Platform Schedule
+  // variant now calls this too — so it goes through the one normaliser.
+  const argb = toArgb(supplierColour)
+  for (let c = 1; c <= lastCol; c++) {
     ws.getCell(rowNum, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
   }
   const labelCell = ws.getCell(rowNum, 1)
@@ -163,6 +187,22 @@ export async function GET(request: Request): Promise<Response> {
   if (!periodId) {
     return new Response('Missing periodId query parameter', { status: 400 })
   }
+
+  /* ── Which workbook is being asked for ──
+     Both variants are built by this one route so their cost figures cannot
+     drift: every money total below runs the same isIncludedInBaseCost path
+     regardless of variant. What varies is only which rows are listed and
+     which rows count as headcount — see `showsRow` and `countsTowardHeadcount`
+     below. An unknown or absent value falls back to the Finance-safe
+     Rate Calculator rather than erroring. */
+  const variant: ExportVariantId = parseExportVariantId(searchParams.get('variant'))
+  const isPlatformSchedule = variant === 'platform-schedule'
+
+  /* Row visibility. The Rate Calculator hides NPC entirely (those roles never
+     appear on a supplier SOW); the Platform Schedule is explicitly the
+     show-everything file and lists them. */
+  const showsRow = (planviewCode: string | null | undefined): boolean =>
+    isPlatformSchedule ? true : isVisibleInRateCalculatorExport(planviewCode)
 
   const supabase = await getSupabaseServerComponentClient()
 
@@ -247,11 +287,11 @@ export async function GET(request: Request): Promise<Response> {
   // BAU and NPC from cost): isVisibleInRateCalculatorExport excludes only
   // NPC. See lib/export/rateCalculatorVisibility.ts.
   //
-  // Scoped to this export only — do not apply to the separate Team Schedule
-  // export (not yet built), which is explicitly the "show everything
-  // including NPC" variant.
+  // Applies to the Rate Calculator variant only. The Platform Schedule is the
+  // "show everything including NPC" file, so `showsRow` lets every row
+  // through for it — see the variant block at the top of this handler.
   const rawRows = ((rawAllocs ?? []) as unknown as RawAllocRow[]).filter((r) =>
-    isVisibleInRateCalculatorExport(r.planview_code),
+    showsRow(r.planview_code),
   )
 
   // Fetch team assignments for all resources
@@ -372,7 +412,12 @@ export async function GET(request: Request): Promise<Response> {
   const ws = wb.addWorksheet(tab1Name)
   ws.views = [{ showGridLines: false }]
 
-  // Column widths (A–M)
+  /** Width for the Platform Schedule's extra flag column, or nothing. */
+  const costFlagColumnWidth = isPlatformSchedule
+    ? [{ width: 22 }] // N Included in Platform Cost
+    : []
+
+  // Column widths (A–M, plus N on the Platform Schedule)
   ws.columns = [
     { width: 30 }, // A Role
     { width: 25 }, // B Resource
@@ -387,6 +432,7 @@ export async function GET(request: Request): Promise<Response> {
     { width: 11 }, // K Chargeable
     { width: 14 }, // L Total
     { width: 14 }, // M +VAT
+    ...costFlagColumnWidth,
   ]
 
   // Raw Data tab — created third so tab order is Summary → Rate Calculator → Raw Data.
@@ -395,10 +441,23 @@ export async function GET(request: Request): Promise<Response> {
     { width: 30 }, { width: 25 }, { width: 14 }, { width: 20 }, { width: 10 },
     { width: 25 }, { width: 12 }, { width: 12 }, { width: 10 }, { width: 12 },
     { width: 11 }, { width: 14 }, { width: 14 },
+    ...costFlagColumnWidth,
   ]
 
   const HEADER_ARGB = 'FF404044'
   const NUM_COLS = 13
+
+  /* ── "Included in Platform Cost" flag column (Platform Schedule only) ──
+     Column N, appended AFTER +VAT rather than inserted among the existing
+     columns, so every column letter the money formulas reference (L, M, E, H,
+     I, K) is unchanged and buildPlatformTotalFormula needs no variant of its
+     own. Driven per row by isIncludedInBaseCost, so Finance can SUMIFS on it
+     independently of anything this file totals for them. */
+  const COST_FLAG_COL = 14 // 'N'
+  const costFlagCols = isPlatformSchedule ? 1 : 0
+  const filterLastCol = NUM_COLS + costFlagCols
+  const costFlag = (planviewCode: string | null | undefined): 'Y' | 'N' =>
+    isIncludedInBaseCost(planviewCode) ? 'Y' : 'N'
 
   /* ── Row 1: empty ── */
   ws.addRow([])
@@ -408,16 +467,17 @@ export async function GET(request: Request): Promise<Response> {
     'Role', 'Resource', 'PO', 'Team', 'Planview',
     'Organisation', 'Location', 'Utilisation', 'Days', 'Day Rate',
     'Chargeable', 'Total', '+VAT',
+    ...(isPlatformSchedule ? ['Included in Platform Cost'] : []),
   ])
   headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-  setRowFill(ws, headerRow.number, HEADER_ARGB, NUM_COLS)
+  setRowFill(ws, headerRow.number, HEADER_ARGB, filterLastCol)
   headerRow.eachCell((cell) => {
     cell.border = {
       bottom: { style: 'thin', color: { argb: 'FF606064' } },
     }
   })
 
-  ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: 13 } }
+  ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: filterLastCol } }
 
   const HEADER_ROW = 2
   const FIRST_DATA_ROW = HEADER_ROW + 1 // = 3
@@ -449,6 +509,7 @@ export async function GET(request: Request): Promise<Response> {
       group.colour ?? '#888888',
       group.rows.length,
       avgRate,
+      filterLastCol,
     )
 
     for (const alloc of group.rows) {
@@ -464,16 +525,24 @@ export async function GET(request: Request): Promise<Response> {
         alloc.utilisation_percent / 100,
         alloc.capacity_days ?? 0,
         alloc.day_rate / 100,
-        { formula: `=IF(E${rowNum}="PR","Yes","No")` },
-        { formula: `=(H${rowNum}*I${rowNum})*J${rowNum}` },
+        formulaCell(`IF(E${rowNum}="PR","Yes","No")`),
+        formulaCell(`(H${rowNum}*I${rowNum})*J${rowNum}`),
         // Placeholder — replaced in pass 2 once VAT row is known
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
+        // Column N, Platform Schedule only. A literal Y/N rather than a
+        // formula: the rule is isIncludedInBaseCost, which is more than
+        // "is the code PR" (F_Gov counts too), and restating it as an in-sheet
+        // formula would be a second copy of it free to drift.
+        ...(isPlatformSchedule ? [costFlag(alloc.planview_code)] : []),
       ])
 
       r.getCell(8).numFmt = '0%'
       r.getCell(10).numFmt = '£#,##0.00'
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
+      if (isPlatformSchedule) {
+        r.getCell(COST_FLAG_COL).alignment = { horizontal: 'center' }
+      }
 
       /* ── Row background: vacant amber, else supplier tint ── */
       const isVacant = !alloc.resource_id
@@ -482,7 +551,7 @@ export async function GET(request: Request): Promise<Response> {
       const rowArgb = isVacant
         ? 'FFFEF9E7'
         : supplierTint(alloc.supplier_colour ?? '#888888')
-      setRowFill(ws, rowNum, rowArgb, NUM_COLS)
+      setRowFill(ws, rowNum, rowArgb, filterLastCol)
 
       /* ── Column K — Chargeable Yes/No colour ── */
       const isChargeable = alloc.planview_code === 'PR'
@@ -527,7 +596,7 @@ export async function GET(request: Request): Promise<Response> {
         item.amount_pence / 100,
         // Placeholder — pass 2 replaces this with the VAT-uplifted formula
         // once the VAT multiplier's row is known, for items that take VAT.
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
       ])
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
@@ -556,7 +625,7 @@ export async function GET(request: Request): Promise<Response> {
         item.label,
         '', '', '', '', '', '', '', '', '', '',
         item.amount_pence / 100,
-        { formula: `=L${rowNum}` },
+        formulaCell(`L${rowNum}`),
       ])
       r.getCell(12).numFmt = '£#,##0.00'
       r.getCell(13).numFmt = '£#,##0.00'
@@ -600,8 +669,8 @@ export async function GET(request: Request): Promise<Response> {
   const subtotalRow = ws.addRow([
     'SUBTOTAL',
     '', '', '', '', '', '', '', '', '', '',
-    { formula: `=${subtotalFormula('L')}` },
-    { formula: `=${subtotalFormula('M')}` },
+    formulaCell(subtotalFormula('L')),
+    formulaCell(subtotalFormula('M')),
   ])
   setRowFill(ws, subtotalRowNum, HEADER_ARGB, NUM_COLS)
   subtotalRow.font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -631,7 +700,7 @@ export async function GET(request: Request): Promise<Response> {
     // Range is the resource rows only (not lastDataRow) — the AD-HOC/ETP
     // cost-item rows pad columns H/I/K with text "" placeholders, and
     // SUMPRODUCT raises #VALUE! if any cell in its array is text.
-    { formula: `=SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastResourceRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastResourceRow})*(I${FIRST_DATA_ROW}:I${lastResourceRow}))` },
+    formulaCell(`SUMPRODUCT((K${FIRST_DATA_ROW}:K${lastResourceRow}="Yes")*(H${FIRST_DATA_ROW}:H${lastResourceRow})*(I${FIRST_DATA_ROW}:I${lastResourceRow}))`),
   ])
   billableRow.getCell(1).font = { bold: true }
 
@@ -645,7 +714,7 @@ export async function GET(request: Request): Promise<Response> {
   const xChargeableRowNum = ws.rowCount + 1
   const xChargeableRow = ws.addRow([
     'X-Chargeable Days', '', '', '', '', '', '', '',
-    { formula: `=I${utilisationRowNum}*I${billableDaysRowNum}` },
+    formulaCell(`I${utilisationRowNum}*I${billableDaysRowNum}`),
   ])
   xChargeableRow.getCell(1).font = { bold: true }
 
@@ -658,7 +727,7 @@ export async function GET(request: Request): Promise<Response> {
   const dayRateRowNum = ws.rowCount + 1
   const dayRateRow = ws.addRow([
     'Advised Rate', '', '', '', '', '', '', '',
-    { formula: `=M${subtotalRowNum}/I${xChargeableRowNum}` },
+    formulaCell(`M${subtotalRowNum}/I${xChargeableRowNum}`),
   ])
   dayRateRow.getCell(9).numFmt = '£#,##0.00'
 
@@ -685,7 +754,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Pass 2: back-fill VAT formulas with the now-known VAT multiplier cell ── */
   for (const rowNum of vatRows) {
     const cell = ws.getCell(rowNum, 13) // M column
-    cell.value = { formula: `=L${rowNum}*$I$${vatMultiplierRowNum}` }
+    cell.value = formulaCell(`L${rowNum}*$I$${vatMultiplierRowNum}`)
     cell.numFmt = '£#,##0.00'
   }
 
@@ -751,7 +820,9 @@ export async function GET(request: Request): Promise<Response> {
   s2Row++
   // Row 3 — strapline
   setRowFill(ws2, s2Row, DARK, 8)
-  ws2.getCell(s2Row, 1).value = 'WEB PLATFORM — COST SCHEDULE'
+  ws2.getCell(s2Row, 1).value = isPlatformSchedule
+    ? 'WEB PLATFORM — PLATFORM SCHEDULE'
+    : 'WEB PLATFORM — COST SCHEDULE'
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
   s2Row++
   // Row 4 — exported-at
@@ -858,7 +929,27 @@ export async function GET(request: Request): Promise<Response> {
      are still listed with their own figures. It is only this aggregate that
      stops counting them — including in the headcounts, so a supplier's cost
      and its resource count always describe the same set of rows. */
-  const bySupplier = computeTotalsByGroup(allocations, (a) => a.supplier_name, vatMultiplier)
+  /* The headcount rule, and ONLY the headcount rule, varies by variant. Cost
+     is untouched by this: computeTotalsByGroup evaluates the two gates
+     independently, so every basePence/vatPence below comes from
+     isIncludedInBaseCost either way and the two workbooks report identical
+     money for the same period.
+
+       Rate Calculator  — isCountedInHeadcount: by planview code, NPC dropped.
+                          Unchanged from before this variant existed.
+       Platform Schedule — isNamedPerson: every person on the file, whatever
+                          their code and whatever supplier or business unit
+                          they come from. A vacant seat is not a person and
+                          is not counted, though its cost still lands above. */
+  const countsTowardHeadcount = (a: AllocationRow): boolean =>
+    isPlatformSchedule ? isNamedPerson(a) : isCountedInHeadcount(a.planview_code)
+
+  const bySupplier = computeTotalsByGroup(
+    allocations,
+    (a) => a.supplier_name,
+    vatMultiplier,
+    countsTowardHeadcount,
+  )
   // Grouped by bucket rather than by raw value, so a deliberate 'unspecified'
   // and a genuine NULL report as one "Unspecified" row instead of vanishing
   // from the breakdown and leaving it short of the headline above it.
@@ -866,16 +957,17 @@ export async function GET(request: Request): Promise<Response> {
     allocations,
     (a) => locationBucket(a.resource_location),
     vatMultiplier,
+    countsTowardHeadcount,
   )
-  // Location headcounts per supplier: the HEADCOUNT population
-  // (isCountedInHeadcount — BAU included, NPC excluded), not the cost
+  // Location headcounts per supplier: the HEADCOUNT population, not the cost
   // population. Using the cost population here dropped BAU from its own
   // location column while bySupplier's Total column (above) correctly
   // counted it, so a supplier's own Onshore+Nearshore+Offshore+Unspecified
   // no longer summed to its own Total — the same regression as the
   // headcount columns elsewhere on this tab, just easier to miss because
-  // both totals still looked plausible individually.
-  const headcountAllocations = allocations.filter((a) => isCountedInHeadcount(a.planview_code))
+  // both totals still looked plausible individually. Reads the same
+  // per-variant rule as the groupings above so the two cannot disagree.
+  const headcountAllocations = allocations.filter(countsTowardHeadcount)
   const countAt = (supplierName: string, location: string) =>
     headcountAllocations.filter(
       (a) => a.supplier_name === supplierName && locationBucket(a.resource_location) === location,
@@ -892,7 +984,7 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 3).value = group.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).value = formulaCell(`IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})`)
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     ws2.getCell(s2Row, 5).value = countAt(supplierName, 'Onshore')
@@ -909,14 +1001,14 @@ export async function GET(request: Request): Promise<Response> {
   for (let c = 1; c <= 8; c++) applyFill(ws2.getCell(s2Row, c), 'FFF5F5F5')
   ws2.getCell(s2Row, 1).value = 'Supplier total'
   ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=SUM(B${supplierDataStart}:B${supplierDataEnd})` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`SUM(B${supplierDataStart}:B${supplierDataEnd})`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0'
-  ws2.getCell(s2Row, 3).value = { formula: `=SUM(C${supplierDataStart}:C${supplierDataEnd})` }
+  ws2.getCell(s2Row, 3).value = formulaCell(`SUM(C${supplierDataStart}:C${supplierDataEnd})`)
   ws2.getCell(s2Row, 3).numFmt = '£#,##0'
   ws2.getCell(s2Row, 4).value = '100%'
   for (let c = 5; c <= 8; c++) {
     const cl = String.fromCharCode(64 + c)
-    ws2.getCell(s2Row, c).value = { formula: `=SUM(${cl}${supplierDataStart}:${cl}${supplierDataEnd})` }
+    ws2.getCell(s2Row, c).value = formulaCell(`SUM(${cl}${supplierDataStart}:${cl}${supplierDataEnd})`)
   }
   for (let c = 1; c <= 8; c++) {
     ws2.getCell(s2Row, c).font = { bold: true }
@@ -959,7 +1051,7 @@ export async function GET(request: Request): Promise<Response> {
     ws2.getCell(s2Row, 3).value = locGroup.vatPence / 100
     ws2.getCell(s2Row, 3).numFmt = '£#,##0'
     ws2.getCell(s2Row, 3).alignment = { horizontal: 'right' }
-    ws2.getCell(s2Row, 4).value = { formula: `=IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})` }
+    ws2.getCell(s2Row, 4).value = formulaCell(`IF(C${supplierTotalRow}=0,0,C${s2Row}/C${supplierTotalRow})`)
     ws2.getCell(s2Row, 4).numFmt = '0.0%'
     ws2.getCell(s2Row, 4).alignment = { horizontal: 'center' }
     // Count only appears in this location's own column; the others show a dash
@@ -985,13 +1077,31 @@ export async function GET(request: Request): Promise<Response> {
     { code: 'PR', label: 'PR  Platform Request — recoverable', fill: 'FFE8F5E9', font: 'FF1B5E20' },
     { code: 'F_Gov', label: 'F_Gov  Factory Governance — overhead', fill: 'FFE3F2FD', font: 'FF0D47A1' },
     { code: 'BAU', label: 'BAU  Business as Usual — not platform-borne', fill: 'FFF5F5F5', font: 'FF888888' },
+    // NPC exists only on the Platform Schedule, which is the variant that
+    // lists those rows at all. Adding it on the Rate Calculator would print a
+    // permanently empty row, since its NPC allocations never reach the file.
+    ...(isPlatformSchedule
+      ? [
+          {
+            code: 'NPC',
+            label: 'NPC  Non Platform Cost — borne elsewhere',
+            fill: 'FFFFF3E0',
+            font: 'FF7A4400',
+          },
+        ]
+      : []),
   ]
   /* From the same grouped source as the breakdown above, so PR + F_Gov ties
      exactly to the supplier total and to the headline's resource component.
      BAU needs no special case: it is excluded from cost, so its group is
      simply absent and the row reads £0 — which is what "not platform-borne"
      means, and what this row was previously hardcoded to show. */
-  const byPlanview = computeTotalsByGroup(allocations, (a) => a.planview_code, vatMultiplier)
+  const byPlanview = computeTotalsByGroup(
+    allocations,
+    (a) => a.planview_code,
+    vatMultiplier,
+    countsTowardHeadcount,
+  )
   for (const pv of planviewRows) {
     const group = byPlanview.get(pv.code) ?? EMPTY_GROUP_TOTAL
     for (let c = 1; c <= 8; c++) {
@@ -1035,7 +1145,7 @@ export async function GET(request: Request): Promise<Response> {
   const blendedTotalRow = s2Row
   ws2.getCell(s2Row, 1).value = 'Total platform cost (inc. VAT)'
   ws2.getCell(s2Row, 1).font = { bold: true }
-  ws2.getCell(s2Row, 2).value = { formula: `=B${s2Row - 2}+B${s2Row - 1}` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`B${s2Row - 2}+B${s2Row - 1}`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 2).font = { bold: true }
   for (const c of [1, 2]) {
@@ -1055,7 +1165,7 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).value = 'Advised Rate'
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: 'FF5A4000' } }
   ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: 'FFFDDA24' } } }
-  ws2.getCell(s2Row, 2).value = { formula: `=IF(B${xChargRow}=0,0,B${blendedTotalRow}/B${xChargRow})` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`IF(B${xChargRow}=0,0,B${blendedTotalRow}/B${xChargRow})`)
   ws2.getCell(s2Row, 2).numFmt = '£#,##0.00'
   ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: 'FF5A4000' } }
   ws2.getCell(s2Row, 3).value = 'Cost recovery rate based on current schedule decisions'
@@ -1094,12 +1204,12 @@ export async function GET(request: Request): Promise<Response> {
   ws2.getCell(s2Row, 1).font = { bold: true, color: { argb: varianceFont } }
   ws2.getCell(s2Row, 1).border = { left: { style: 'medium', color: { argb: varianceBorder } } }
   // Current − Advised, not Advised − Current: positive is a surplus.
-  ws2.getCell(s2Row, 2).value = { formula: `=B${summaryCurrentRateRow}-B${summaryAdvisedRateRow}` }
+  ws2.getCell(s2Row, 2).value = formulaCell(`B${summaryCurrentRateRow}-B${summaryAdvisedRateRow}`)
   ws2.getCell(s2Row, 2).numFmt = '"+"£#,##0.00" / day";"−"£#,##0.00" / day";£0.00" / day"'
   ws2.getCell(s2Row, 2).font = { bold: true, color: { argb: varianceFont } }
-  ws2.getCell(s2Row, 3).value = {
-    formula: `="${recoveryWord} at current rate — "&TEXT(B${varianceRowNum}*${xChargeableDays},"+£#,##0;−£#,##0;£0")&" over the quarter"`,
-  }
+  ws2.getCell(s2Row, 3).value = formulaCell(
+    `"${recoveryWord} at current rate — "&TEXT(B${varianceRowNum}*${xChargeableDays},"+£#,##0;−£#,##0;£0")&" over the quarter"`,
+  )
   ws2.getCell(s2Row, 3).font = { italic: true, color: { argb: varianceFont } }
   s2Row += 2
 
@@ -1141,10 +1251,11 @@ export async function GET(request: Request): Promise<Response> {
     'Role', 'Resource', 'PO', 'Team', 'Planview',
     'Organisation', 'Location', 'Utilisation', 'Days', 'Day Rate',
     'Chargeable', 'Total', '+VAT',
+    ...(isPlatformSchedule ? ['Included in Platform Cost'] : []),
   ])
   rawHeader.font = { bold: true, color: { argb: 'FF2A2A2D' }, size: 10 }
-  setRowFill(ws3, rawHeader.number, 'FFF2F2F2', NUM_COLS)
-  ws3.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 13 } }
+  setRowFill(ws3, rawHeader.number, 'FFF2F2F2', filterLastCol)
+  ws3.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: filterLastCol } }
 
   for (const alloc of allocations) {
     const total =
@@ -1164,11 +1275,15 @@ export async function GET(request: Request): Promise<Response> {
       alloc.planview_code === 'PR' ? 'Yes' : 'No',
       total,
       vatInclusive,
+      ...(isPlatformSchedule ? [costFlag(alloc.planview_code)] : []),
     ])
     r.getCell(8).numFmt = '0%'
     r.getCell(10).numFmt = '£#,##0.00'
     r.getCell(12).numFmt = '£#,##0.00'
     r.getCell(13).numFmt = '£#,##0.00'
+    if (isPlatformSchedule) {
+      r.getCell(COST_FLAG_COL).alignment = { horizontal: 'center' }
+    }
   }
 
   const rawLastAllocRow = ws3.rowCount
@@ -1209,9 +1324,9 @@ export async function GET(request: Request): Promise<Response> {
       resources: { first: 2, last: rawLastAllocRow },
       costSections: [{ first: rawFirstCostRow, last: rawLastCostRow }],
     })
-  ws3.getCell(rawSubtotalRow, 12).value = { formula: `=${rawSubtotalFormula('L')}` }
+  ws3.getCell(rawSubtotalRow, 12).value = formulaCell(rawSubtotalFormula('L'))
   ws3.getCell(rawSubtotalRow, 12).numFmt = '£#,##0.00'
-  ws3.getCell(rawSubtotalRow, 13).value = { formula: `=${rawSubtotalFormula('M')}` }
+  ws3.getCell(rawSubtotalRow, 13).value = formulaCell(rawSubtotalFormula('M'))
   ws3.getCell(rawSubtotalRow, 13).numFmt = '£#,##0.00'
 
   const rawVatRow = rawSubtotalRow + 2
@@ -1225,7 +1340,7 @@ export async function GET(request: Request): Promise<Response> {
   // text header row ("Utilisation", "Days", "Chargeable"), and SUMPRODUCT
   // raises #VALUE! if any cell in its array is text. Also excludes the
   // appended cost-item rows, which pad these columns with "" placeholders.
-  ws3.getCell(rawBillableRow, 9).value = { formula: `=SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))` }
+  ws3.getCell(rawBillableRow, 9).value = formulaCell(`SUMPRODUCT((K2:K${rawLastAllocRow}="Yes")*(H2:H${rawLastAllocRow})*(I2:I${rawLastAllocRow}))`)
 
   const rawUtilRow = rawSubtotalRow + 4
   ws3.getCell(rawUtilRow, 1).value = 'Utilisation'
@@ -1233,12 +1348,12 @@ export async function GET(request: Request): Promise<Response> {
 
   const rawXChargRow = rawSubtotalRow + 5
   ws3.getCell(rawXChargRow, 1).value = 'X-Chargeable Days'
-  ws3.getCell(rawXChargRow, 9).value = { formula: `=I${rawBillableRow}*I${rawUtilRow}` }
+  ws3.getCell(rawXChargRow, 9).value = formulaCell(`I${rawBillableRow}*I${rawUtilRow}`)
 
   const rawAdvisedRow = rawSubtotalRow + 6
   ws3.getCell(rawAdvisedRow, 1).value = 'Advised Rate'
   ws3.getCell(rawAdvisedRow, 1).font = { bold: true }
-  ws3.getCell(rawAdvisedRow, 9).value = { formula: `=M${rawSubtotalRow}/I${rawXChargRow}` }
+  ws3.getCell(rawAdvisedRow, 9).value = formulaCell(`M${rawSubtotalRow}/I${rawXChargRow}`)
   ws3.getCell(rawAdvisedRow, 9).numFmt = '£#,##0.00'
 
   const rawCurrentRow = rawSubtotalRow + 7
@@ -1265,7 +1380,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Serialise to buffer ── */
   const buffer = await wb.xlsx.writeBuffer()
 
-  const filename = deriveFilename(period.period_name, stamp)
+  const filename = deriveFilename(period.period_name, stamp, variant)
 
   return new Response(buffer as ArrayBuffer, {
     status: 200,
