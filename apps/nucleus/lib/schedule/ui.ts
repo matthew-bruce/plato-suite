@@ -60,6 +60,30 @@ export function isCountedInHeadcount(planviewCode: string | null | undefined): b
   return planviewCode !== 'NPC'
 }
 
+/**
+ * The text-decoration a row's Base and +VAT cells carry — struck through for
+ * NPC, nothing for anything else.
+ *
+ * An NPC row shows a real, non-zero figure (it has a genuine day rate and day
+ * count) that the platform nonetheless does not bear, so the number needs to
+ * read as "this cost exists, but not here". Keyed on planview_code === 'NPC'
+ * directly, and deliberately NOT on either of the neighbouring rules:
+ *
+ *   - !isIncludedInBaseCost() would also strike BAU, which already renders as
+ *     £0.00 and is unambiguous without it.
+ *   - !isChargeableRow() / is_chargeable would strike F_Gov, whose cost is
+ *     real, borne by the platform, and counted in every total — it is merely
+ *     not recharged. Striking it through would say the opposite.
+ *
+ * Day Rate is left alone in all cases: it is descriptive of the person, not a
+ * rolled-up total, so there is nothing there to disclaim.
+ */
+export function costCellDecoration(
+  planviewCode: string | null | undefined,
+): 'line-through' | undefined {
+  return planviewCode === 'NPC' ? 'line-through' : undefined
+}
+
 interface DaysRow {
   capacity_days: number | null
   planview_code: string | null | undefined

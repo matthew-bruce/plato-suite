@@ -78,6 +78,7 @@ import {
   getUtilColour,
   isIncludedInBaseCost,
   isChargeableRow,
+  costCellDecoration,
   withDerivedChargeable,
   PLANVIEW_CODES,
   getLocationColour,
@@ -3718,7 +3719,14 @@ function AllocationRow({
         </Cell>
         {/* 11 Base — computed */}
         <Cell align="right" dataLabel="Base">
-          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#8F9495' }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontVariantNumeric: 'tabular-nums',
+              color: '#8F9495',
+              textDecoration: costCellDecoration(plan),
+            }}
+          >
             {formatMoney(displayBase)}
           </span>
         </Cell>
@@ -3731,7 +3739,14 @@ function AllocationRow({
               onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
               style={{ flexShrink: 0, cursor: 'pointer' }}
             />
-            <span style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: vatApplies ? '#2A2A2D' : '#8F9495' }}>
+            <span
+              style={{
+                fontSize: 11,
+                fontVariantNumeric: 'tabular-nums',
+                color: vatApplies ? '#2A2A2D' : '#8F9495',
+                textDecoration: costCellDecoration(plan),
+              }}
+            >
               {formatMoney(displayVat)}
             </span>
           </div>
@@ -3946,6 +3961,7 @@ function AllocationRow({
             color: displayBase === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            textDecoration: costCellDecoration(plan),
             ...blurStyle,
           }}
         >
@@ -3962,6 +3978,7 @@ function AllocationRow({
             color: displayVat === 0
               ? 'var(--rmg-color-text-subtle, #9CA3AF)'
               : 'var(--rmg-color-text-body)',
+            textDecoration: costCellDecoration(plan),
             ...blurStyle,
           }}
         >

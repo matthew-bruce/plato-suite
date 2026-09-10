@@ -18,6 +18,7 @@ import {
   pickDefaultPeriodId,
   sumFilteredDays,
   sumChargeableDays,
+  costCellDecoration,
   formatDaysTotal,
 } from '../ui'
 
@@ -474,6 +475,46 @@ describe('sumFilteredDays', () => {
       },
     ]
     expect(sumFilteredDays(groupOf(rows), 'Alpha')).toBe(5)
+  })
+})
+
+// The Base and +VAT cells in both the view-mode and edit-mode rows of
+// SchedulePageClient spread `textDecoration: costCellDecoration(plan)`, so the
+// value returned here IS the style those cells carry. Day Rate deliberately
+// does not call this.
+describe('costCellDecoration', () => {
+  it('strikes through an NPC row', () => {
+    expect(costCellDecoration('NPC')).toBe('line-through')
+  })
+
+  it('leaves PR, F_Gov, BAU and ETP rows un-struck', () => {
+    expect(costCellDecoration('PR')).toBeUndefined()
+    expect(costCellDecoration('F_Gov')).toBeUndefined()
+    expect(costCellDecoration('BAU')).toBeUndefined()
+    expect(costCellDecoration('ETP')).toBeUndefined()
+  })
+
+  it('leaves null/undefined un-struck', () => {
+    expect(costCellDecoration(null)).toBeUndefined()
+    expect(costCellDecoration(undefined)).toBeUndefined()
+  })
+
+  it('strikes exactly one planview code, and that code is NPC', () => {
+    const struck = PLANVIEW_CODES.filter((pc) => costCellDecoration(pc.value) === 'line-through')
+    expect(struck.map((pc) => pc.value)).toEqual(['NPC'])
+  })
+
+  // The two ways this could be written that both look right and are both
+  // wrong. Pinned directly so neither can be "simplified" into place later.
+  it('is not !isIncludedInBaseCost — that would also strike BAU', () => {
+    expect(isIncludedInBaseCost('BAU')).toBe(false)
+    expect(costCellDecoration('BAU')).toBeUndefined()
+  })
+
+  it('is not !isChargeableRow — that would strike F_Gov, whose cost is real and counted', () => {
+    expect(isChargeableRow('F_Gov')).toBe(false)
+    expect(isIncludedInBaseCost('F_Gov')).toBe(true)
+    expect(costCellDecoration('F_Gov')).toBeUndefined()
   })
 })
 
