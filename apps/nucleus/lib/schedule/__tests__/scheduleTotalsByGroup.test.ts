@@ -6,6 +6,7 @@ import {
   EMPTY_GROUP_TOTAL,
 } from '../scheduleTotals'
 import type { TotalsAllocation } from '../scheduleTotals'
+import { locationBucket, isIncludedInBaseCost, isCountedInHeadcount } from '../ui'
 import {
   Q3_ALLOCATIONS,
   Q3_COST_ITEMS,
@@ -76,17 +77,44 @@ describe('Q3 FY 26/27 — the breakdown ties to the headline', () => {
     expect(gbp(capgeminiUnfiltered)).toBe(Q3_EXPECTED.capgeminiVatGbpBefore)
   })
 
-  it('BAU and NPC appear in no group at all', () => {
-    expect(byPlanview.has('BAU')).toBe(false)
+  it('NPC appears in no group at all; BAU appears with zero cost', () => {
+    // The exact regression this guards against: treating "excluded from
+    // cost" (isIncludedInBaseCost) as "excluded from everything" would put
+    // BAU here too. BAU is a real, known person — Royal Mail Group's own
+    // headcount — and must appear, just at £0.
     expect(byPlanview.has('NPC')).toBe(false)
+    expect(byPlanview.get('BAU')?.count).toBe(1)
+    expect(byPlanview.get('BAU')?.vatPence).toBe(0)
+    expect(byPlanview.get('BAU')?.basePence).toBe(0)
   })
 
-  it('the headcounts across the breakdown are the costed rows, not every row', () => {
-    expect(sumGroups(bySupplier).count).toBe(includedAllocations(Q3_ALLOCATIONS).length)
+  it('headcount counts BAU but not NPC — a different, strictly larger population than cost', () => {
+    // Q3: 103 rows, 10 NPC (all Capgemini) + 1 BAU excluded from cost.
+    // Headcount excludes only the 10 NPC rows, so it is the costed
+    // population plus the one BAU row, not equal to it.
+    const costedRowCount = includedAllocations(Q3_ALLOCATIONS).length
+    expect(sumGroups(bySupplier).count).toBe(costedRowCount + 1)
     expect(sumGroups(bySupplier).count).toBe(
-      Q3_EXPECTED.allocationRows - Q3_EXPECTED.excludedRows,
+      Q3_EXPECTED.allocationRows - Q3_EXPECTED.excludedRows + 1,
     )
     expect(Q3_ALLOCATIONS.length).toBe(Q3_EXPECTED.allocationRows)
+  })
+
+  // The regression itself, pinned directly against the two rules rather than
+  // against any fixture: if isCountedInHeadcount is ever reimplemented as a
+  // delegate to isIncludedInBaseCost (merging the two rules back into one),
+  // this fails immediately regardless of what data happens to be in scope.
+  it('isIncludedInBaseCost and isCountedInHeadcount diverge on BAU — merging them is the regression', () => {
+    expect(isIncludedInBaseCost('BAU')).toBe(false)
+    expect(isCountedInHeadcount('BAU')).toBe(true)
+  })
+  it('isIncludedInBaseCost and isCountedInHeadcount agree everywhere else', () => {
+    expect(isIncludedInBaseCost('NPC')).toBe(false)
+    expect(isCountedInHeadcount('NPC')).toBe(false)
+    for (const code of ['PR', 'F_Gov']) {
+      expect(isIncludedInBaseCost(code)).toBe(true)
+      expect(isCountedInHeadcount(code)).toBe(true)
+    }
   })
 
   it('the difference from the old breakdown is exactly the £89,597', () => {
@@ -173,9 +201,10 @@ describe('supplier and location breakdowns over a realistic schedule', () => {
     expect((bySupplier.get('Capgemini') ?? EMPTY_GROUP_TOTAL).count).toBe(0)
   })
 
-  it("a supplier's headcount counts only its costed rows, matching its cost", () => {
-    // EPAM has three rows, one of them BAU.
-    expect(bySupplier.get('EPAM')!.count).toBe(2)
+  it("a supplier's headcount counts its BAU row too, but its cost still doesn't", () => {
+    // EPAM has three rows: two PR, one BAU. All three count toward
+    // headcount; only the two PR rows count toward cost.
+    expect(bySupplier.get('EPAM')!.count).toBe(3)
     expect(bySupplier.get('EPAM')!.vatPence).toBe(2 * 500000)
   })
 
@@ -184,9 +213,13 @@ describe('supplier and location breakdowns over a realistic schedule', () => {
     expect(bySupplier.get('TCS')!.vatPence).toBe(500000)
   })
 
-  it('the headcounts across the breakdown add up to the costed rows, not every row', () => {
-    expect(sumGroups(bySupplier).count).toBe(includedAllocations(SCHEDULE).length)
-    expect(sumGroups(bySupplier).count).toBe(3)
+  it('the headcounts across the breakdown count BAU but not NPC, unlike the costed-row population', () => {
+    // SCHEDULE: 6 rows — EPAM ×3 (2 PR + 1 BAU), TCS ×1 (F_Gov),
+    // Capgemini ×2 (both NPC). Headcount excludes only the 2 NPC rows (4);
+    // cost excludes those 2 plus the 1 BAU row too (3).
+    expect(includedAllocations(SCHEDULE).length).toBe(3)
+    expect(sumGroups(bySupplier).count).toBe(includedAllocations(SCHEDULE).length + 1)
+    expect(sumGroups(bySupplier).count).toBe(4)
     expect(SCHEDULE.length).toBe(6)
   })
 
@@ -197,13 +230,24 @@ describe('supplier and location breakdowns over a realistic schedule', () => {
     expect([...groups.keys()].sort()).toEqual(['EPAM', 'TCS'])
   })
 
-  it('a blank location leaves the location rows short of the supplier total', () => {
-    // Pre-existing and independent of this fix: the sheet lists only Onshore,
-    // Nearshore and Offshore, so any row without a location is in none of them.
+  it('a blank location is short when grouped raw, and ties once bucketed', () => {
+    // Grouping on the raw column drops any row whose location is blank — the
+    // export did exactly that, against a hard-coded list of three names, and
+    // so lost every 'unspecified' row from a breakdown that still sat under a
+    // headline counting them. locationBucket() is what closed it: the same
+    // rows, grouped by a function that always returns one of four names.
     const withBlank = [...SCHEDULE, alloc({ supplier_name: 'EPAM', resource_location: null })]
     const suppliers = computeTotalsByGroup(withBlank, (a) => a.supplier_name, vat)
-    const locations = computeTotalsByGroup(withBlank, (a) => a.resource_location, vat)
-    expect(sumGroups(locations).vatPence).toBeLessThan(sumGroups(suppliers).vatPence)
-    expect(sumGroups(suppliers).vatPence - sumGroups(locations).vatPence).toBe(500000)
+    const raw = computeTotalsByGroup(withBlank, (a) => a.resource_location, vat)
+    expect(sumGroups(suppliers).vatPence - sumGroups(raw).vatPence).toBe(500000)
+
+    const bucketed = computeTotalsByGroup(
+      withBlank,
+      (a) => locationBucket(a.resource_location),
+      vat,
+    )
+    expect(sumGroups(bucketed).vatPence).toBe(sumGroups(suppliers).vatPence)
+    expect(sumGroups(bucketed).count).toBe(sumGroups(suppliers).count)
+    expect(bucketed.get('Unspecified')!.vatPence).toBe(500000)
   })
 })

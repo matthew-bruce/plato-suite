@@ -3,11 +3,14 @@ import {
   formatMoney,
   getUtilColour,
   isIncludedInBaseCost,
+  isCountedInHeadcount,
   isChargeableRow,
   deriveIsChargeable,
   withDerivedChargeable,
   PLANVIEW_CODES,
   getLocationColour,
+  locationBucket,
+  LOCATION_BUCKETS,
   getPlanBadgeStyle,
   getTextColour,
   withAlpha,
@@ -64,6 +67,35 @@ describe('isIncludedInBaseCost', () => {
   it('excludes null/empty', () => {
     expect(isIncludedInBaseCost(null)).toBe(false)
     expect(isIncludedInBaseCost(undefined)).toBe(false)
+  })
+})
+
+describe('isCountedInHeadcount', () => {
+  it('includes PR / F_Gov / ETP', () => {
+    expect(isCountedInHeadcount('PR')).toBe(true)
+    expect(isCountedInHeadcount('F_Gov')).toBe(true)
+    expect(isCountedInHeadcount('ETP')).toBe(true)
+  })
+  it('includes BAU — unlike isIncludedInBaseCost', () => {
+    expect(isCountedInHeadcount('BAU')).toBe(true)
+  })
+  it('excludes NPC', () => {
+    expect(isCountedInHeadcount('NPC')).toBe(false)
+  })
+  it('excludes null/empty', () => {
+    expect(isCountedInHeadcount(null)).toBe(false)
+    expect(isCountedInHeadcount(undefined)).toBe(false)
+  })
+  // The two rules must diverge on exactly one code (BAU) and agree on every
+  // other one. This pins the divergence down directly, independent of any
+  // fixture, so reimplementing isCountedInHeadcount as a delegate to
+  // isIncludedInBaseCost — the regression that has happened twice — fails
+  // here first.
+  it('diverges from isIncludedInBaseCost on BAU only', () => {
+    for (const code of ['PR', 'F_Gov', 'ETP', 'NPC', null, undefined]) {
+      expect(isCountedInHeadcount(code)).toBe(isIncludedInBaseCost(code))
+    }
+    expect(isCountedInHeadcount('BAU')).not.toBe(isIncludedInBaseCost('BAU'))
   })
 })
 
@@ -124,7 +156,11 @@ describe('withDerivedChargeable', () => {
     })
   })
   it('leaves the payload untouched when planview_code is not part of the update', () => {
-    expect(withDerivedChargeable({ day_rate: 50000 })).toEqual({ day_rate: 50000 })
+    // Typed rather than a bare literal: the generic constrains T to an object
+    // carrying planview_code, so an inline literal without it trips excess
+    // property checking even though the call is exactly what this asserts.
+    const payload: { planview_code?: string | null; day_rate: number } = { day_rate: 50000 }
+    expect(withDerivedChargeable(payload)).toEqual({ day_rate: 50000 })
   })
 })
 
@@ -157,6 +193,37 @@ describe('PLANVIEW_CODES', () => {
     const selectValue = row.planview_code ?? 'BAU'
     expect(selectValue).toBe('NPC')
     expect(PLANVIEW_CODES.map((pc) => pc.value)).toContain(selectValue)
+  })
+})
+
+describe('locationBucket', () => {
+  it('maps each enum value to its display name', () => {
+    expect(locationBucket('onshore')).toBe('Onshore')
+    expect(locationBucket('nearshore')).toBe('Nearshore')
+    expect(locationBucket('offshore')).toBe('Offshore')
+    expect(locationBucket('unspecified')).toBe('Unspecified')
+  })
+
+  it('is case- and whitespace-insensitive', () => {
+    expect(locationBucket('  Offshore ')).toBe('Offshore')
+    expect(locationBucket('NEARSHORE')).toBe('Nearshore')
+  })
+
+  it('reports a NULL, an empty string and a literal unspecified identically', () => {
+    // Finance has no use for the distinction between "no row in resources" and
+    // "someone chose Unspecified" — both mean no location has been decided.
+    expect(locationBucket(null)).toBe('Unspecified')
+    expect(locationBucket(undefined)).toBe('Unspecified')
+    expect(locationBucket('')).toBe('Unspecified')
+    expect(locationBucket('unspecified')).toBe('Unspecified')
+  })
+
+  it('never returns a name outside the four the breakdown lists', () => {
+    // A fifth enum value added later must land somewhere, or a breakdown built
+    // from these buckets silently stops adding up to its own total.
+    for (const input of ['nearshore', 'hybrid', 'Remote', '???', null]) {
+      expect(LOCATION_BUCKETS).toContain(locationBucket(input))
+    }
   })
 })
 

@@ -36,6 +36,30 @@ export function isIncludedInBaseCost(planviewCode: string | null | undefined): b
   return planviewCode !== 'BAU' && planviewCode !== 'NPC'
 }
 
+/**
+ * Whether an allocation counts toward HEADCOUNT — a different question from
+ * whether it counts toward COST (isIncludedInBaseCost above), and the two
+ * must not be conflated: BAU is a real, known person who costs the platform
+ * nothing, so BAU is excluded from cost but IS counted here. NPC is excluded
+ * from both.
+ *
+ *   Code   | isIncludedInBaseCost | isCountedInHeadcount
+ *   PR     | true                 | true
+ *   F_Gov  | true                 | true
+ *   BAU    | false                | true
+ *   NPC    | false                | false
+ *
+ * This exists because merging the two rules — treating "not counted toward
+ * cost" as "not counted at all" — is a regression that has happened twice in
+ * one night on the Rate Calculator export's Summary tab, silently dropping
+ * BAU (Royal Mail Group's own headcount) out of every breakdown it should
+ * have appeared in. Do not reimplement this as `isIncludedInBaseCost`.
+ */
+export function isCountedInHeadcount(planviewCode: string | null | undefined): boolean {
+  if (!planviewCode) return false
+  return planviewCode !== 'NPC'
+}
+
 interface DaysRow {
   capacity_days: number | null
   planview_code: string | null | undefined
@@ -118,6 +142,35 @@ export function getLocationColour(location: string | null | undefined): string {
   if (key === 'nearshore') return '#0892CB'
   if (key === 'offshore') return '#F3920D'
   return '#D5D5D5'
+}
+
+/**
+ * The buckets a location breakdown reports, in display order.
+ *
+ * resource_location_enum gained a fourth value, 'unspecified', in September
+ * 2026 and it is already in use. A breakdown that only knew the first three
+ * silently dropped those rows, which is how a location split stops adding up
+ * to the total it sits under.
+ */
+export const LOCATION_BUCKETS = ['Onshore', 'Nearshore', 'Offshore', 'Unspecified'] as const
+
+export type LocationBucket = (typeof LOCATION_BUCKETS)[number]
+
+/**
+ * The bucket a row's location belongs to.
+ *
+ * A deliberate 'unspecified' and a genuine NULL report identically: both mean
+ * "no location has been decided for this row", and Finance has no use for the
+ * distinction. Anything unrecognised lands there too — including a fifth enum
+ * value added later — so a breakdown built from these buckets always accounts
+ * for every row and can never quietly fail to tie to its own total.
+ */
+export function locationBucket(location: string | null | undefined): LocationBucket {
+  const key = (location ?? '').trim().toLowerCase()
+  if (key === 'onshore') return 'Onshore'
+  if (key === 'nearshore') return 'Nearshore'
+  if (key === 'offshore') return 'Offshore'
+  return 'Unspecified'
 }
 
 export interface BadgeStyle {
