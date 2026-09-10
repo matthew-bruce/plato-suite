@@ -6,7 +6,7 @@
 // here, so Q3 hypercare allocations typed as an invalid code.
 export type PlanviewCode = 'PR' | 'F_Gov' | 'BAU' | 'ETP' | 'NPC'
 export type PeriodStatus = 'draft' | 'active' | 'historic'
-export type ResourceLocation = 'onshore' | 'nearshore' | 'offshore'
+export type ResourceLocation = 'onshore' | 'nearshore' | 'offshore' | 'unspecified'
 
 export interface Period {
   period_id: string
