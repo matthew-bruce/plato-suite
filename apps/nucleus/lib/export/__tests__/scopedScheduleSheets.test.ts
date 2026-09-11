@@ -436,6 +436,235 @@ describe('Team Schedule prorates a split resource to the scoped team', () => {
   })
 })
 
+/**
+ * Same as buildCygnusSheet above, but for an arbitrary team — Paul Williams's
+ * fixture happens to be an even 50/50 split, which would pass even if
+ * proration silently defaulted to "half of everything" instead of genuinely
+ * reading each team's own capacity_split. The uneven and three-way fixtures
+ * below need a sheet builder that isn't hardcoded to Cygnus.
+ */
+function buildTeamScheduleForScope(
+  teamId: string,
+  teamName: string,
+  rows: VariantAllocationRow[],
+) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet(teamName)
+  const result = buildTeamScheduleSheet({
+    ws,
+    rows,
+    teamName,
+    teamScope: teamId,
+    periodName: 'Q3 FY 26/27',
+    dateRange: '01 Oct 2026 – 31 Dec 2026',
+    exportedAt: 'Exported 10 Sep 2026 at 09:00',
+    vatMultiplier: VAT,
+    blendedDayRatePence: BLENDED,
+    costVisibility: 'both',
+  })
+  return { ws, result, columns: teamScheduleColumns('both'), rows }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Uneven and three-way splits.
+
+   Paul Williams above is exactly 50/50, which is the one shape that can't
+   distinguish "reads this team's real capacity_split" from "always halves
+   it" — both produce the same answer. These fixtures use splits that are
+   NOT 50/50 (and, for the second, more than two teams) so a regression that
+   reintroduced a hardcoded halving, or that dropped/double-counted capacity
+   across more than two team assignments, would fail here even though it
+   passed the Paul Williams tests.
+══════════════════════════════════════════════════════════════════════ */
+
+/** 100 raw days, 80% utilisation, split 30% Cygnus / 70% Pluto — not 50/50. */
+const UNEVEN_SPLIT_RESOURCE: VariantAllocationRow = {
+  allocation_id: 'uneven-split',
+  resource_id: 'uneven-person',
+  resource_name: 'R. Kapoor',
+  role_title: 'Engineer',
+  planview_code: 'PR',
+  supplier_name: 'Capgemini',
+  supplier_abbreviation: 'CG',
+  supplier_colour: '#003C82',
+  resource_location: 'nearshore',
+  utilisation_percent: 80,
+  capacity_days: 100,
+  day_rate: 62_000,
+  vat_applies: true,
+  teams: [
+    { teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 0.3 },
+    { teamId: 't-pluto', teamName: 'Pluto', capacitySplit: 0.7 },
+  ],
+}
+
+describe('Team Schedule prorates an uneven (30/70) split correctly per team', () => {
+  it('gives the 30% team 30 days — not an even half of the 100 raw days', () => {
+    const { ws, result, columns, rows } = buildTeamScheduleForScope(
+      't-cygnus',
+      'Cygnus',
+      [UNEVEN_SPLIT_RESOURCE],
+    )
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'days')
+    expect(days.value).toBe(30)
+  })
+
+  it('gives the 70% team 70 days, the OTHER team’s share, not its own reused', () => {
+    const { ws, result, columns, rows } = buildTeamScheduleForScope(
+      't-pluto',
+      'Pluto',
+      [UNEVEN_SPLIT_RESOURCE],
+    )
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'days')
+    expect(days.value).toBe(70)
+  })
+
+  it('prices the 30% team’s Quarter at 62,000 × 30 × 0.8, not a 50/50 guess', () => {
+    const base = commercialBasePence(
+      UNEVEN_SPLIT_RESOURCE,
+      proratedDays(UNEVEN_SPLIT_RESOURCE, 't-cygnus'),
+    )
+    expect(base).toBe(62_000 * 30 * 0.8)
+
+    const { ws, result, columns, rows } = buildTeamScheduleForScope(
+      't-cygnus',
+      'Cygnus',
+      [UNEVEN_SPLIT_RESOURCE],
+    )
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'commQuarter')
+    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+  })
+
+  it('prices the 70% team’s Quarter at 62,000 × 70 × 0.8', () => {
+    const base = commercialBasePence(
+      UNEVEN_SPLIT_RESOURCE,
+      proratedDays(UNEVEN_SPLIT_RESOURCE, 't-pluto'),
+    )
+    expect(base).toBe(62_000 * 70 * 0.8)
+
+    const { ws, result, columns, rows } = buildTeamScheduleForScope(
+      't-pluto',
+      'Pluto',
+      [UNEVEN_SPLIT_RESOURCE],
+    )
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'commQuarter')
+    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+  })
+
+  it('prorates cross-charge the same way on both sides of the split', () => {
+    const cygnus = buildTeamScheduleForScope('t-cygnus', 'Cygnus', [UNEVEN_SPLIT_RESOURCE])
+    const pluto = buildTeamScheduleForScope('t-pluto', 'Pluto', [UNEVEN_SPLIT_RESOURCE])
+    const xc = (built: typeof cygnus) =>
+      cellFor(built.ws, built.columns, built.result.firstDataRow, built.rows, 'uneven-split', 'xcQuarter')
+        .value
+
+    expect(xc(cygnus)).toBe(Math.round(BLENDED * 30 * 0.8) / 100)
+    expect(xc(pluto)).toBe(Math.round(BLENDED * 70 * 0.8) / 100)
+  })
+
+  // FTE contribution must scale with THIS team's share of utilisation, not
+  // a flat half — 0.3 × 0.8 = 0.24, not 0.5 × 0.8 = 0.4.
+  it('gives the 30% team an FTE contribution of 0.24, and the 70% team 0.56', () => {
+    expect(totalFte([UNEVEN_SPLIT_RESOURCE], 't-cygnus')).toBeCloseTo(0.24, 10)
+    expect(totalFte([UNEVEN_SPLIT_RESOURCE], 't-pluto')).toBeCloseTo(0.56, 10)
+  })
+
+  it('sums the two teams’ prorated days back to the resource’s full 100 raw days', () => {
+    const cygnusDays = proratedDays(UNEVEN_SPLIT_RESOURCE, 't-cygnus')
+    const plutoDays = proratedDays(UNEVEN_SPLIT_RESOURCE, 't-pluto')
+    expect(cygnusDays + plutoDays).toBe(UNEVEN_SPLIT_RESOURCE.capacity_days)
+  })
+})
+
+/** 100 raw days, 100% utilisation, split 20% / 35% / 45% across three teams. */
+const THREE_WAY_SPLIT_RESOURCE: VariantAllocationRow = {
+  allocation_id: 'three-way-split',
+  resource_id: 'three-way-person',
+  resource_name: 'M. Osei',
+  role_title: 'Architect',
+  planview_code: 'PR',
+  supplier_name: 'Capgemini',
+  supplier_abbreviation: 'CG',
+  supplier_colour: '#003C82',
+  resource_location: 'offshore',
+  utilisation_percent: 100,
+  capacity_days: 100,
+  day_rate: 50_000,
+  vat_applies: true,
+  teams: [
+    { teamId: 't-alpha', teamName: 'Alpha', capacitySplit: 0.2 },
+    { teamId: 't-beta', teamName: 'Beta', capacitySplit: 0.35 },
+    { teamId: 't-gamma', teamName: 'Gamma', capacitySplit: 0.45 },
+  ],
+}
+
+describe('Team Schedule prorates a three-way split independently on each team', () => {
+  const THREE_TEAMS = [
+    { teamId: 't-alpha', teamName: 'Alpha', share: 0.2, days: 20 },
+    { teamId: 't-beta', teamName: 'Beta', share: 0.35, days: 35 },
+    { teamId: 't-gamma', teamName: 'Gamma', share: 0.45, days: 45 },
+  ]
+
+  it.each(THREE_TEAMS)(
+    'gives $teamName ($share share) $days of the 100 raw days',
+    ({ teamId, teamName, days }) => {
+      const { ws, result, columns, rows } = buildTeamScheduleForScope(teamId, teamName, [
+        THREE_WAY_SPLIT_RESOURCE,
+      ])
+      const cell = cellFor(ws, columns, result.firstDataRow, rows, 'three-way-split', 'days')
+      expect(cell.value).toBe(days)
+    },
+  )
+
+  it.each(THREE_TEAMS)(
+    'prices $teamName’s Quarter at 50,000 × $days × 1.0, independent of the other two teams',
+    ({ teamId, teamName, days }) => {
+      const base = commercialBasePence(THREE_WAY_SPLIT_RESOURCE, days)
+      expect(base).toBe(50_000 * days)
+
+      const { ws, result, columns, rows } = buildTeamScheduleForScope(teamId, teamName, [
+        THREE_WAY_SPLIT_RESOURCE,
+      ])
+      const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'three-way-split', 'commQuarter')
+      expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+    },
+  )
+
+  it.each(THREE_TEAMS)('gives $teamName an FTE contribution equal to its own $share share', ({ teamId, share }) => {
+    // utilisation_percent is 100 here, so the FTE contribution IS the share —
+    // a distinct case from the uneven fixture above, where utilisation < 100
+    // and FTE is share × utilisation, not share alone.
+    expect(totalFte([THREE_WAY_SPLIT_RESOURCE], teamId)).toBeCloseTo(share, 10)
+  })
+
+  // The sanity check the three-way case exists for: proration across MORE
+  // than two team assignments must neither drop nor double-count capacity.
+  // Two teams summing correctly (the uneven fixture above) doesn't prove a
+  // third assignment is read at all — a bug that only looked at teams[0] and
+  // teams[1], say, would still pass a two-team check.
+  it('sums all three teams’ prorated days back to the resource’s full 100 raw days', () => {
+    const totalAcrossTeams = THREE_TEAMS.reduce(
+      (sum, t) => sum + proratedDays(THREE_WAY_SPLIT_RESOURCE, t.teamId),
+      0,
+    )
+    expect(totalAcrossTeams).toBe(THREE_WAY_SPLIT_RESOURCE.capacity_days)
+  })
+
+  it('independently confirms each team’s own capacity_days share sums correctly, not just the total', () => {
+    // Belt-and-braces over the reduce above: compute each share via the raw
+    // capacitySplit on the fixture itself (not via proratedDays, so this
+    // doesn't just re-test the same code path twice) and confirm it matches
+    // both the expected constant and what proratedDays returns.
+    for (const t of THREE_TEAMS) {
+      const assignment = THREE_WAY_SPLIT_RESOURCE.teams.find((team) => team.teamId === t.teamId)
+      expect(assignment).toBeDefined()
+      const expectedDays = THREE_WAY_SPLIT_RESOURCE.capacity_days! * (assignment?.capacitySplit ?? 0)
+      expect(expectedDays).toBe(t.days)
+      expect(proratedDays(THREE_WAY_SPLIT_RESOURCE, t.teamId)).toBe(expectedDays)
+    }
+  })
+})
+
 describe('Supplier Schedule is deliberately NOT prorated by team', () => {
   function buildPaulSupplierSheet() {
     const wb = new ExcelJS.Workbook()
