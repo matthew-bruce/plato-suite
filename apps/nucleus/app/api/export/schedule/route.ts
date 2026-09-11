@@ -550,6 +550,7 @@ export async function GET(request: Request): Promise<Response> {
         ws,
         rows: rowsForTeam(scopedRows, scopeTeamId),
         teamName: scopeLabel,
+        teamScope: scopeTeamId,
         periodName: period.period_name,
         dateRange: scopedRange,
         exportedAt,

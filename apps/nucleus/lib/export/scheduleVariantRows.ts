@@ -12,6 +12,7 @@
 
 import { isChargeableRow, isIncludedInBaseCost } from '../schedule/ui'
 import { allocationBasePence, allocationVatPence } from '../schedule/scheduleTotals'
+import { getCapacitySplit } from '../scheduleUtils'
 
 /** A resource's share of one team, as the Schedule page carries it. */
 export interface TeamAssignmentRef {
@@ -59,6 +60,42 @@ export const MONTH_WORKING_DAYS = 21
 
 /** The em-dash a cell shows when a figure would be misleading rather than zero. */
 export const NOT_APPLICABLE = '—'
+
+/**
+ * A resource's share of the team a file is scoped to — the SAME
+ * getCapacitySplit the live Schedule page runs when it is filtered to one
+ * team and labels its totals "(PROPORTIONAL)".
+ *
+ * An export has to present a figure the way the app presents it, or the two
+ * disagree and the export is the one that gets believed. Someone 50% Cygnus /
+ * 50% Pluto is half a person to Cygnus: the page shows them at half their
+ * days and half their cost under a Cygnus filter, and so must a Cygnus file.
+ *
+ * Accepts a team id or a team name, as getCapacitySplit does, and returns 1.0
+ * for an unscoped file — which is what makes this safe to apply
+ * unconditionally in the team-scoped cost functions below.
+ */
+export function teamShare(
+  row: Pick<VariantAllocationRow, 'teams'>,
+  teamScope: string | null,
+): number {
+  return getCapacitySplit(row.teams, teamScope)
+}
+
+/**
+ * The days a row contributes to the team a file is scoped to: its raw period
+ * days times that team's share of the resource.
+ *
+ * This is the figure the Team Schedule's "Total days" column shows, and the
+ * one every cost figure on that sheet is derived from — mirroring the page's
+ * own `displayDays = rawDays * split`.
+ */
+export function proratedDays(
+  row: Pick<VariantAllocationRow, 'teams' | 'capacity_days'>,
+  teamScope: string | null,
+): number {
+  return (row.capacity_days ?? 0) * getCapacitySplit(row.teams, teamScope)
+}
 
 /**
  * The team-split label, formatted the way the live Schedule page's badges
@@ -174,12 +211,23 @@ const NO_FIGURES: CostGroupFigures = {
 export function teamCommercialFigures(
   row: VariantAllocationRow,
   vatMultiplier: number,
+  /**
+   * The team this file is scoped to. Required, not defaulted: silently
+   * falling back to unprorated is the exact defect this parameter exists to
+   * prevent, so a caller has to say `null` to mean "no team" on purpose.
+   */
+  teamScope: string | null,
 ): CostGroupFigures {
   if (!isIncludedInBaseCost(row.planview_code)) return NO_FIGURES
+  // Every figure is prorated by the same team share — the quarter through the
+  // row's own prorated days, and the sprint/month conventions through a
+  // prorated slice of those fixed lengths. A person half-allocated to this
+  // team costs it half a sprint, not a whole one.
+  const share = teamShare(row, teamScope)
   return {
-    sprintPence: commercialCostPence(row, SPRINT_WORKING_DAYS, vatMultiplier),
-    monthPence: commercialCostPence(row, MONTH_WORKING_DAYS, vatMultiplier),
-    quarterPence: commercialCostPence(row, row.capacity_days ?? 0, vatMultiplier),
+    sprintPence: commercialCostPence(row, SPRINT_WORKING_DAYS * share, vatMultiplier),
+    monthPence: commercialCostPence(row, MONTH_WORKING_DAYS * share, vatMultiplier),
+    quarterPence: commercialCostPence(row, proratedDays(row, teamScope), vatMultiplier),
   }
 }
 
@@ -192,11 +240,16 @@ export function teamCommercialFigures(
 export function teamCrossChargeFigures(
   row: VariantAllocationRow,
   blendedDayRatePence: number,
+  /** The team this file is scoped to — required, for the reason above. */
+  teamScope: string | null,
 ): CostGroupFigures {
+  // Prorated on the same basis as the commercial group above: the recharge a
+  // team owes for a half-allocated person is half the recharge.
+  const share = teamShare(row, teamScope)
   return {
-    sprintPence: crossChargeCostPence(row, SPRINT_WORKING_DAYS, blendedDayRatePence),
-    monthPence: crossChargeCostPence(row, MONTH_WORKING_DAYS, blendedDayRatePence),
-    quarterPence: crossChargeCostPence(row, row.capacity_days ?? 0, blendedDayRatePence),
+    sprintPence: crossChargeCostPence(row, SPRINT_WORKING_DAYS * share, blendedDayRatePence),
+    monthPence: crossChargeCostPence(row, MONTH_WORKING_DAYS * share, blendedDayRatePence),
+    quarterPence: crossChargeCostPence(row, proratedDays(row, teamScope), blendedDayRatePence),
   }
 }
 
@@ -265,14 +318,27 @@ export function uniqueNamedPeopleCount(rows: readonly VariantAllocationRow[]): n
  * Per person, not per row: someone who moved supplier mid-quarter holds two
  * 100% records and is one FTE, not two. Their records' utilisations are
  * summed and then capped at 100% — summing alone double-counts the transition
- * case, and taking one record alone would undercount a genuine 50/50 split
- * across two teams, which really is one whole person.
+ * case, and taking one record alone would undercount a genuine split across
+ * two suppliers.
+ *
+ * On a team-scoped file each record's utilisation is first cut to that team's
+ * share, so the footer answers "how many whole people does this team have",
+ * not "how many people touch this team". Someone 50% Cygnus at 90%
+ * utilisation is 0.45 FTE to Cygnus, not 0.9.
  */
-export function totalFte(rows: readonly VariantAllocationRow[]): number {
+export function totalFte(
+  rows: readonly VariantAllocationRow[],
+  /** The team this file is scoped to; omit for an unscoped, unprorated total. */
+  teamScope: string | null = null,
+): number {
   const byPerson = new Map<string, number>()
   for (const row of rows) {
     if (!isNamedRow(row) || !row.resource_id) continue
-    byPerson.set(row.resource_id, (byPerson.get(row.resource_id) ?? 0) + row.utilisation_percent)
+    const share = teamShare(row, teamScope)
+    byPerson.set(
+      row.resource_id,
+      (byPerson.get(row.resource_id) ?? 0) + row.utilisation_percent * share,
+    )
   }
   let fte = 0
   for (const summed of byPerson.values()) {

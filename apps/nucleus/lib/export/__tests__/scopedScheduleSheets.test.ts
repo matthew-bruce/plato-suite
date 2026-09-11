@@ -3,7 +3,13 @@ import ExcelJS from 'exceljs'
 import { buildTeamScheduleSheet, teamScheduleColumns, columnLetter } from '../teamScheduleSheet'
 import { buildSupplierScheduleSheet, SUPPLIER_SCHEDULE_COLUMNS } from '../supplierScheduleSheet'
 import { buildSampleExportWorkbook, SCOPED_SHEET_FIXTURE } from './exportFormulaSample'
-import { NOT_APPLICABLE } from '../scheduleVariantRows'
+import {
+  NOT_APPLICABLE,
+  commercialBasePence,
+  proratedDays,
+  totalFte,
+} from '../scheduleVariantRows'
+import type { VariantAllocationRow } from '../scheduleVariantRows'
 import type { CostVisibility } from '../exportVariants'
 
 const VAT = 1.07082
@@ -21,6 +27,7 @@ function buildTeamSheet(costVisibility: CostVisibility = 'both') {
     ws,
     rows: PLUTO_ROWS,
     teamName: 'Pluto',
+    teamScope: 't-pluto',
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
@@ -105,7 +112,8 @@ describe('Team Schedule sheet', () => {
     const at = (id: string, key: string) =>
       cellFor(ws, columns, result.firstDataRow, PLUTO_ROWS, id, key)
 
-    expect(at('a-pr', 'xcQuarter').value).toBe((BLENDED * 64) / 100)
+    // a-pr is 64 raw days at a 50% Pluto share, so Pluto is recharged for 32.
+    expect(at('a-pr', 'xcQuarter').value).toBe((BLENDED * 32) / 100)
     expect(at('a-fgov', 'xcQuarter').value).toBe(NOT_APPLICABLE)
     expect(at('a-bau', 'xcQuarter').value).toBe(NOT_APPLICABLE)
     expect(at('a-npc', 'xcQuarter').value).toBe(NOT_APPLICABLE)
@@ -275,6 +283,212 @@ describe('Supplier Schedule sheet', () => {
     expect(text.some((t) => t.startsWith('Supplier size:'))).toBe(true)
     expect(text.some((t) => t.startsWith('Total FTE:'))).toBe(true)
     expect(text.some((t) => t.startsWith('Teams covered:'))).toBe(true)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   Proration to the scoped team.
+
+   An export has to present a figure the way the live app presents it. The
+   Schedule page, filtered to one team, shows a split resource's PROPORTIONAL
+   days and cost and says so in the label. A team-scoped export that showed
+   the full period instead would credit the team with a whole person it only
+   half has — and, being a spreadsheet, would be the version believed.
+
+   The fixture is real: Paul Williams, 64 raw period days, 50% Cygnus / 50%
+   Pluto, 90% utilisation, £580/day. Cygnus's view shows 32.0 days and
+   £16,704 base (580 × 32 × 0.9), not 64 days and £33,408.
+══════════════════════════════════════════════════════════════════════ */
+
+const PAUL_WILLIAMS: VariantAllocationRow = {
+  allocation_id: 'paul-williams',
+  resource_id: 'paul',
+  resource_name: 'Paul Williams',
+  role_title: 'Engineer',
+  planview_code: 'PR',
+  supplier_name: 'Capgemini',
+  supplier_abbreviation: 'CG',
+  supplier_colour: '#003C82',
+  resource_location: 'onshore',
+  utilisation_percent: 90,
+  capacity_days: 64,
+  day_rate: 58_000,
+  vat_applies: true,
+  teams: [
+    { teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 0.5 },
+    { teamId: 't-pluto', teamName: 'Pluto', capacitySplit: 0.5 },
+  ],
+}
+
+/** Same shape, but wholly on Cygnus — the control for the unsplit case. */
+const UNSPLIT_RESOURCE: VariantAllocationRow = {
+  ...PAUL_WILLIAMS,
+  allocation_id: 'unsplit',
+  resource_id: 'unsplit-person',
+  resource_name: 'S. Whole',
+  utilisation_percent: 100,
+  teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 1 }],
+}
+
+function buildCygnusSheet(rows: VariantAllocationRow[]) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Cygnus')
+  const result = buildTeamScheduleSheet({
+    ws,
+    rows,
+    teamName: 'Cygnus',
+    teamScope: 't-cygnus',
+    periodName: 'Q3 FY 26/27',
+    dateRange: '01 Oct 2026 – 31 Dec 2026',
+    exportedAt: 'Exported 10 Sep 2026 at 09:00',
+    vatMultiplier: VAT,
+    blendedDayRatePence: BLENDED,
+    costVisibility: 'both',
+  })
+  return { ws, result, columns: teamScheduleColumns('both'), rows }
+}
+
+describe('Team Schedule prorates a split resource to the scoped team', () => {
+  it('shows 32.0 Total days for Paul Williams on Cygnus, not his full 64', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'days')
+    expect(days.value).toBe(32)
+    // The raw record is untouched — proration is a presentation of it.
+    expect(PAUL_WILLIAMS.capacity_days).toBe(64)
+  })
+
+  it('produces a Quarter commercial figure of 580 × 32 × 0.9, not × 64', () => {
+    const base = commercialBasePence(PAUL_WILLIAMS, proratedDays(PAUL_WILLIAMS, 't-cygnus'))
+    // £16,704 — exactly what the Cygnus-filtered Schedule page shows.
+    expect(base).toBe(58_000 * 32 * 0.9)
+    expect(base).toBe(1_670_400)
+
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'commQuarter')
+    // The sheet shows it VAT-inclusive, as its own stats line promises.
+    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+  })
+
+  it('prorates the cross-charge quarter on the same basis', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
+    const xc = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'xcQuarter')
+    expect(xc.value).toBe(Math.round(BLENDED * 32 * 0.9) / 100)
+  })
+
+  it('prorates the sprint and month conventions too — half a person, half a sprint', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
+    const at = (key: string) =>
+      cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', key).value
+    expect(at('commSprint')).toBe(Math.round(58_000 * 10 * 0.5 * 0.9 * VAT) / 100)
+    expect(at('commMonth')).toBe(Math.round(58_000 * 21 * 0.5 * 0.9 * VAT) / 100)
+  })
+
+  it('leaves the day rate alone — it is a rate, not a quantity', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
+    const rate = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'dayRate')
+    expect(rate.value).toBe(580)
+  })
+
+  it('counts him as 0.45 FTE to Cygnus, not 0.9', () => {
+    expect(totalFte([PAUL_WILLIAMS], 't-cygnus')).toBeCloseTo(0.45, 10)
+    const { ws } = buildCygnusSheet([PAUL_WILLIAMS])
+    const text: string[] = []
+    ws.eachRow((r) => {
+      r.eachCell((c) => {
+        if (typeof c.value === 'string') text.push(c.value)
+      })
+    })
+    expect(text).toContain('Total FTE: 0.45')
+    // Still one whole named person on the team — headcount is not prorated.
+    expect(text).toContain('Team size: 1 named person')
+  })
+
+  it('leaves an unsplit resource at their full raw period days', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([UNSPLIT_RESOURCE])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'days')
+    expect(days.value).toBe(64)
+
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'commQuarter')
+    expect(quarter.value).toBe(Math.round(58_000 * 64 * 1.0 * VAT) / 100)
+    expect(totalFte([UNSPLIT_RESOURCE], 't-cygnus')).toBe(1)
+  })
+
+  it('makes the Totals row the cost of running the team, not of everyone who touches it', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS, UNSPLIT_RESOURCE])
+    // Every row feeding the SUM is already prorated, so the total is too.
+    const quarterCol = columns.findIndex((c) => c.key === 'commQuarter') + 1
+    const paul = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'commQuarter')
+      .value as number
+    const whole = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'commQuarter')
+      .value as number
+
+    expect(paul).toBe(Math.round(58_000 * 32 * 0.9 * VAT) / 100)
+    expect(whole).toBe(Math.round(58_000 * 64 * 1.0 * VAT) / 100)
+    // Paul contributes half of what he would have before the fix.
+    expect(paul).toBeLessThan(whole)
+
+    const totalCell = ws.getCell(result.totalRow, quarterCol).value
+    expect(totalCell).toHaveProperty('formula')
+    const letter = columnLetter(quarterCol)
+    expect((totalCell as { formula: string }).formula).toBe(
+      `SUM(${letter}${result.firstDataRow}:${letter}${result.lastDataRow})`,
+    )
+  })
+})
+
+describe('Supplier Schedule is deliberately NOT prorated by team', () => {
+  function buildPaulSupplierSheet() {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Capgemini')
+    const rows = [PAUL_WILLIAMS]
+    const result = buildSupplierScheduleSheet({
+      ws,
+      rows,
+      supplierName: 'Capgemini',
+      periodName: 'Q3 FY 26/27',
+      dateRange: '01 Oct 2026 – 31 Dec 2026',
+      exportedAt: 'Exported 10 Sep 2026 at 09:00',
+      vatMultiplier: VAT,
+    })
+    return { ws, result, rows }
+  }
+
+  // This file answers "what do I pay this supplier", not "what does this cost
+  // this team". Paul is one person Capgemini invoices for in full, however his
+  // time is divided internally — so the team-proration fix must not reach here.
+  it('shows Paul Williams’s full 64 days regardless of his 50/50 split', () => {
+    const { ws, result, rows } = buildPaulSupplierSheet()
+    const days = cellFor(ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'paul-williams', 'days')
+    expect(days.value).toBe(64)
+  })
+
+  it('shows his full commercial quarter, twice the Cygnus-scoped figure', () => {
+    const { ws, result, rows } = buildPaulSupplierSheet()
+    const quarter = cellFor(
+      ws,
+      SUPPLIER_SCHEDULE_COLUMNS,
+      result.firstDataRow,
+      rows,
+      'paul-williams',
+      'quarter',
+    ).value as number
+    expect(quarter).toBe(Math.round(58_000 * 64 * 0.9 * VAT) / 100)
+
+    const team = buildCygnusSheet([PAUL_WILLIAMS])
+    const teamQuarter = cellFor(
+      team.ws,
+      team.columns,
+      team.result.firstDataRow,
+      team.rows,
+      'paul-williams',
+      'commQuarter',
+    ).value as number
+    // The two files disagree, on purpose, by exactly his team share.
+    expect(teamQuarter).toBeCloseTo(quarter / 2, 1)
+  })
+
+  it('reports his full 0.9 FTE, unprorated', () => {
+    expect(totalFte([PAUL_WILLIAMS])).toBeCloseTo(0.9, 10)
   })
 })
 

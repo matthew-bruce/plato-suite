@@ -219,6 +219,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
     ws: teamWs,
     rows: SCOPED_SHEET_FIXTURE.filter((r) => r.teams.some((t) => t.teamId === 't-pluto')),
     teamName: 'Pluto',
+    teamScope: 't-pluto',
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',

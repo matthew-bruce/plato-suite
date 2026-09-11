@@ -26,6 +26,11 @@ const PLUTO: TeamAssignmentRef = { teamId: 't-pluto', teamName: 'Pluto', capacit
 const CYGNUS: TeamAssignmentRef = { teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 0.5 }
 const JANUS: TeamAssignmentRef = { teamId: 't-janus', teamName: 'Janus', capacitySplit: 1.0 }
 
+// The default fixture sits wholly on Janus, so scoping to it exercises the
+// proration path at a share of 1.0 — i.e. these tests also prove that an
+// unsplit resource is unchanged by team proration.
+const JANUS_SCOPE = 't-janus'
+
 function row(over: Partial<VariantAllocationRow> = {}): VariantAllocationRow {
   return {
     allocation_id: 'a1',
@@ -59,7 +64,7 @@ describe('Team Schedule cross-charge inclusion', () => {
   ]
 
   it('gives a PR row a cross-charge figure for sprint, month and quarter', () => {
-    const figures = teamCrossChargeFigures(mixed[0], BLENDED_RATE)
+    const figures = teamCrossChargeFigures(mixed[0], BLENDED_RATE, JANUS_SCOPE)
     expect(figures.sprintPence).toBe(60_500 * 10)
     expect(figures.monthPence).toBe(60_500 * 21)
     expect(figures.quarterPence).toBe(60_500 * 64)
@@ -67,7 +72,7 @@ describe('Team Schedule cross-charge inclusion', () => {
 
   it('gives F_Gov, BAU and NPC rows no cross-charge figure at all', () => {
     for (const r of mixed.slice(1)) {
-      const figures = teamCrossChargeFigures(r, BLENDED_RATE)
+      const figures = teamCrossChargeFigures(r, BLENDED_RATE, JANUS_SCOPE)
       expect(figures.sprintPence).toBeNull()
       expect(figures.monthPence).toBeNull()
       expect(figures.quarterPence).toBeNull()
@@ -79,13 +84,13 @@ describe('Team Schedule cross-charge inclusion', () => {
   // recovered against a PR ticket.
   it('excludes F_Gov from cross-charge while still showing its commercial cost', () => {
     const fgov = mixed[1]
-    expect(teamCrossChargeFigures(fgov, BLENDED_RATE).quarterPence).toBeNull()
-    expect(teamCommercialFigures(fgov, VAT).quarterPence).toBeGreaterThan(0)
+    expect(teamCrossChargeFigures(fgov, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBeNull()
+    expect(teamCommercialFigures(fgov, VAT, JANUS_SCOPE).quarterPence).toBeGreaterThan(0)
   })
 
   it('shows no commercial cost for BAU or NPC on the Team Schedule', () => {
-    expect(teamCommercialFigures(mixed[2], VAT).quarterPence).toBeNull()
-    expect(teamCommercialFigures(mixed[3], VAT).quarterPence).toBeNull()
+    expect(teamCommercialFigures(mixed[2], VAT, JANUS_SCOPE).quarterPence).toBeNull()
+    expect(teamCommercialFigures(mixed[3], VAT, JANUS_SCOPE).quarterPence).toBeNull()
   })
 
   it('scales cross-charge by utilisation but never the rate itself', () => {
@@ -106,8 +111,8 @@ describe('Quarter cost uses each row’s own Total days', () => {
     expect(uk.day_rate).toBe(india.day_rate)
     expect(uk.utilisation_percent).toBe(india.utilisation_percent)
 
-    const ukQuarter = teamCommercialFigures(uk, VAT).quarterPence
-    const indiaQuarter = teamCommercialFigures(india, VAT).quarterPence
+    const ukQuarter = teamCommercialFigures(uk, VAT, JANUS_SCOPE).quarterPence
+    const indiaQuarter = teamCommercialFigures(india, VAT, JANUS_SCOPE).quarterPence
 
     expect(ukQuarter).not.toBe(indiaQuarter)
     expect(ukQuarter).toBe(commercialCostPence(uk, 64, VAT))
@@ -115,8 +120,8 @@ describe('Quarter cost uses each row’s own Total days', () => {
   })
 
   it('applies the same divergence to the cross-charge group', () => {
-    expect(teamCrossChargeFigures(uk, BLENDED_RATE).quarterPence).toBe(60_500 * 64)
-    expect(teamCrossChargeFigures(india, BLENDED_RATE).quarterPence).toBe(60_500 * 63)
+    expect(teamCrossChargeFigures(uk, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBe(60_500 * 64)
+    expect(teamCrossChargeFigures(india, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBe(60_500 * 63)
   })
 
   it('keeps Sprint and Month on the fixed conventions for both', () => {
@@ -124,14 +129,14 @@ describe('Quarter cost uses each row’s own Total days', () => {
     // comparable unit, not a measurement of anyone's actual calendar.
     expect(SPRINT_WORKING_DAYS).toBe(10)
     expect(MONTH_WORKING_DAYS).toBe(21)
-    expect(teamCommercialFigures(uk, VAT).sprintPence).toBe(
-      teamCommercialFigures(india, VAT).sprintPence,
+    expect(teamCommercialFigures(uk, VAT, JANUS_SCOPE).sprintPence).toBe(
+      teamCommercialFigures(india, VAT, JANUS_SCOPE).sprintPence,
     )
   })
 
   it('treats a null capacity_days as zero days rather than throwing', () => {
     const noDays = row({ capacity_days: null })
-    expect(teamCommercialFigures(noDays, VAT).quarterPence).toBe(0)
+    expect(teamCommercialFigures(noDays, VAT, JANUS_SCOPE).quarterPence).toBe(0)
   })
 })
 
@@ -221,13 +226,13 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
   })
 
   it('gives that identical row no commercial figure on the Team Schedule', () => {
-    expect(teamCommercialFigures(npc, VAT).quarterPence).toBeNull()
+    expect(teamCommercialFigures(npc, VAT, JANUS_SCOPE).quarterPence).toBeNull()
   })
 
   // Stated as a single assertion so the intent survives a future reader who
   // spots the two functions and assumes one of them is a bug.
   it('is a deliberate disagreement: same row, same inputs, different answers', () => {
-    const onTeamFile = teamCommercialFigures(npc, VAT).quarterPence
+    const onTeamFile = teamCommercialFigures(npc, VAT, JANUS_SCOPE).quarterPence
     const onSupplierFile = supplierCommercialFigures(npc, VAT).quarterPence
     expect(onTeamFile).toBeNull()
     expect(onSupplierFile).toBeGreaterThan(0)
@@ -235,7 +240,7 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
 
   it('still agrees on a PR row — the divergence is NPC-specific, not general', () => {
     const pr = row({ planview_code: 'PR' })
-    expect(teamCommercialFigures(pr, VAT)).toEqual(supplierCommercialFigures(pr, VAT))
+    expect(teamCommercialFigures(pr, VAT, JANUS_SCOPE)).toEqual(supplierCommercialFigures(pr, VAT))
   })
 
   it('includes the NPC row in a Supplier Schedule total', () => {
@@ -249,7 +254,7 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
 
   it('omits it from a Team Schedule total, which skips "—" rather than adding zero', () => {
     const teamRows = [row({ resource_id: 'p1' }), npc]
-    const figures = teamRows.map((r) => teamCommercialFigures(r, VAT))
+    const figures = teamRows.map((r) => teamCommercialFigures(r, VAT, JANUS_SCOPE))
     expect(sumCostColumn(figures, 'quarterPence')).toBe(
       commercialCostPence(teamRows[0], 64, VAT),
     )

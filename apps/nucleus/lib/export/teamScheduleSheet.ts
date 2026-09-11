@@ -23,6 +23,7 @@ import {
 import type { SheetColumn } from './scopedSheetChrome'
 import {
   NOT_APPLICABLE,
+  proratedDays,
   teamCommercialFigures,
   teamCrossChargeFigures,
   teamSplitCell,
@@ -48,6 +49,14 @@ export interface TeamScheduleSheetParams {
   ws: ExcelJS.Worksheet
   rows: readonly VariantAllocationRow[]
   teamName: string
+  /**
+   * The team this file is scoped to, as an id (or name — getCapacitySplit
+   * accepts either). Every day count and cost figure on the sheet is prorated
+   * to this team's share of each resource, the same way the live Schedule page
+   * prorates under a team filter. Without it the file would credit this team
+   * with the whole of a person it only half has.
+   */
+  teamScope: string
   periodName: string
   dateRange: string
   exportedAt: string
@@ -125,6 +134,7 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     ws,
     rows,
     teamName,
+    teamScope,
     periodName,
     dateRange,
     exportedAt,
@@ -172,13 +182,16 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     utilCell.numFmt = '0%'
     utilCell.alignment = { horizontal: 'right' }
 
+    // This team's share of the resource's days, not their whole period —
+    // matching what the page shows under a team filter, where it labels the
+    // totals "(PROPORTIONAL)".
     const daysCell = ws.getCell(row, indexOf('days'))
-    daysCell.value = alloc.capacity_days ?? 0
+    daysCell.value = proratedDays(alloc, teamScope)
     daysCell.numFmt = '0.#'
     daysCell.alignment = { horizontal: 'right' }
 
     if (withCommercial) {
-      const figures = teamCommercialFigures(alloc, vatMultiplier)
+      const figures = teamCommercialFigures(alloc, vatMultiplier, teamScope)
       // The day rate shows whenever the row has a commercial figure at all —
       // a BAU/NPC row's rate is withheld along with its cost, so the file
       // can't be used to infer a rate it declined to price.
@@ -192,7 +205,7 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     }
 
     if (withInternal) {
-      writeCostGroup(ws, row, teamCrossChargeFigures(alloc, blendedDayRatePence), {
+      writeCostGroup(ws, row, teamCrossChargeFigures(alloc, blendedDayRatePence, teamScope), {
         sprint: indexOf('xcSprint'),
         month: indexOf('xcMonth'),
         quarter: indexOf('xcQuarter'),
@@ -246,7 +259,8 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
   row += 2
 
   const people = uniqueNamedPeopleCount(rows)
-  const fte = totalFte(rows)
+  // Prorated too: how many whole people this team has, not how many touch it.
+  const fte = totalFte(rows, teamScope)
   ws.getCell(row, 1).value = `Team size: ${people} named ${people === 1 ? 'person' : 'people'}`
   ws.getCell(row, 1).font = { bold: true, size: 10 }
   row++
