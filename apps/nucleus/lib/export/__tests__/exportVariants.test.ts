@@ -23,10 +23,13 @@ describe('export variant registry', () => {
     expect(parseExportVariantId(null)).toBe(DEFAULT_EXPORT_VARIANT_ID)
   })
 
-  it('scopes the two new variants to the entity each needs', () => {
+  it('scopes only the Team Schedule — every other variant asks for nothing', () => {
     expect(getExportVariant('team-schedule').scope).toBe('team')
-    expect(getExportVariant('supplier-schedule').scope).toBe('supplier')
-    // The whole-platform files ask for nothing further.
+    // The Supplier Schedule used to be scoped to one chosen supplier. It now
+    // covers every supplier in the period as one tab each, so it asks for
+    // nothing further — the same "just click Export" shape as the two
+    // whole-platform files.
+    expect(getExportVariant('supplier-schedule').scope).toBeUndefined()
     expect(getExportVariant('rate-calculator').scope).toBeUndefined()
     expect(getExportVariant('platform-schedule').scope).toBeUndefined()
   })
@@ -57,9 +60,9 @@ describe('no variant offers a cost-visibility choice', () => {
   })
 
   it('keeps the Supplier Schedule’s fixed note, which states rather than offers', () => {
-    expect(getExportVariant('supplier-schedule').note).toBe(
-      'Always shows commercial cost only — the figure suppliers need for reconciliation.',
-    )
+    const note = getExportVariant('supplier-schedule').note ?? ''
+    expect(note).toContain('One tab per supplier')
+    expect(note).toContain('commercial cost only')
   })
 
   it('describes the Team Schedule as carrying no supplier rates', () => {

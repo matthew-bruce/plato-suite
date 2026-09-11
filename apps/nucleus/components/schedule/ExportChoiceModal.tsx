@@ -36,7 +36,6 @@ export interface ExportScopeOption {
 export interface ExportSelection {
   variantId: ExportVariantId
   teamId?: string
-  supplierId?: string
 }
 
 export interface ExportChoiceModalProps {
@@ -44,8 +43,6 @@ export interface ExportChoiceModalProps {
   periodName: string
   /** Teams present in this period, for the team-scoped variants' picker. */
   teams: readonly ExportScopeOption[]
-  /** Suppliers present in this period, for the supplier-scoped variants' picker. */
-  suppliers: readonly ExportScopeOption[]
   /** True while the chosen file is being built, to hold the modal open. */
   busy?: boolean
   onClose: () => void
@@ -56,7 +53,6 @@ export function ExportChoiceModal({
   open,
   periodName,
   teams,
-  suppliers,
   busy = false,
   onClose,
   onConfirm,
@@ -64,7 +60,6 @@ export function ExportChoiceModal({
   const [selected, setSelected] = useState<ExportVariantId>(DEFAULT_EXPORT_VARIANT_ID)
   const [hovered, setHovered] = useState<ExportVariantId | null>(null)
   const [teamId, setTeamId] = useState<string>('')
-  const [supplierId, setSupplierId] = useState<string>('')
 
   const variant = useMemo(() => getExportVariant(selected), [selected])
 
@@ -75,7 +70,6 @@ export function ExportChoiceModal({
     setSelected(DEFAULT_EXPORT_VARIANT_ID)
     setHovered(null)
     setTeamId('')
-    setSupplierId('')
   }, [open])
 
   useEffect(() => {
@@ -89,8 +83,10 @@ export function ExportChoiceModal({
 
   if (!open) return null
 
-  const scopeChosen =
-    variant.scope === 'team' ? teamId !== '' : variant.scope === 'supplier' ? supplierId !== '' : true
+  // Only a team-scoped file needs an answer before it can be built. The
+  // Supplier Schedule covers every supplier in the period, so there is
+  // nothing to pick — it is a "just click Export" flow like Platform Schedule.
+  const scopeChosen = variant.scope === 'team' ? teamId !== '' : true
 
   const overlay: React.CSSProperties = {
     position: 'fixed',
@@ -151,31 +147,33 @@ export function ExportChoiceModal({
     cursor: busy ? 'not-allowed' : 'pointer',
   }
 
+  /**
+   * The team picker, for the one variant scoped to a single team.
+   *
+   * There is no supplier equivalent: the Supplier Schedule produces one tab
+   * per supplier that has resources in the period, so there is nothing for a
+   * user to choose and no way for them to choose wrongly.
+   */
   function renderScopePicker(v: ExportVariant) {
-    if (!v.scope) return null
-    const isTeam = v.scope === 'team'
-    const options = isTeam ? teams : suppliers
-    const value = isTeam ? teamId : supplierId
-    const setValue = isTeam ? setTeamId : setSupplierId
-    const noun = isTeam ? 'team' : 'supplier'
+    if (v.scope !== 'team') return null
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <span style={fieldLabel}>{isTeam ? 'Team' : 'Supplier'}</span>
-        {options.length === 0 ? (
+        <span style={fieldLabel}>Team</span>
+        {teams.length === 0 ? (
           <span style={{ fontSize: 12, color: 'var(--rmg-color-text-light)' }}>
-            No {noun}s in this period.
+            No teams in this period.
           </span>
         ) : (
           <select
-            value={value}
+            value={teamId}
             disabled={busy}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => setTeamId(e.target.value)}
             style={selectStyle}
-            aria-label={`Choose a ${noun}`}
+            aria-label="Choose a team"
           >
-            <option value="">Choose a {noun}…</option>
-            {options.map((o) => (
+            <option value="">Choose a team…</option>
+            {teams.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
@@ -407,7 +405,6 @@ export function ExportChoiceModal({
               onConfirm({
                 variantId: selected,
                 teamId: variant.scope === 'team' ? teamId : undefined,
-                supplierId: variant.scope === 'supplier' ? supplierId : undefined,
               })
             }
             style={{

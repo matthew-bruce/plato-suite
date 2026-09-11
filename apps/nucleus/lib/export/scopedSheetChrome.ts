@@ -11,14 +11,20 @@
 // formulaCell(); neither is re-implemented locally.
 
 import type ExcelJS from 'exceljs'
-import { toArgb, supplierTint } from './richText'
+import { toArgb, supplierTint, textOnBand, mutedOnBand } from './richText'
 import { planviewStyle, planviewLabel } from './planviewColours'
 import { NOT_APPLICABLE } from './scheduleVariantRows'
-import { roundDays, contrastRatio } from '../schedule/ui'
+import { roundDays } from '../schedule/ui'
 
 export const DARK_BAND = 'FF2A2A2D'
 const HEADER_BAND = 'FF404044'
 const GROUP_BAND = 'FF5A5A5E'
+/**
+ * The muted grey used for captions on the sheet's white body — footnotes, an
+ * em-dashed money cell, an uncoloured supplier chip. Deliberately NOT used on
+ * the masthead: that band's ground varies per supplier, so its secondary text
+ * is computed against the actual fill (see mutedOnBand).
+ */
 const SUBTLE_TEXT = 'FF8F9495'
 const BODY_TEXT = 'FF2A2A2D'
 const RULE = 'FFDDDDDD'
@@ -45,37 +51,6 @@ export const WHOLE_MONEY_FORMAT = '£#,##0'
  * the file reads identically to the same figure on the page.
  */
 export const DAYS_NUMBER_FORMAT = 'General'
-
-/**
- * The minimum contrast a supplier's own colour must reach against the header
- * band before it is used as the title's TEXT colour.
- *
- * 3:1 is the WCAG AA threshold for large text, and the title genuinely is
- * large — 22pt bold, well past the 18.66px-bold cutoff. Anything dimmer than
- * this falls back to white; see headerTitleColour.
- */
-export const HEADER_TITLE_MIN_CONTRAST = 3
-
-/**
- * What colour a scoped sheet's title should actually be printed in.
- *
- * A supplier's brand colour is used only where it is legible on the dark
- * header band, and white otherwise. This is not a stylistic preference: most
- * of the current palette is dark — navy, deep blue, charcoal — and those
- * colours on a near-black band are close to invisible. The left-edge stripe
- * carries the identification regardless, so nothing is lost by printing an
- * unreadable name in white instead.
- *
- * Measured live rather than assumed per supplier, so a supplier that later
- * changes to a lighter colour picks it up automatically and one that darkens
- * stops using it — no list of names anywhere.
- */
-export function headerTitleColour(accentHex: string | null | undefined): string {
-  if (!accentHex) return WHITE
-  return contrastRatio(accentHex, DARK_BAND) >= HEADER_TITLE_MIN_CONTRAST
-    ? toArgb(accentHex)
-    : WHITE
-}
 
 /** Writes a Days cell: shared rounding rule, numeric cell, General format. */
 export function writeDaysCell(
@@ -115,12 +90,15 @@ export interface SheetColumn {
  * printing one invites every figure below it to be checked against the wrong
  * denominator.
  *
- * `accentHex`, where given, draws a coloured stripe down the left edge of the
- * whole block — the same cue the live Schedule page uses to mark a supplier
- * group. It is the unambiguous "whose file is this" signal, and it works for
- * every colour because a border does not have to be legible as text. The
- * title only takes the colour too when it is light enough to read; see
- * headerTitleColour.
+ * `bandArgb` fills the whole block. The Supplier Schedule passes the
+ * supplier's brand colour (darkened only if white text would not survive on
+ * it — see darkenForWhiteText), which is what makes each tab identifiable at
+ * a glance. Files with no owning supplier leave it unset and get the default
+ * dark band.
+ *
+ * This replaced a thin left-edge border in the supplier's colour. That read as
+ * a hairline against a near-black masthead and left the file looking flat; a
+ * filled band is the whole point of having a brand colour to use.
  */
 export function writeScopedHeader(params: {
   ws: ExcelJS.Worksheet
@@ -133,21 +111,30 @@ export function writeScopedHeader(params: {
   statsLine: string
   colCount: number
   /**
-   * A supplier's brand colour, straight from suppliers.supplier_colour.
-   * Omitted for files that have no single owning supplier.
+   * The masthead fill. A supplier's brand colour, already passed through
+   * darkenForWhiteText by the caller; omitted for files with no owning
+   * supplier, which fall back to the neutral dark band.
    */
-  accentHex?: string | null
+  bandArgb?: string | null
 }): number {
   const {
     ws, startRow, eyebrow, title, periodName, dateRange, exportedAt, statsLine, colCount,
-    accentHex,
+    bandArgb,
   } = params
   let row = startRow
-  const headerFirstRow = startRow
+
+  const fillArgb = toArgb(bandArgb ?? DARK_BAND)
+  // Every piece of text in the block is checked against the actual fill rather
+  // than assumed white: a supplier band is a brand colour, not a known dark.
+  const inkArgb = textOnBand(fillArgb)
+  // Secondary text is derived from this band too, not from a fixed grey — see
+  // mutedOnBand. A literal muted tone is only ever right for one ground, and
+  // this block has as many grounds as there are suppliers.
+  const mutedArgb = mutedOnBand(fillArgb, inkArgb)
 
   const band = (r: number) => {
     for (let c = 1; c <= colCount; c++) {
-      ws.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: toArgb(DARK_BAND) } }
+      ws.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } }
     }
   }
 
@@ -155,10 +142,10 @@ export function writeScopedHeader(params: {
   band(row)
   ws.getRow(row).height = 16
   ws.getCell(row, 1).value = eyebrow
-  ws.getCell(row, 1).font = { bold: true, color: { argb: toArgb(SUBTLE_TEXT) }, size: 9 }
+  ws.getCell(row, 1).font = { bold: true, color: { argb: mutedArgb }, size: 9 }
   const quarterCell = ws.getCell(row, Math.max(1, colCount - 2))
   quarterCell.value = periodName
-  quarterCell.font = { bold: true, color: { argb: toArgb(WHITE) }, size: 10 }
+  quarterCell.font = { bold: true, color: { argb: inkArgb }, size: 10 }
   quarterCell.alignment = { horizontal: 'right' }
   row++
 
@@ -166,45 +153,28 @@ export function writeScopedHeader(params: {
   band(row)
   ws.getRow(row).height = 30
   ws.getCell(row, 1).value = title
-  ws.getCell(row, 1).font = {
-    bold: true,
-    color: { argb: headerTitleColour(accentHex) },
-    size: 22,
-  }
+  ws.getCell(row, 1).font = { bold: true, color: { argb: inkArgb }, size: 22 }
   const rangeCell = ws.getCell(row, Math.max(1, colCount - 2))
   rangeCell.value = dateRange
-  rangeCell.font = { color: { argb: toArgb(SUBTLE_TEXT) }, size: 10 }
+  rangeCell.font = { color: { argb: mutedArgb }, size: 10 }
   rangeCell.alignment = { horizontal: 'right' }
   row++
 
   // Row 3 — stats line.
   band(row)
   ws.getCell(row, 1).value = statsLine
-  ws.getCell(row, 1).font = { color: { argb: toArgb(WHITE) }, size: 10 }
+  ws.getCell(row, 1).font = { color: { argb: inkArgb }, size: 10 }
   row++
 
   // Row 4 — exported-at.
   band(row)
   ws.getCell(row, 1).value = exportedAt
-  ws.getCell(row, 1).font = { italic: true, color: { argb: toArgb(SUBTLE_TEXT) }, size: 9 }
+  ws.getCell(row, 1).font = { italic: true, color: { argb: mutedArgb }, size: 9 }
   row++
 
   // Row 5 — breathing room before the table.
   ws.getRow(row).height = 6
   row++
-
-  // The accent stripe, drawn last so it sits over the band fills: a thick
-  // left border down column A for the height of the header block. A border
-  // rather than a filled spacer column, because that is what the live page
-  // does for a supplier group and because a spacer would push an empty
-  // column through the data table underneath.
-  if (accentHex) {
-    const argb = toArgb(accentHex)
-    for (let r = headerFirstRow; r < row; r++) {
-      const cell = ws.getCell(r, 1)
-      cell.border = { ...cell.border, left: { style: 'thick', color: { argb } } }
-    }
-  }
 
   return row
 }
@@ -214,20 +184,31 @@ export function writeScopedHeader(params: {
  * it covers, then the column headers themselves. The group band is what makes
  * "Sprint / Month / Quarter" appearing twice legible — one set is the
  * supplier's money, the other is the internal recharge.
+ *
+ * `groupBandArgb` overrides the neutral grey of that group band. The Supplier
+ * Schedule passes the supplier's TRUE, undarkened brand colour here — the
+ * masthead above may have had to be darkened for white text to survive on it,
+ * and this is what guarantees the authentic brand colour still appears
+ * somewhere on every tab. Its text is picked against the actual fill, because
+ * a true brand colour can be pale enough that white would vanish.
  */
 export function writeTableHeader(
   ws: ExcelJS.Worksheet,
   startRow: number,
   columns: readonly SheetColumn[],
+  groupBandArgb?: string | null,
 ): number {
   let row = startRow
+
+  const groupFill = toArgb(groupBandArgb ?? GROUP_BAND)
+  const groupInk = textOnBand(groupFill)
 
   const hasGroups = columns.some((c) => c.group)
   if (hasGroups) {
     for (let c = 1; c <= columns.length; c++) {
       const cell = ws.getCell(row, c)
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: toArgb(GROUP_BAND) } }
-      cell.font = { bold: true, color: { argb: toArgb(WHITE) }, size: 9 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: groupFill } }
+      cell.font = { bold: true, color: { argb: groupInk }, size: 9 }
       cell.alignment = { horizontal: 'center' }
     }
     // One merged span per contiguous run of columns sharing a group label.

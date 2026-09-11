@@ -328,23 +328,18 @@ export function SchedulePageClient({ data }: Props) {
     return Array.from(set).sort()
   }, [localAllocations])
 
-  // Scope pickers for the team- and supplier-scoped exports. Built from the
-  // period's own allocations rather than the full teams/suppliers tables, so
-  // the modal can only offer a scope that would actually produce rows.
+  // The team picker for the team-scoped export. Built from the period's own
+  // allocations rather than the full teams table, so the modal can only offer
+  // a team that would actually produce rows.
+  //
+  // There is no supplier equivalent: the Supplier Schedule builds one tab per
+  // supplier with resources in the period, so nothing is picked in the modal
+  // and the same "only what's actually on the schedule" rule is applied in the
+  // export route instead (see suppliersInPeriod).
   const exportTeamOptions = useMemo(() => {
     const byId = new Map<string, string>()
     for (const a of localAllocations) {
       for (const t of a.teams ?? []) byId.set(t.teamId, t.teamName)
-    }
-    return [...byId.entries()]
-      .map(([id, label]) => ({ id, label }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [localAllocations])
-
-  const exportSupplierOptions = useMemo(() => {
-    const byId = new Map<string, string>()
-    for (const a of localAllocations) {
-      if (a.supplier_id && a.supplier_name) byId.set(a.supplier_id, a.supplier_name)
     }
     return [...byId.entries()]
       .map(([id, label]) => ({ id, label }))
@@ -504,7 +499,6 @@ export function SchedulePageClient({ data }: Props) {
         variant: variantId,
       })
       if (selection.teamId) params.set('teamId', selection.teamId)
-      if (selection.supplierId) params.set('supplierId', selection.supplierId)
       const response = await fetch(`/api/export/schedule?${params.toString()}`)
       if (!response.ok) throw new Error('Export failed')
       const blob = await response.blob()
@@ -1173,7 +1167,6 @@ export function SchedulePageClient({ data }: Props) {
       open={exportChoiceOpen}
       periodName={period.period_name}
       teams={exportTeamOptions}
-      suppliers={exportSupplierOptions}
       onClose={() => setExportChoiceOpen(false)}
       onConfirm={(selection) => void handleExportToExcel(selection)}
     />

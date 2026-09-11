@@ -20,6 +20,7 @@ import { parseExportVariantId } from '@/lib/export/exportVariants'
 import type { ExportVariantId } from '@/lib/export/exportVariants'
 import type { TeamAssignmentRef, VariantAllocationRow } from '@/lib/export/scheduleVariantRows'
 import { rowsForTeam, rowsForSupplier } from '@/lib/export/scheduleVariantRows'
+import { suppliersInPeriod, uniqueTabNames } from '@/lib/export/suppliersInPeriod'
 import { buildTeamScheduleSheet } from '@/lib/export/teamScheduleSheet'
 import { buildSupplierScheduleSheet } from '@/lib/export/supplierScheduleSheet'
 import { isNamedPerson } from '@/lib/export/rowPopulations'
@@ -222,7 +223,6 @@ export async function GET(request: Request): Promise<Response> {
      Schedule is commercial-only — so there is no request a URL could make that
      would widen or narrow either file. */
   const scopeTeamId = searchParams.get('teamId')
-  const scopeSupplierId = searchParams.get('supplierId')
 
   /* Row visibility. The Rate Calculator hides NPC entirely (those roles never
      appear on a supplier SOW); every other variant lists them — the Platform
@@ -534,7 +534,10 @@ export async function GET(request: Request): Promise<Response> {
       `${pad(d.getUTCDate())} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
     const scopedRange = `${fmtScoped(sStart)} – ${fmtScoped(sEnd)}`
 
-    let scopeLabel: string
+    // Only the Team Schedule is scoped to a single named thing, so only it
+    // puts a scope into its filename. The Supplier Schedule covers every
+    // supplier in the period and is named generically, like Platform Schedule.
+    let scopeLabel: string | null = null
     if (isTeamSchedule) {
       const team = scopeTeamId
         ? scopedRows.flatMap((r) => r.teams).find((t) => t.teamId === scopeTeamId)
@@ -559,27 +562,31 @@ export async function GET(request: Request): Promise<Response> {
         blendedDayRatePence: blendedDayRateOverridePence ?? 0,
       })
     } else {
-      const supplierRow = scopeSupplierId
-        ? allocations.find((a) => a.supplier_id === scopeSupplierId)
-        : undefined
-      if (!scopeSupplierId || !supplierRow?.supplier_name) {
-        return new Response('Supplier Schedule needs a supplierId present in this period', {
-          status: 400,
+      // One workbook, one tab per supplier that actually has resources on the
+      // platform this period — derived from the period's own allocations, so a
+      // supplier with nothing this quarter simply has no tab and nothing
+      // anywhere names it. Ordered by supplier_sort_order, matching the Rate
+      // Calculator Summary tab's supplier breakdown.
+      const periodSuppliers = suppliersInPeriod(allocations)
+      if (periodSuppliers.length === 0) {
+        return new Response('No suppliers have resources on the platform for this period', {
+          status: 404,
         })
       }
-      scopeLabel = supplierRow.supplier_name
-      const ws = wb.addWorksheet(sanitiseSheetName(scopeLabel))
-      buildSupplierScheduleSheet({
-        ws,
-        rows: rowsForSupplier(scopedRows, scopeLabel),
-        supplierName: scopeLabel,
-        periodName: period.period_name,
-        dateRange: scopedRange,
-        exportedAt,
-        vatMultiplier,
-        // Straight from the suppliers table via the allocation join — the
-        // header accent is never keyed on the supplier's name.
-        supplierColour: supplierRow.supplier_colour,
+      const tabNames = uniqueTabNames(periodSuppliers)
+      periodSuppliers.forEach((supplier, i) => {
+        buildSupplierScheduleSheet({
+          ws: wb.addWorksheet(tabNames[i]),
+          rows: rowsForSupplier(scopedRows, supplier.name),
+          supplierName: supplier.name,
+          periodName: period.period_name,
+          dateRange: scopedRange,
+          exportedAt,
+          vatMultiplier,
+          // Straight from the suppliers table via the allocation join — never
+          // keyed on the supplier's name.
+          supplierColour: supplier.colour,
+        })
       })
     }
 

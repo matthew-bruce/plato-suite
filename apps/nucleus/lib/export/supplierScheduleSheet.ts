@@ -41,6 +41,7 @@ import {
   totalFte,
 } from './scheduleVariantRows'
 import type { VariantAllocationRow } from './scheduleVariantRows'
+import { darkenForWhiteText, toArgb } from './richText'
 import { columnLetter } from './teamScheduleSheet'
 import type { ScopedSheetResult } from './teamScheduleSheet'
 
@@ -78,6 +79,12 @@ export interface SupplierScheduleSheetParams {
    * supplier can change theirs. Drives the header's left-edge accent stripe,
    * and the title text too where it is light enough to read on the dark band.
    */
+  /**
+   * The supplier's TRUE brand colour, straight from suppliers.supplier_colour.
+   * Passed raw: this module decides where the authentic colour is used (the
+   * divider band, the Excel tab) and where it must be darkened first (the
+   * masthead, so white text survives on it).
+   */
   supplierColour?: string | null
 }
 
@@ -106,6 +113,11 @@ export function buildSupplierScheduleSheet(
   const colCount = columns.length
 
   ws.views = [{ showGridLines: false }]
+  // The Excel tab strip itself — the true brand colour, so a workbook of many
+  // supplier tabs is scannable without reading a single label.
+  if (supplierColour) {
+    ws.properties.tabColor = { argb: toArgb(supplierColour) }
+  }
 
   let row = writeScopedHeader({
     ws,
@@ -117,11 +129,14 @@ export function buildSupplierScheduleSheet(
     exportedAt,
     statsLine: statsLine(rows),
     colCount,
-    accentHex: supplierColour,
+    // Darkened only if it must be — most suppliers keep their true colour here.
+    bandArgb: supplierColour ? darkenForWhiteText(supplierColour) : null,
   })
 
   const headerRow = row
-  row = writeTableHeader(ws, row, columns)
+  // The divider band always carries the TRUE brand colour, undarkened, so the
+  // authentic colour is on every tab even where the masthead was adjusted.
+  row = writeTableHeader(ws, row, columns, supplierColour ?? null)
   ws.views = [{ showGridLines: false, state: 'frozen', ySplit: row - 1 }]
 
   const firstDataRow = row

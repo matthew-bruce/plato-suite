@@ -4,11 +4,7 @@ import ExcelJS from 'exceljs'
 import * as teamSheetModule from '../teamScheduleSheet'
 import { buildTeamScheduleSheet, teamScheduleColumns, columnLetter } from '../teamScheduleSheet'
 import { buildSupplierScheduleSheet, SUPPLIER_SCHEDULE_COLUMNS } from '../supplierScheduleSheet'
-import {
-  DARK_BAND,
-  HEADER_TITLE_MIN_CONTRAST,
-  headerTitleColour,
-} from '../scopedSheetChrome'
+import { darkenForWhiteText, mutedOnBand, rgbToHsl } from '../richText'
 import { contrastRatio } from '../../schedule/ui'
 import { buildSampleExportWorkbook, SCOPED_SHEET_FIXTURE } from './exportFormulaSample'
 import {
@@ -1018,9 +1014,6 @@ describe('Team Schedule never calls a commercial cost writer', () => {
    it is legible — which stays true even if every value here changes.
 ══════════════════════════════════════════════════════════════════════ */
 
-/** The light ground a sheet sits on, outside the header band's fill. */
-const PAGE_GROUND = '#F1F2F5'
-
 const LIVE_SUPPLIER_PALETTE: { name: string; colour: string }[] = [
   { name: 'Royal Mail Group', colour: '#E2001A' },
   { name: 'North Highland', colour: '#1A2B5B' },
@@ -1033,7 +1026,7 @@ const LIVE_SUPPLIER_PALETTE: { name: string; colour: string }[] = [
   { name: 'HCL', colour: '#1976F2' },
 ]
 
-function buildAccentSheet(colour: string | null, supplierName = 'Capgemini') {
+function buildColourSheet(colour: string | null, supplierName = 'Capgemini') {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('S')
   const result = buildSupplierScheduleSheet({
@@ -1049,117 +1042,250 @@ function buildAccentSheet(colour: string | null, supplierName = 'Capgemini') {
   return { ws, result }
 }
 
-describe('Supplier Schedule header accent', () => {
-  it('draws a left-edge stripe in the supplier’s own colour', () => {
-    const { ws } = buildAccentSheet('#9B0A6E') // TCS magenta
-    const stripe = ws.getCell(2, 1).border?.left
-    expect(stripe?.style).toBe('thick')
-    expect(stripe?.color?.argb).toBe('FF9B0A6E')
+/** The group-band row sits immediately above the column headers. */
+function dividerRow(result: { firstDataRow: number }) {
+  return result.firstDataRow - 2
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Supplier colour treatment.
+
+   Three surfaces, deliberately different:
+     masthead — the brand colour, darkened ONLY if white text would not
+                clear WCAG AA on it, so most suppliers keep theirs;
+     divider  — the TRUE, undarkened brand colour, always, so the authentic
+                colour is on every tab even when the masthead was adjusted;
+     tab      — the TRUE colour again, on Excel's own sheet-tab strip.
+
+   This replaced a thin left-edge border, which was legible in property
+   assertions and invisible in the actual file.
+══════════════════════════════════════════════════════════════════════ */
+
+describe('Supplier Schedule colour treatment', () => {
+  it('fills the masthead with the brand colour when white text already clears AA', () => {
+    // TCS magenta is 7.89:1 against white — no adjustment needed.
+    const { ws } = buildColourSheet('#9B0A6E')
+    const fill = ws.getCell(2, 1).fill as ExcelJS.FillPattern
+    expect(fill.fgColor?.argb).toBe('FF9B0A6E')
   })
 
-  it('runs the stripe down the whole header block, not one row', () => {
-    const { ws } = buildAccentSheet('#9B0A6E')
-    for (let row = 1; row <= 4; row++) {
-      expect(ws.getCell(row, 1).border?.left?.color?.argb).toBe('FF9B0A6E')
+  it('darkens a pale brand colour for the masthead, preserving hue and saturation', () => {
+    // Happy Team orange is 2.33:1 against white — must come down.
+    const { ws } = buildColourSheet('#FF8C00')
+    const fill = ws.getCell(2, 1).fill as ExcelJS.FillPattern
+    const used = `#${fill.fgColor?.argb?.slice(2)}`
+    expect(used.toUpperCase()).not.toBe('#FF8C00')
+    expect(contrastRatio('FFFFFFFF', used)).toBeGreaterThanOrEqual(4.5)
+
+    // Same hue, same saturation — only lightness moved.
+    const brand = rgbToHsl('#FF8C00')!
+    const adjusted = rgbToHsl(used)!
+    // Within a degree of hue and a point of saturation — the hex round-trip
+    // costs a little precision, the hue is not repurposed.
+    expect(adjusted.h).toBeCloseTo(brand.h, 0)
+    expect(adjusted.s).toBeCloseTo(brand.s, 1)
+    expect(adjusted.l).toBeLessThan(brand.l)
+  })
+
+  it('gives the divider band the TRUE brand colour even when the masthead was darkened', () => {
+    const { ws, result } = buildColourSheet('#FF8C00')
+    const masthead = (ws.getCell(2, 1).fill as ExcelJS.FillPattern).fgColor?.argb
+    const divider = (ws.getCell(dividerRow(result), 8).fill as ExcelJS.FillPattern).fgColor?.argb
+
+    expect(divider).toBe('FFFF8C00')
+    // The whole point: the authentic colour is present even though the
+    // masthead above it could not use it.
+    expect(masthead).not.toBe(divider)
+  })
+
+  it('sets the Excel tab colour to the TRUE brand colour', () => {
+    const { ws } = buildColourSheet('#FF8C00')
+    expect(ws.properties.tabColor?.argb).toBe('FFFF8C00')
+  })
+
+  it('leaves data rows white — no tint, leaving room for in-row colour later', () => {
+    const { ws, result } = buildColourSheet('#9B0A6E')
+    for (let r = result.firstDataRow; r <= result.lastDataRow; r++) {
+      for (let c = 1; c <= SUPPLIER_SCHEDULE_COLUMNS.length; c++) {
+        const fill = ws.getCell(r, c).fill as ExcelJS.FillPattern | undefined
+        // Either no fill at all, or an explicitly white one — never a tint.
+        if (fill?.fgColor?.argb) expect(fill.fgColor.argb).toBe('FFFFFFFF')
+      }
     }
-    // ...and stops before the table beneath it.
-    expect(ws.getCell(7, 1).border?.left?.color?.argb).not.toBe('FF9B0A6E')
   })
 
-  it('takes the colour from what it is given, not from the supplier name', () => {
-    // Same supplier name, two different colours in, two different stripes out:
-    // there is no name-keyed lookup anywhere in the path.
-    expect(buildAccentSheet('#FF8C00', 'Capgemini').ws.getCell(2, 1).border?.left?.color?.argb)
-      .toBe('FFFF8C00')
-    expect(buildAccentSheet('#3ABFB8', 'Capgemini').ws.getCell(2, 1).border?.left?.color?.argb)
-      .toBe('FF3ABFB8')
-  })
-
-  it('draws no stripe at all when a supplier has no colour set', () => {
-    const { ws } = buildAccentSheet(null)
+  it('draws no left-edge border — the scaffolding that under-delivered is gone', () => {
+    const { ws } = buildColourSheet('#9B0A6E')
     expect(ws.getCell(2, 1).border?.left).toBeUndefined()
-    // And the title stays white rather than becoming undefined.
-    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
   })
 
-  it('uses a light brand colour as the title text', () => {
-    // Happy Team orange is 6.13:1 on the band — comfortably legible.
-    const { ws } = buildAccentSheet('#FF8C00')
-    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFF8C00')
+  it('falls back to the neutral dark band when a supplier has no colour', () => {
+    const { ws } = buildColourSheet(null)
+    const fill = ws.getCell(2, 1).fill as ExcelJS.FillPattern
+    expect(fill.fgColor?.argb).toBe('FF2A2A2D')
+    expect(ws.properties.tabColor).toBeUndefined()
   })
 
-  it('falls back to white for a dark brand colour, keeping the stripe coloured', () => {
-    // EPAM charcoal is 1.32:1 on the band — unreadable as text.
-    const { ws } = buildAccentSheet('#3D3D3D')
-    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
-    // The stripe still carries the identification.
-    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe('FF3D3D3D')
+  // The rule must be formulaic, not tuned to the suppliers that happen to
+  // need it today. A synthetic colour belonging to no real supplier proves
+  // the computation generalises.
+  it('darkens an arbitrary failing colour to clear 4.5:1, independent of any real supplier', () => {
+    for (const synthetic of ['#FFFF00', '#00FF00', '#7FFFD4', '#FFC0CB', '#F5F5DC', '#FFFFFF']) {
+      expect(contrastRatio('FFFFFFFF', synthetic)).toBeLessThan(4.5)
+      const adjusted = darkenForWhiteText(synthetic)
+      expect(contrastRatio('FFFFFFFF', adjusted)).toBeGreaterThanOrEqual(4.5)
+
+      // Hue survives the adjustment (a pure grey has no hue to preserve).
+      const before = rgbToHsl(synthetic)!
+      const after = rgbToHsl(adjusted)!
+      if (before.s > 0.01) expect(after.h).toBeCloseTo(before.h, 0)
+    }
   })
 
-  it('falls back to white for TCS magenta too, at 1.81:1', () => {
-    // Worth pinning by name: TCS is the colour the original mockup showed,
-    // and it is NOT legible as text on this band. The stripe is what carries
-    // it, which is why the stripe is the primary cue rather than the text.
-    const { ws } = buildAccentSheet('#9B0A6E')
-    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
-    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe('FF9B0A6E')
+  it('darkens no further than it must', () => {
+    // HCL blue is 4.27:1 — just under. The result should be a nudge, not a
+    // plunge to near-black.
+    const adjusted = darkenForWhiteText('#1976F2')
+    expect(contrastRatio('FFFFFFFF', adjusted)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio('FFFFFFFF', adjusted)).toBeLessThan(5.5)
   })
 
-  it('ignores a malformed colour rather than emitting invalid XML', () => {
-    const { ws } = buildAccentSheet('not-a-colour')
-    // toArgb falls back to neutral grey; the title must not take it as text.
-    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+  // The masthead is the one surface free to adjust its fill, so it is held to
+  // full AA for every supplier without exception.
+  it.each(LIVE_SUPPLIER_PALETTE)('renders $name\u2019s masthead title at AA', ({ colour }) => {
+    const { ws } = buildColourSheet(colour)
+    const masthead = `#${(ws.getCell(2, 1).fill as ExcelJS.FillPattern).fgColor?.argb?.slice(2)}`
+    const titleInk = ws.getCell(2, 1).font?.color?.argb ?? 'FFFFFFFF'
+    expect(contrastRatio(titleInk, masthead)).toBeGreaterThanOrEqual(4.5)
   })
 
-  // The invariant, checked across every colour actually in the suppliers
-  // table: whatever the rule picks, a reader can read it.
+  // The divider cannot adjust its fill — it must carry the TRUE brand colour
+  // — so it takes the better of white and dark ink and lives with what that
+  // colour allows. Eight of the nine clear AA; HCL's blue tops out at 4.27:1
+  // with white (3.35:1 with dark), which is the accepted cost of showing the
+  // authentic colour there rather than a darkened stand-in.
+  it.each(LIVE_SUPPLIER_PALETTE)('picks the better ink for $name\u2019s divider', ({ colour }) => {
+    const { ws, result } = buildColourSheet(colour)
+    const dCell = ws.getCell(dividerRow(result), 8)
+    const dividerFill = `#${(dCell.fill as ExcelJS.FillPattern).fgColor?.argb?.slice(2)}`
+    const ink = dCell.font?.color?.argb ?? 'FFFFFFFF'
+
+    const white = contrastRatio('FFFFFFFF', dividerFill)
+    const dark = contrastRatio('FF2A2A2D', dividerFill)
+    // Whatever was chosen IS the better of the two — never the worse one.
+    expect(contrastRatio(ink, dividerFill)).toBeCloseTo(Math.max(white, dark), 6)
+    expect(contrastRatio(ink, dividerFill)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('clears full AA on the divider for every supplier except HCL', () => {
+    // Pinned by name so the one exception is a known, reviewed fact rather
+    // than something a future reader discovers in a file.
+    const belowAA = LIVE_SUPPLIER_PALETTE.filter(({ colour }) => {
+      const best = Math.max(
+        contrastRatio('FFFFFFFF', colour),
+        contrastRatio('FF2A2A2D', colour),
+      )
+      return best < 4.5
+    }).map((s) => s.name)
+    expect(belowAA).toEqual(['HCL'])
+  })
+
+  it.each(LIVE_SUPPLIER_PALETTE)('gives $name its exact true colour on the tab', ({ colour }) => {
+    const { ws } = buildColourSheet(colour)
+    expect(ws.properties.tabColor?.argb).toBe(`FF${colour.slice(1).toUpperCase()}`)
+  })
+
+  // The masthead's quiet lines — the eyebrow, the date range, the exported-at
+  // stamp — are the defect a property test missed once already. They were a
+  // literal grey chosen against the near-black default band, which collapsed
+  // to 1.5:1 on a saturated brand fill while every assertion about them still
+  // passed: each cell had exactly the colour the code said it should. Only the
+  // rendered sheet showed it. These tests measure against the fill instead.
+  const SECONDARY_CELLS: readonly [string, number, (colCount: number) => number][] = [
+    ['eyebrow', 1, () => 1],
+    ['date range', 2, (colCount) => Math.max(1, colCount - 2)],
+    ['exported-at', 4, () => 1],
+  ]
+
   it.each(LIVE_SUPPLIER_PALETTE)(
-    'renders $name’s header title legibly (contrast ≥ 3:1)',
+    'renders every secondary masthead line at AA for $name',
     ({ colour }) => {
-      // contrastRatio takes ARGB or hex, so the chosen value goes in as-is.
-      expect(contrastRatio(headerTitleColour(colour), DARK_BAND))
-        .toBeGreaterThanOrEqual(HEADER_TITLE_MIN_CONTRAST)
+      const { ws } = buildColourSheet(colour)
+      const masthead = `#${(ws.getCell(2, 1).fill as ExcelJS.FillPattern).fgColor?.argb?.slice(2)}`
+      for (const [, row, col] of SECONDARY_CELLS) {
+        const cell = ws.getCell(row, col(SUPPLIER_SCHEDULE_COLUMNS.length))
+        expect(cell.value).toBeTruthy()
+        expect(contrastRatio(cell.font?.color?.argb ?? 'FFFFFFFF', masthead))
+          .toBeGreaterThanOrEqual(4.5)
+      }
     },
   )
 
-  it.each(LIVE_SUPPLIER_PALETTE)('gives $name a stripe in its exact brand colour', ({ colour }) => {
-    // Every supplier gets identified by the stripe, including the ones whose
-    // title falls back to white.
-    const { ws } = buildAccentSheet(colour)
-    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe(`FF${colour.slice(1).toUpperCase()}`)
+  it('does not use the white-ground caption grey on a coloured masthead', () => {
+    // #8F9495 is the footnote colour and belongs on white. Finding it on a
+    // brand band means the fixed-grey rule has crept back in.
+    const { ws } = buildColourSheet('#E2001A')
+    for (const [, row, col] of SECONDARY_CELLS) {
+      expect(ws.getCell(row, col(SUPPLIER_SCHEDULE_COLUMNS.length)).font?.color?.argb)
+        .not.toBe('FF8F9495')
+    }
   })
 
-  // The stripe's own legibility invariant, and the reason the stripe can
-  // carry every colour where the title cannot: it has TWO edges. A dark
-  // brand (navy, charcoal) is invisible against the near-black band but
-  // strong against the light page beyond the sheet's left margin; a light
-  // brand (orange, teal) is the other way round. Text has only the band.
-  it.each(LIVE_SUPPLIER_PALETTE)('makes $name’s stripe visible at one of its edges', ({ colour }) => {
-    const againstPage = contrastRatio(colour, PAGE_GROUND)
-    const againstBand = contrastRatio(colour, DARK_BAND)
-    expect(Math.max(againstPage, againstBand)).toBeGreaterThanOrEqual(3)
+  it('still mutes secondary text where the band has contrast to spare', () => {
+    // Navy has 13.6:1 of headroom, so the quiet lines must actually read as
+    // quieter — if this ever equals the title ink, the muting has silently
+    // degraded to "just use the ink" everywhere.
+    const { ws } = buildColourSheet('#1A2B5B')
+    const titleInk = ws.getCell(2, 1).font?.color?.argb
+    const eyebrowInk = ws.getCell(1, 1).font?.color?.argb
+    expect(titleInk).toBe('FFFFFFFF')
+    expect(eyebrowInk).not.toBe(titleInk)
+    expect(contrastRatio(eyebrowInk!, '#1A2B5B')).toBeGreaterThanOrEqual(4.5)
   })
 
-  it('only uses the brand colour as text when it genuinely passes the gate', () => {
-    // Not a blanket "always white" — the rule has to actually discriminate,
-    // or it is not doing the job the contrast check exists for.
-    const chosen = LIVE_SUPPLIER_PALETTE.map((s) => headerTitleColour(s.colour))
-    expect(chosen.some((c) => c === 'FFFFFFFF')).toBe(true)
-    expect(chosen.some((c) => c !== 'FFFFFFFF')).toBe(true)
+  it('gives up muting rather than legibility on a band with no headroom', () => {
+    // A fill where white only just clears AA has nothing to spend. Falling
+    // back to the full ink is the intended degradation — the alternative is
+    // an unreadable line.
+    const tight = darkenForWhiteText('#FF8C00')
+    expect(contrastRatio('FFFFFFFF', tight)).toBeLessThan(5)
+    expect(mutedOnBand(tight, 'FFFFFFFF')).toBe('FFFFFFFF')
+  })
+
+  it('mutes the default dark band to within a shade of the old literal grey', () => {
+    // The files that were already right must not visibly change. The computed
+    // tone lands close enough to #8F9495 that the default band looks the same.
+    const { ws } = buildColourSheet(null)
+    const eyebrow = ws.getCell(1, 1).font?.color?.argb
+    expect(contrastRatio(eyebrow!, '#2A2A2D')).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(eyebrow!, '#8F9495')).toBeLessThan(1.2)
+  })
+
+  it('adjusts only the suppliers that need it — the rule discriminates', () => {
+    const adjusted = LIVE_SUPPLIER_PALETTE.filter(
+      (s) => darkenForWhiteText(s.colour).toUpperCase() !== s.colour.toUpperCase(),
+    ).map((s) => s.name)
+    // Happy Team, Lean Tree and HCL fail 4.5:1 against white; the rest pass.
+    expect(adjusted).toEqual(['Happy Team', 'Lean Tree', 'HCL'])
   })
 })
 
 describe('Team Schedule takes no supplier colour treatment', () => {
-  it('accepts no accent parameter and draws no stripe', () => {
+  it('keeps the neutral dark masthead — a team has no owning supplier', () => {
     const { ws } = buildTeamSheet()
-    expect(ws.getCell(2, 1).border?.left).toBeUndefined()
-    // Title stays white — a team has no owning supplier to colour it by.
+    const fill = ws.getCell(2, 1).fill as ExcelJS.FillPattern
+    expect(fill.fgColor?.argb).toBe('FF2A2A2D')
     expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
   })
 
-  it('never passes an accent through its sheet module', () => {
+  it('sets no Excel tab colour', () => {
+    const { ws } = buildTeamSheet()
+    expect(ws.properties.tabColor).toBeUndefined()
+  })
+
+  it('never passes a supplier colour through its sheet module', () => {
     const source = readFileSync(new URL('../teamScheduleSheet.ts', import.meta.url), 'utf8')
-    expect(source).not.toContain('accentHex')
     expect(source).not.toContain('supplierColour')
+    expect(source).not.toContain('darkenForWhiteText')
   })
 })

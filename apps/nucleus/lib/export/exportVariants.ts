@@ -33,8 +33,14 @@ export type ExportVariantId = (typeof EXPORT_VARIANT_IDS)[number]
  * The entity a variant is scoped to, and therefore which picker the modal
  * shows once it is selected. Undefined means the file covers the whole
  * platform and needs no further choice.
+ *
+ * 'team' is the only member, and deliberately still a union rather than a
+ * boolean: a future variant scoped to something else adds a member here. It
+ * used to include 'supplier', back when the Supplier Schedule made you pick
+ * one supplier per file; that file now covers every supplier in the period at
+ * once, so there is nothing to pick and no scope to declare.
  */
-export type ExportScopeKind = 'team' | 'supplier'
+export type ExportScopeKind = 'team'
 
 export interface ExportVariant {
   id: ExportVariantId
@@ -91,9 +97,8 @@ export const EXPORT_VARIANTS: readonly ExportVariant[] = [
     label: 'Supplier Schedule',
     audience: 'Supplier',
     description:
-      'Everyone one supplier has on the platform, across every team, with the commercial cost of each. The file a supplier reconciles their invoice against.',
-    scope: 'supplier',
-    note: 'Always shows commercial cost only — the figure suppliers need for reconciliation.',
+      'Every supplier on the platform, one tab each, with the commercial cost of everyone they have across every team. The file a supplier reconciles their invoice against.',
+    note: 'One tab per supplier with resources this period · commercial cost only — the figure suppliers need for reconciliation.',
   },
 ] as const
 
