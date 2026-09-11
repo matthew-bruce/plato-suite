@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
+import * as teamSheetModule from '../teamScheduleSheet'
 import { buildTeamScheduleSheet, teamScheduleColumns, columnLetter } from '../teamScheduleSheet'
 import { buildSupplierScheduleSheet, SUPPLIER_SCHEDULE_COLUMNS } from '../supplierScheduleSheet'
 import { buildSampleExportWorkbook, SCOPED_SHEET_FIXTURE } from './exportFormulaSample'
@@ -10,7 +12,6 @@ import {
   totalFte,
 } from '../scheduleVariantRows'
 import type { VariantAllocationRow } from '../scheduleVariantRows'
-import type { CostVisibility } from '../exportVariants'
 
 const VAT = 1.07082
 const BLENDED = 60_500
@@ -20,7 +21,7 @@ const PLUTO_ROWS = SCOPED_SHEET_FIXTURE.filter((r) =>
 )
 const CAPGEMINI_ROWS = SCOPED_SHEET_FIXTURE.filter((r) => r.supplier_name === 'Capgemini')
 
-function buildTeamSheet(costVisibility: CostVisibility = 'both') {
+function buildTeamSheet() {
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Pluto')
   const result = buildTeamScheduleSheet({
@@ -31,11 +32,9 @@ function buildTeamSheet(costVisibility: CostVisibility = 'both') {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
     blendedDayRatePence: BLENDED,
-    costVisibility,
   })
-  return { ws, result, columns: teamScheduleColumns(costVisibility) }
+  return { ws, result, columns: teamScheduleColumns() }
 }
 
 function buildSupplierSheet() {
@@ -103,8 +102,31 @@ describe('Team Schedule sheet', () => {
     const { ws } = buildTeamSheet()
     const stats = String(ws.getCell(3, 1).value)
     expect(stats).toContain('£605/day, Current Rate')
-    expect(stats).toContain('All costs include VAT')
-    expect(stats).toContain('included in platform cost')
+    expect(stats).toContain('All figures include VAT')
+  })
+
+  // Replaces the old "N included in platform cost", which measured commercial
+  // cost inclusion — a question this file no longer asks.
+  it('reports how many of the named people are cross-charged, PR-only', () => {
+    const { ws } = buildTeamSheet()
+    const stats = String(ws.getCell(3, 1).value)
+    // Of the 5 Pluto rows: person-1 (PR, twice), person-2 (F_Gov),
+    // person-3 (BAU), person-4 (NPC) → 4 named people, 1 cross-charged.
+    expect(stats).toContain('4 named people')
+    expect(stats).toContain('1 of 4 cross-charged')
+  })
+
+  it('states that its figures are VAT-inclusive, since the blended rate already is', () => {
+    const { ws } = buildTeamSheet()
+    let found = false
+    ws.eachRow((r) => {
+      r.eachCell((c) => {
+        if (typeof c.value === 'string' && c.value.includes('blended day rate already includes VAT')) {
+          found = true
+        }
+      })
+    })
+    expect(found).toBe(true)
   })
 
   it('gives a PR row a cross-charge figure and an F_Gov row an em dash', () => {
@@ -119,19 +141,13 @@ describe('Team Schedule sheet', () => {
     expect(at('a-npc', 'xcQuarter').value).toBe(NOT_APPLICABLE)
   })
 
-  it('still prices F_Gov commercially — its cost is real, only not recharged', () => {
-    const { ws, result, columns } = buildTeamSheet()
-    const commercial = cellFor(ws, columns, result.firstDataRow, PLUTO_ROWS, 'a-fgov', 'commQuarter')
-    expect(typeof commercial.value).toBe('number')
-    expect(commercial.value as number).toBeGreaterThan(0)
-  })
-
-  it('withholds an NPC row’s commercial figure and its day rate', () => {
+  it('gives an NPC row no cross-charge figure — its only cost group', () => {
     const { ws, result, columns } = buildTeamSheet()
     const at = (key: string) =>
       cellFor(ws, columns, result.firstDataRow, PLUTO_ROWS, 'a-npc', key)
-    expect(at('commQuarter').value).toBe(NOT_APPLICABLE)
-    expect(at('dayRate').value).toBe(NOT_APPLICABLE)
+    expect(at('xcQuarter').value).toBe(NOT_APPLICABLE)
+    expect(at('xcSprint').value).toBe(NOT_APPLICABLE)
+    expect(at('xcMonth').value).toBe(NOT_APPLICABLE)
   })
 
   it('prints the team split the way the live page’s badges read', () => {
@@ -156,12 +172,9 @@ describe('Team Schedule sheet', () => {
     expect(fill.fgColor?.argb).not.toBe('FF003C82')
   })
 
-  it('totals the cost columns but never the day rate column', () => {
+  it('totals every cost column it has — all of which are cross-charge', () => {
     const { ws, result, columns } = buildTeamSheet()
-    const dayRateCol = columns.findIndex((c) => c.key === 'dayRate') + 1
-    expect(ws.getCell(result.totalRow, dayRateCol).value).toBe(NOT_APPLICABLE)
-
-    for (const key of ['commSprint', 'commQuarter', 'xcSprint', 'xcQuarter']) {
+    for (const key of ['xcSprint', 'xcMonth', 'xcQuarter']) {
       const col = columns.findIndex((c) => c.key === key) + 1
       const value = ws.getCell(result.totalRow, col).value
       expect(value).toHaveProperty('formula')
@@ -197,16 +210,6 @@ describe('Team Schedule sheet', () => {
     expect(text).toContain('Total FTE: 3.3')
   })
 
-  it('drops both cost groups’ columns when only internal is asked for', () => {
-    const internal = teamScheduleColumns('internal').map((c) => c.key)
-    expect(internal).not.toContain('commQuarter')
-    expect(internal).not.toContain('dayRate')
-    expect(internal).toContain('xcQuarter')
-
-    const commercial = teamScheduleColumns('commercial').map((c) => c.key)
-    expect(commercial).toContain('dayRate')
-    expect(commercial).not.toContain('xcQuarter')
-  })
 })
 
 describe('Supplier Schedule sheet', () => {
@@ -221,21 +224,19 @@ describe('Supplier Schedule sheet', () => {
     const stats = String(ws.getCell(3, 1).value)
     expect(stats).toContain('Commercial cost only')
     expect(stats).toContain('named resources across the platform')
-    expect(stats).toContain('All costs include VAT')
+    // The old line claimed all costs included VAT. They do not: VAT is set
+    // per resource, so the file shows both sides rather than asserting one.
+    expect(stats).not.toContain('All costs include VAT')
+    expect(stats).toContain('Ex-VAT and inc-VAT shown separately')
   })
 
   it('prices the NPC resource for real — the divergence from Team Schedule', () => {
     const { ws, result } = buildSupplierSheet()
-    const quarter = cellFor(
-      ws,
-      SUPPLIER_SCHEDULE_COLUMNS,
-      result.firstDataRow,
-      CAPGEMINI_ROWS,
-      'a-npc',
-      'quarter',
+    const base = cellFor(
+      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, CAPGEMINI_ROWS, 'a-npc', 'base',
     )
-    expect(typeof quarter.value).toBe('number')
-    expect(quarter.value as number).toBeGreaterThan(0)
+    expect(typeof base.value).toBe('number')
+    expect(base.value as number).toBeGreaterThan(0)
   })
 
   // The same fixture row, rendered by both sheets, on purpose disagreeing.
@@ -244,20 +245,13 @@ describe('Supplier Schedule sheet', () => {
     const team = buildTeamSheet()
 
     const onSupplier = cellFor(
-      supplier.ws,
-      SUPPLIER_SCHEDULE_COLUMNS,
-      supplier.result.firstDataRow,
-      CAPGEMINI_ROWS,
-      'a-npc',
-      'quarter',
+      supplier.ws, SUPPLIER_SCHEDULE_COLUMNS, supplier.result.firstDataRow,
+      CAPGEMINI_ROWS, 'a-npc', 'total',
     ).value
+    // The Team Schedule's only cost group is cross-charge, and NPC is not
+    // cross-charged — so the same person is money here and nothing there.
     const onTeam = cellFor(
-      team.ws,
-      team.columns,
-      team.result.firstDataRow,
-      PLUTO_ROWS,
-      'a-npc',
-      'commQuarter',
+      team.ws, team.columns, team.result.firstDataRow, PLUTO_ROWS, 'a-npc', 'xcQuarter',
     ).value
 
     expect(onTeam).toBe(NOT_APPLICABLE)
@@ -267,9 +261,33 @@ describe('Supplier Schedule sheet', () => {
   it('carries no cross-charge column at all', () => {
     const keys = SUPPLIER_SCHEDULE_COLUMNS.map((c) => c.key)
     expect(keys).not.toContain('xcQuarter')
-    expect(keys).toContain('quarter')
+    expect(keys).not.toContain('xcSprint')
     // Team is a column here precisely because this file spans teams.
     expect(keys).toContain('team')
+  })
+
+  it('carries exactly the four commercial columns, in SOW-reading order', () => {
+    const commercial = SUPPLIER_SCHEDULE_COLUMNS.filter((c) => c.group).map((c) => c.key)
+    expect(commercial).toEqual(['dayRate', 'base', 'vat', 'total'])
+  })
+
+  it('drops Sprint and Month, which a SOW reconciliation has no use for', () => {
+    const keys = SUPPLIER_SCHEDULE_COLUMNS.map((c) => c.key)
+    expect(keys).not.toContain('sprint')
+    expect(keys).not.toContain('month')
+    const headers = SUPPLIER_SCHEDULE_COLUMNS.map((c) => c.header.toLowerCase())
+    for (const h of headers) {
+      expect(h).not.toContain('sprint')
+      expect(h).not.toContain('month')
+    }
+  })
+
+  it('labels its ex-VAT columns explicitly', () => {
+    const header = (key: string) =>
+      SUPPLIER_SCHEDULE_COLUMNS.find((c) => c.key === key)?.header
+    expect(header('dayRate')).toBe('Day rate (ex VAT)')
+    expect(header('base')).toBe('Base (ex VAT)')
+    expect(header('total')).toBe('Total (inc VAT)')
   })
 
   it('reports people, FTE and the number of teams covered', () => {
@@ -341,11 +359,9 @@ function buildCygnusSheet(rows: VariantAllocationRow[]) {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
     blendedDayRatePence: BLENDED,
-    costVisibility: 'both',
   })
-  return { ws, result, columns: teamScheduleColumns('both'), rows }
+  return { ws, result, columns: teamScheduleColumns(), rows }
 }
 
 describe('Team Schedule prorates a split resource to the scoped team', () => {
@@ -357,16 +373,16 @@ describe('Team Schedule prorates a split resource to the scoped team', () => {
     expect(PAUL_WILLIAMS.capacity_days).toBe(64)
   })
 
-  it('produces a Quarter commercial figure of 580 × 32 × 0.9, not × 64', () => {
+  // The Team Schedule no longer carries a commercial figure to check this
+  // against, but the arithmetic the page shows is still pinned here: prorated
+  // days times rate times utilisation is £16,704, exactly what the
+  // Cygnus-filtered page reports as Base for him.
+  it('prorates to the £16,704 base the Cygnus-filtered page shows', () => {
     const base = commercialBasePence(PAUL_WILLIAMS, proratedDays(PAUL_WILLIAMS, 't-cygnus'))
-    // £16,704 — exactly what the Cygnus-filtered Schedule page shows.
     expect(base).toBe(58_000 * 32 * 0.9)
     expect(base).toBe(1_670_400)
-
-    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
-    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'commQuarter')
-    // The sheet shows it VAT-inclusive, as its own stats line promises.
-    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+    // Not his full period, which would be double.
+    expect(commercialBasePence(PAUL_WILLIAMS, 64)).toBe(base * 2)
   })
 
   it('prorates the cross-charge quarter on the same basis', () => {
@@ -379,14 +395,8 @@ describe('Team Schedule prorates a split resource to the scoped team', () => {
     const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
     const at = (key: string) =>
       cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', key).value
-    expect(at('commSprint')).toBe(Math.round(58_000 * 10 * 0.5 * 0.9 * VAT) / 100)
-    expect(at('commMonth')).toBe(Math.round(58_000 * 21 * 0.5 * 0.9 * VAT) / 100)
-  })
-
-  it('leaves the day rate alone — it is a rate, not a quantity', () => {
-    const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS])
-    const rate = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'dayRate')
-    expect(rate.value).toBe(580)
+    expect(at('xcSprint')).toBe(Math.round(BLENDED * 10 * 0.5 * 0.9) / 100)
+    expect(at('xcMonth')).toBe(Math.round(BLENDED * 21 * 0.5 * 0.9) / 100)
   })
 
   it('counts him as 0.45 FTE to Cygnus, not 0.9', () => {
@@ -408,22 +418,22 @@ describe('Team Schedule prorates a split resource to the scoped team', () => {
     const days = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'days')
     expect(days.value).toBe(64)
 
-    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'commQuarter')
-    expect(quarter.value).toBe(Math.round(58_000 * 64 * 1.0 * VAT) / 100)
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'xcQuarter')
+    expect(quarter.value).toBe(Math.round(BLENDED * 64 * 1.0) / 100)
     expect(totalFte([UNSPLIT_RESOURCE], 't-cygnus')).toBe(1)
   })
 
   it('makes the Totals row the cost of running the team, not of everyone who touches it', () => {
     const { ws, result, columns, rows } = buildCygnusSheet([PAUL_WILLIAMS, UNSPLIT_RESOURCE])
     // Every row feeding the SUM is already prorated, so the total is too.
-    const quarterCol = columns.findIndex((c) => c.key === 'commQuarter') + 1
-    const paul = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'commQuarter')
+    const quarterCol = columns.findIndex((c) => c.key === 'xcQuarter') + 1
+    const paul = cellFor(ws, columns, result.firstDataRow, rows, 'paul-williams', 'xcQuarter')
       .value as number
-    const whole = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'commQuarter')
+    const whole = cellFor(ws, columns, result.firstDataRow, rows, 'unsplit', 'xcQuarter')
       .value as number
 
-    expect(paul).toBe(Math.round(58_000 * 32 * 0.9 * VAT) / 100)
-    expect(whole).toBe(Math.round(58_000 * 64 * 1.0 * VAT) / 100)
+    expect(paul).toBe(Math.round(BLENDED * 32 * 0.9) / 100)
+    expect(whole).toBe(Math.round(BLENDED * 64 * 1.0) / 100)
     // Paul contributes half of what he would have before the fix.
     expect(paul).toBeLessThan(whole)
 
@@ -458,11 +468,9 @@ function buildTeamScheduleForScope(
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
     blendedDayRatePence: BLENDED,
-    costVisibility: 'both',
   })
-  return { ws, result, columns: teamScheduleColumns('both'), rows }
+  return { ws, result, columns: teamScheduleColumns(), rows }
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -519,36 +527,28 @@ describe('Team Schedule prorates an uneven (30/70) split correctly per team', ()
     expect(days.value).toBe(70)
   })
 
-  it('prices the 30% team’s Quarter at 62,000 × 30 × 0.8, not a 50/50 guess', () => {
-    const base = commercialBasePence(
-      UNEVEN_SPLIT_RESOURCE,
-      proratedDays(UNEVEN_SPLIT_RESOURCE, 't-cygnus'),
-    )
-    expect(base).toBe(62_000 * 30 * 0.8)
+  it('charges the 30% team for 30 days of it, not a 50/50 guess', () => {
+    // Pinned on the underlying arithmetic as well as the rendered cell, so
+    // the split itself is checked and not just the cross-charge rate.
+    expect(commercialBasePence(UNEVEN_SPLIT_RESOURCE, proratedDays(UNEVEN_SPLIT_RESOURCE, 't-cygnus')))
+      .toBe(62_000 * 30 * 0.8)
 
     const { ws, result, columns, rows } = buildTeamScheduleForScope(
-      't-cygnus',
-      'Cygnus',
-      [UNEVEN_SPLIT_RESOURCE],
+      't-cygnus', 'Cygnus', [UNEVEN_SPLIT_RESOURCE],
     )
-    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'commQuarter')
-    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'xcQuarter')
+    expect(quarter.value).toBe(Math.round(BLENDED * 30 * 0.8) / 100)
   })
 
-  it('prices the 70% team’s Quarter at 62,000 × 70 × 0.8', () => {
-    const base = commercialBasePence(
-      UNEVEN_SPLIT_RESOURCE,
-      proratedDays(UNEVEN_SPLIT_RESOURCE, 't-pluto'),
-    )
-    expect(base).toBe(62_000 * 70 * 0.8)
+  it('charges the 70% team for 70 days of it', () => {
+    expect(commercialBasePence(UNEVEN_SPLIT_RESOURCE, proratedDays(UNEVEN_SPLIT_RESOURCE, 't-pluto')))
+      .toBe(62_000 * 70 * 0.8)
 
     const { ws, result, columns, rows } = buildTeamScheduleForScope(
-      't-pluto',
-      'Pluto',
-      [UNEVEN_SPLIT_RESOURCE],
+      't-pluto', 'Pluto', [UNEVEN_SPLIT_RESOURCE],
     )
-    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'commQuarter')
-    expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+    const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'uneven-split', 'xcQuarter')
+    expect(quarter.value).toBe(Math.round(BLENDED * 70 * 0.8) / 100)
   })
 
   it('prorates cross-charge the same way on both sides of the split', () => {
@@ -617,16 +617,15 @@ describe('Team Schedule prorates a three-way split independently on each team', 
   )
 
   it.each(THREE_TEAMS)(
-    'prices $teamName’s Quarter at 50,000 × $days × 1.0, independent of the other two teams',
+    'charges $teamName for its own $days days, independent of the other two teams',
     ({ teamId, teamName, days }) => {
-      const base = commercialBasePence(THREE_WAY_SPLIT_RESOURCE, days)
-      expect(base).toBe(50_000 * days)
+      expect(commercialBasePence(THREE_WAY_SPLIT_RESOURCE, days)).toBe(50_000 * days)
 
       const { ws, result, columns, rows } = buildTeamScheduleForScope(teamId, teamName, [
         THREE_WAY_SPLIT_RESOURCE,
       ])
-      const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'three-way-split', 'commQuarter')
-      expect(quarter.value).toBe(Math.round(base * VAT) / 100)
+      const quarter = cellFor(ws, columns, result.firstDataRow, rows, 'three-way-split', 'xcQuarter')
+      expect(quarter.value).toBe(Math.round(BLENDED * days) / 100)
     },
   )
 
@@ -691,29 +690,27 @@ describe('Supplier Schedule is deliberately NOT prorated by team', () => {
     expect(days.value).toBe(64)
   })
 
-  it('shows his full commercial quarter, twice the Cygnus-scoped figure', () => {
+  it('shows his full commercial base, twice the Cygnus-scoped day count', () => {
     const { ws, result, rows } = buildPaulSupplierSheet()
-    const quarter = cellFor(
-      ws,
-      SUPPLIER_SCHEDULE_COLUMNS,
-      result.firstDataRow,
-      rows,
-      'paul-williams',
-      'quarter',
-    ).value as number
-    expect(quarter).toBe(Math.round(58_000 * 64 * 0.9 * VAT) / 100)
+    const at = (key: string) =>
+      cellFor(ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'paul-williams', key)
+        .value as number
 
-    const team = buildCygnusSheet([PAUL_WILLIAMS])
-    const teamQuarter = cellFor(
-      team.ws,
-      team.columns,
-      team.result.firstDataRow,
-      team.rows,
-      'paul-williams',
-      'commQuarter',
-    ).value as number
-    // The two files disagree, on purpose, by exactly his team share.
-    expect(teamQuarter).toBeCloseTo(quarter / 2, 1)
+    // His whole period, at his whole rate — what Capgemini invoices for.
+    expect(at('base')).toBe((58_000 * 64 * 0.9) / 100)
+    // Exactly twice the days Cygnus is charged for, which is the whole point
+    // of the divergence: the same person, two questions, two answers.
+    expect(at('days')).toBe(64)
+    expect(proratedDays(PAUL_WILLIAMS, 't-cygnus')).toBe(32)
+  })
+
+  it('keeps his day rate as the contracted rate, never prorated', () => {
+    // A rate is not a quantity; only the day count is a share of anything.
+    const { ws, result, rows } = buildPaulSupplierSheet()
+    const rate = cellFor(
+      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'paul-williams', 'dayRate',
+    )
+    expect(rate.value).toBe(580)
   })
 
   it('reports his full 0.9 FTE, unprorated', () => {
@@ -738,6 +735,263 @@ describe('the two new sheets are genuinely covered by the doubled-"=" guard', ()
       const value = workbook.getWorksheet(sheetName)?.getCell(address).value
       expect(value).toHaveProperty('formula')
       expect((value as { formula: string }).formula.startsWith('=')).toBe(false)
+    }
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   Supplier Schedule VAT model.
+
+   VAT is a per-resource fact, not a file-wide assumption. The live Schedule
+   page shows it as separate Base and +VAT columns whose difference is £0 for
+   an exempt resource, and this file has to say the same thing — SOWs are
+   quoted ex VAT, but the inc-VAT figure is what hits a budget.
+
+   Both fixtures are the real screenshot figures:
+     Paul Williams  — exempt:    Base £16,704.00 = +VAT £16,704.00, VAT £0
+     Prakash Setty  — chargeable: Base £28,800.00, +VAT £30,839.62,
+                                  VAT £2,039.62 (the difference, not a rate)
+══════════════════════════════════════════════════════════════════════ */
+
+/** Exempt: vat_applies false, so Base and Total must match exactly. */
+const VAT_EXEMPT_RESOURCE: VariantAllocationRow = {
+  ...PAUL_WILLIAMS,
+  allocation_id: 'vat-exempt',
+  resource_id: 'vat-exempt-person',
+  vat_applies: false,
+  // 64 days × £580 × 90% = £33,408 ex VAT.
+  teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 1 }],
+}
+
+/** Chargeable: Prakash Setty's real figures — £28,800 base, £30,839.62 inc. */
+const VAT_CHARGEABLE_RESOURCE: VariantAllocationRow = {
+  ...PAUL_WILLIAMS,
+  allocation_id: 'vat-chargeable',
+  resource_id: 'prakash',
+  resource_name: 'Prakash Setty',
+  utilisation_percent: 100,
+  capacity_days: 64,
+  day_rate: 45_000, // £450 × 64 × 100% = £28,800.00 ex VAT
+  vat_applies: true,
+  teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 1 }],
+}
+
+function buildVatSupplierSheet(rows: VariantAllocationRow[]) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Capgemini')
+  const result = buildSupplierScheduleSheet({
+    ws,
+    rows,
+    supplierName: 'Capgemini',
+    periodName: 'Q3 FY 26/27',
+    dateRange: '01 Oct 2026 – 31 Dec 2026',
+    exportedAt: 'Exported 11 Sep 2026 at 09:00',
+    vatMultiplier: VAT,
+  })
+  return { ws, result, rows }
+}
+
+describe('Supplier Schedule VAT model', () => {
+  it('gives a VAT-exempt resource £0 VAT, with Base equal to Total', () => {
+    const { ws, result, rows } = buildVatSupplierSheet([VAT_EXEMPT_RESOURCE])
+    const at = (key: string) =>
+      cellFor(ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'vat-exempt', key)
+        .value as number
+
+    expect(at('base')).toBe((58_000 * 64 * 0.9) / 100)
+    expect(at('vat')).toBe(0)
+    expect(at('total')).toBe(at('base'))
+  })
+
+  it('gives a VAT-chargeable resource a VAT amount that is Total minus Base', () => {
+    const { ws, result, rows } = buildVatSupplierSheet([VAT_CHARGEABLE_RESOURCE])
+    const at = (key: string) =>
+      cellFor(ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'vat-chargeable', key)
+        .value as number
+
+    // Prakash Setty's real figures from the live page.
+    expect(at('base')).toBe(28_800)
+    expect(at('total')).toBeCloseTo(30_839.62, 2)
+    expect(at('vat')).toBeCloseTo(2_039.62, 2)
+    // The VAT column is a subtraction of the other two, never a rate applied
+    // on its own — which is what makes the exempt case land on £0 for free.
+    expect(at('vat')).toBeCloseTo(at('total') - at('base'), 6)
+  })
+
+  it('derives VAT by subtraction for every row, exempt and chargeable alike', () => {
+    const { ws, result, rows } = buildVatSupplierSheet([
+      VAT_EXEMPT_RESOURCE,
+      VAT_CHARGEABLE_RESOURCE,
+    ])
+    for (const id of ['vat-exempt', 'vat-chargeable']) {
+      const at = (key: string) =>
+        cellFor(ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, id, key).value as number
+      expect(at('vat')).toBeCloseTo(at('total') - at('base'), 6)
+    }
+  })
+
+  it('sums the bottom bar from the per-row columns rather than recomputing', () => {
+    const { ws, result } = buildVatSupplierSheet([VAT_EXEMPT_RESOURCE, VAT_CHARGEABLE_RESOURCE])
+    const colOf = (key: string) =>
+      columnLetter(SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === key) + 1)
+
+    // The totals row SUMs the printed columns...
+    for (const key of ['base', 'vat', 'total']) {
+      const col = SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === key) + 1
+      const value = ws.getCell(result.totalRow, col).value
+      expect(value).toHaveProperty('formula')
+      expect((value as { formula: string }).formula).toBe(
+        `SUM(${colOf(key)}${result.firstDataRow}:${colOf(key)}${result.lastDataRow})`,
+      )
+    }
+
+    // ...and the Ex/Inc VAT bar points straight at those totals, so it can
+    // only ever agree with the rows a reader can see.
+    const text = new Map<string, unknown>()
+    ws.eachRow((r) => {
+      const label = r.getCell(1).value
+      if (typeof label === 'string') text.set(label, r.getCell(2).value)
+    })
+    expect(text.get('Ex VAT total')).toEqual({ formula: `${colOf('base')}${result.totalRow}` })
+    expect(text.get('Inc VAT total')).toEqual({ formula: `${colOf('total')}${result.totalRow}` })
+  })
+
+  it('states the VAT rate the figures were actually built with', () => {
+    const { ws } = buildVatSupplierSheet([VAT_CHARGEABLE_RESOURCE])
+    const labels = new Map<string, unknown>()
+    ws.eachRow((r) => {
+      const label = r.getCell(1).value
+      if (typeof label === 'string') labels.set(label, r.getCell(2).value)
+    })
+    expect(labels.get('VAT rate applied')).toBe('7.082%')
+  })
+
+  it('never sums the day rate column', () => {
+    const { ws, result } = buildVatSupplierSheet([VAT_EXEMPT_RESOURCE, VAT_CHARGEABLE_RESOURCE])
+    const col = SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === 'dayRate') + 1
+    expect(ws.getCell(result.totalRow, col).value).toBe(NOT_APPLICABLE)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   Days formatting — one rounding rule, shared with the live page.
+
+   The page used to run toFixed(1) on a prorated figure and print the raw
+   value otherwise, which is why one row read "32.0" and the next "64". Both
+   media now go through roundDays().
+══════════════════════════════════════════════════════════════════════ */
+
+describe('Total days formatting', () => {
+  /** 100 days at a 20.5% share → 20.5: a genuinely fractional day count. */
+  const FRACTIONAL_DAYS_RESOURCE: VariantAllocationRow = {
+    ...PAUL_WILLIAMS,
+    allocation_id: 'fractional',
+    resource_id: 'fractional-person',
+    utilisation_percent: 100,
+    capacity_days: 100,
+    teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 0.205 }],
+  }
+
+  /** A whole number on both sides of the proration. */
+  const WHOLE_DAYS_RESOURCE: VariantAllocationRow = {
+    ...PAUL_WILLIAMS,
+    allocation_id: 'whole-days',
+    resource_id: 'whole-days-person',
+    utilisation_percent: 100,
+    capacity_days: 64,
+    teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 1 }],
+  }
+
+  it('keeps the decimal on a genuinely fractional day count', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([FRACTIONAL_DAYS_RESOURCE])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'fractional', 'days')
+    expect(days.value).toBe(20.5)
+  })
+
+  it('leaves a whole day count whole — no trailing .0', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([WHOLE_DAYS_RESOURCE])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'whole-days', 'days')
+    expect(days.value).toBe(64)
+    expect(Number.isInteger(days.value as number)).toBe(true)
+  })
+
+  it('rounds a long proration float to one decimal rather than printing it raw', () => {
+    // A third of a period is 21.333…, which General format would otherwise
+    // spill across the column.
+    const third: VariantAllocationRow = {
+      ...PAUL_WILLIAMS,
+      allocation_id: 'third',
+      resource_id: 'third-person',
+      capacity_days: 64,
+      teams: [{ teamId: 't-cygnus', teamName: 'Cygnus', capacitySplit: 1 / 3 }],
+    }
+    const { ws, result, columns, rows } = buildCygnusSheet([third])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'third', 'days')
+    expect(days.value).toBe(21.3)
+  })
+
+  it('uses General format, not a "0.#" that would print a trailing point', () => {
+    const { ws, result, columns, rows } = buildCygnusSheet([WHOLE_DAYS_RESOURCE])
+    const days = cellFor(ws, columns, result.firstDataRow, rows, 'whole-days', 'days')
+    expect(days.numFmt).toBe('General')
+  })
+
+  it('applies the same rule on the Supplier Schedule', () => {
+    const { ws, result, rows } = buildVatSupplierSheet([VAT_CHARGEABLE_RESOURCE])
+    const days = cellFor(
+      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, rows, 'vat-chargeable', 'days',
+    )
+    expect(days.value).toBe(64)
+    expect(days.numFmt).toBe('General')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   Structural proof that the Team Schedule cannot emit commercial content.
+
+   Asserting the generated cells are empty is not enough — that only says
+   this fixture produced nothing, not that nothing could. These read the
+   module's own source and its exported surface, so a commercial writer
+   reintroduced behind any condition fails here even if no test fixture
+   happens to trigger it.
+══════════════════════════════════════════════════════════════════════ */
+
+describe('Team Schedule never calls a commercial cost writer', () => {
+  const teamModuleSource = readFileSync(
+    new URL('../teamScheduleSheet.ts', import.meta.url),
+    'utf8',
+  )
+
+  it('imports no commercial money function at all', () => {
+    // These are the only functions that can turn a supplier day_rate into a
+    // figure. If the Team Schedule module references any of them, it can
+    // produce commercial content — regardless of whether it currently does.
+    for (const fn of [
+      'commercialCostPence',
+      'commercialBasePence',
+      'supplierRowMoney',
+      'supplierCommercialFigures',
+      'teamCommercialFigures',
+    ]) {
+      expect(teamModuleSource).not.toContain(fn)
+    }
+  })
+
+  it('has no cost-visibility branching left in it', () => {
+    for (const token of ['costVisibility', 'CostVisibility', 'showsCommercialCost', 'showsInternalCost']) {
+      expect(teamModuleSource).not.toContain(token)
+    }
+  })
+
+  it('does not read day_rate off a row anywhere', () => {
+    // The single field every commercial figure ultimately comes from.
+    expect(teamModuleSource).not.toContain('day_rate')
+  })
+
+  it('exports no commercial helper of its own', () => {
+    const exported = Object.keys(teamSheetModule)
+    for (const name of exported) {
+      expect(name.toLowerCase()).not.toContain('commercial')
     }
   })
 })

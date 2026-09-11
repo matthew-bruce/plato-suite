@@ -3,16 +3,16 @@ import {
   SPRINT_WORKING_DAYS,
   MONTH_WORKING_DAYS,
   commercialCostPence,
+  commercialBasePence,
   crossChargeCostPence,
-  teamCommercialFigures,
   teamCrossChargeFigures,
-  supplierCommercialFigures,
+  supplierRowMoney,
   formatTeamSplits,
   teamSplitCell,
   uniqueNamedPeopleCount,
   totalFte,
   distinctTeamCount,
-  costIncludedPeopleCount,
+  crossChargedPeopleCount,
   rowsForTeam,
   rowsForSupplier,
   sumCostColumn,
@@ -82,15 +82,13 @@ describe('Team Schedule cross-charge inclusion', () => {
   // F_Gov is the one that gets "fixed" by mistake: its cost is real and
   // counted, so it looks like it belongs in a cost column — but it is never
   // recovered against a PR ticket.
-  it('excludes F_Gov from cross-charge while still showing its commercial cost', () => {
+  it('excludes F_Gov from cross-charge while the Supplier file still prices it', () => {
+    // F_Gov's cost is real and the supplier still invoices for it; it is
+    // simply never recovered against a PR ticket. The two files say so
+    // independently.
     const fgov = mixed[1]
     expect(teamCrossChargeFigures(fgov, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBeNull()
-    expect(teamCommercialFigures(fgov, VAT, JANUS_SCOPE).quarterPence).toBeGreaterThan(0)
-  })
-
-  it('shows no commercial cost for BAU or NPC on the Team Schedule', () => {
-    expect(teamCommercialFigures(mixed[2], VAT, JANUS_SCOPE).quarterPence).toBeNull()
-    expect(teamCommercialFigures(mixed[3], VAT, JANUS_SCOPE).quarterPence).toBeNull()
+    expect(supplierRowMoney(fgov, VAT).basePence).toBeGreaterThan(0)
   })
 
   it('scales cross-charge by utilisation but never the rate itself', () => {
@@ -107,21 +105,19 @@ describe('Quarter cost uses each row’s own Total days', () => {
   const uk = row({ allocation_id: 'uk', resource_id: 'uk1', capacity_days: 64 })
   const india = row({ allocation_id: 'in', resource_id: 'in1', capacity_days: 63 })
 
-  it('produces different Quarter figures at identical rate and utilisation', () => {
-    expect(uk.day_rate).toBe(india.day_rate)
+  it('produces different cross-charge Quarter figures at identical utilisation', () => {
     expect(uk.utilisation_percent).toBe(india.utilisation_percent)
-
-    const ukQuarter = teamCommercialFigures(uk, VAT, JANUS_SCOPE).quarterPence
-    const indiaQuarter = teamCommercialFigures(india, VAT, JANUS_SCOPE).quarterPence
-
-    expect(ukQuarter).not.toBe(indiaQuarter)
-    expect(ukQuarter).toBe(commercialCostPence(uk, 64, VAT))
-    expect(indiaQuarter).toBe(commercialCostPence(india, 63, VAT))
-  })
-
-  it('applies the same divergence to the cross-charge group', () => {
     expect(teamCrossChargeFigures(uk, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBe(60_500 * 64)
     expect(teamCrossChargeFigures(india, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBe(60_500 * 63)
+  })
+
+  it('produces different supplier Base figures at identical rate and utilisation', () => {
+    expect(uk.day_rate).toBe(india.day_rate)
+    const ukBase = supplierRowMoney(uk, VAT).basePence
+    const indiaBase = supplierRowMoney(india, VAT).basePence
+    expect(ukBase).not.toBe(indiaBase)
+    expect(ukBase).toBe(commercialBasePence(uk, 64))
+    expect(indiaBase).toBe(commercialBasePence(india, 63))
   })
 
   it('keeps Sprint and Month on the fixed conventions for both', () => {
@@ -129,14 +125,15 @@ describe('Quarter cost uses each row’s own Total days', () => {
     // comparable unit, not a measurement of anyone's actual calendar.
     expect(SPRINT_WORKING_DAYS).toBe(10)
     expect(MONTH_WORKING_DAYS).toBe(21)
-    expect(teamCommercialFigures(uk, VAT, JANUS_SCOPE).sprintPence).toBe(
-      teamCommercialFigures(india, VAT, JANUS_SCOPE).sprintPence,
+    expect(teamCrossChargeFigures(uk, BLENDED_RATE, JANUS_SCOPE).sprintPence).toBe(
+      teamCrossChargeFigures(india, BLENDED_RATE, JANUS_SCOPE).sprintPence,
     )
   })
 
   it('treats a null capacity_days as zero days rather than throwing', () => {
     const noDays = row({ capacity_days: null })
-    expect(teamCommercialFigures(noDays, VAT, JANUS_SCOPE).quarterPence).toBe(0)
+    expect(teamCrossChargeFigures(noDays, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBe(0)
+    expect(supplierRowMoney(noDays, VAT).basePence).toBe(0)
   })
 })
 
@@ -219,44 +216,41 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
   })
 
   it('gives the same NPC resource a real commercial figure on the Supplier Schedule', () => {
-    const figures = supplierCommercialFigures(npc, VAT)
-    expect(figures.quarterPence).not.toBeNull()
-    expect(figures.quarterPence).toBeGreaterThan(0)
-    expect(figures.quarterPence).toBe(commercialCostPence(npc, 11, VAT))
+    const money = supplierRowMoney(npc, VAT)
+    expect(money.basePence).toBeGreaterThan(0)
+    expect(money.totalPence).toBeGreaterThan(0)
+    expect(money.basePence).toBe(commercialBasePence(npc, 11))
   })
 
-  it('gives that identical row no commercial figure on the Team Schedule', () => {
-    expect(teamCommercialFigures(npc, VAT, JANUS_SCOPE).quarterPence).toBeNull()
+  // The divergence now runs through the cross-charge rule rather than a
+  // commercial one, because the Team Schedule no longer has any commercial
+  // content to withhold — but it lands in the same place: this row is money
+  // to the supplier and nothing to the team's stakeholders.
+  it('gives that identical row no figure at all on the Team Schedule', () => {
+    const figures = teamCrossChargeFigures(npc, BLENDED_RATE, JANUS_SCOPE)
+    expect(figures.quarterPence).toBeNull()
+    expect(figures.sprintPence).toBeNull()
+    expect(figures.monthPence).toBeNull()
   })
 
   // Stated as a single assertion so the intent survives a future reader who
   // spots the two functions and assumes one of them is a bug.
   it('is a deliberate disagreement: same row, same inputs, different answers', () => {
-    const onTeamFile = teamCommercialFigures(npc, VAT, JANUS_SCOPE).quarterPence
-    const onSupplierFile = supplierCommercialFigures(npc, VAT).quarterPence
-    expect(onTeamFile).toBeNull()
-    expect(onSupplierFile).toBeGreaterThan(0)
-  })
-
-  it('still agrees on a PR row — the divergence is NPC-specific, not general', () => {
-    const pr = row({ planview_code: 'PR' })
-    expect(teamCommercialFigures(pr, VAT, JANUS_SCOPE)).toEqual(supplierCommercialFigures(pr, VAT))
+    expect(teamCrossChargeFigures(npc, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBeNull()
+    expect(supplierRowMoney(npc, VAT).totalPence).toBeGreaterThan(0)
   })
 
   it('includes the NPC row in a Supplier Schedule total', () => {
     const supplierRows = [row({ resource_id: 'p1' }), npc]
-    const figures = supplierRows.map((r) => supplierCommercialFigures(r, VAT))
-    const total = sumCostColumn(figures, 'quarterPence')
-    expect(total).toBe(
-      commercialCostPence(supplierRows[0], 64, VAT) + commercialCostPence(npc, 11, VAT),
-    )
+    const total = supplierRows.reduce((sum, r) => sum + supplierRowMoney(r, VAT).basePence, 0)
+    expect(total).toBe(commercialBasePence(supplierRows[0], 64) + commercialBasePence(npc, 11))
   })
 
   it('omits it from a Team Schedule total, which skips "—" rather than adding zero', () => {
     const teamRows = [row({ resource_id: 'p1' }), npc]
-    const figures = teamRows.map((r) => teamCommercialFigures(r, VAT, JANUS_SCOPE))
+    const figures = teamRows.map((r) => teamCrossChargeFigures(r, BLENDED_RATE, JANUS_SCOPE))
     expect(sumCostColumn(figures, 'quarterPence')).toBe(
-      commercialCostPence(teamRows[0], 64, VAT),
+      teamCrossChargeFigures(teamRows[0], BLENDED_RATE, JANUS_SCOPE).quarterPence,
     )
   })
 })
@@ -311,7 +305,7 @@ describe('scoping and footer aggregates', () => {
     expect(distinctTeamCount(rowsForSupplier(rows, 'EPAM'))).toBe(1)
   })
 
-  it('counts cost-included people via isIncludedInBaseCost, not headcount', () => {
+  it('counts cross-charged people via isChargeableRow, not headcount', () => {
     const mixed: VariantAllocationRow[] = [
       row({ allocation_id: 'x1', resource_id: 'pr-person', planview_code: 'PR' }),
       row({ allocation_id: 'x2', resource_id: 'fgov-person', planview_code: 'F_Gov' }),
@@ -319,7 +313,8 @@ describe('scoping and footer aggregates', () => {
       row({ allocation_id: 'x4', resource_id: 'npc-person', planview_code: 'NPC' }),
     ]
     expect(uniqueNamedPeopleCount(mixed)).toBe(4)
-    // PR + F_Gov only.
-    expect(costIncludedPeopleCount(mixed)).toBe(2)
+    // PR only — the Team Schedule's masthead asks how many of the named
+    // people are actually cross-charged, not how many cost the platform.
+    expect(crossChargedPeopleCount(mixed)).toBe(1)
   })
 })

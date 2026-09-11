@@ -16,7 +16,7 @@ import {
 } from '@/lib/schedule/ui'
 import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 import { isVisibleInRateCalculatorExport } from '@/lib/export/rateCalculatorVisibility'
-import { parseExportVariantId, resolveCostVisibility } from '@/lib/export/exportVariants'
+import { parseExportVariantId } from '@/lib/export/exportVariants'
 import type { ExportVariantId } from '@/lib/export/exportVariants'
 import type { TeamAssignmentRef, VariantAllocationRow } from '@/lib/export/scheduleVariantRows'
 import { rowsForTeam, rowsForSupplier } from '@/lib/export/scheduleVariantRows'
@@ -216,13 +216,13 @@ export async function GET(request: Request): Promise<Response> {
   const isSupplierSchedule = variant === 'supplier-schedule'
   const isScopedVariant = isTeamSchedule || isSupplierSchedule
 
-  /* The scope a team- or supplier-scoped file is built for, and whose rates it
-     may show. resolveCostVisibility ignores the requested value for a variant
-     that fixes its own — a hand-edited ?costVisibility= cannot widen the
-     Supplier Schedule or narrow it below the commercial figures it exists for. */
+  /* The scope a team- or supplier-scoped file is built for. There is no
+     cost-visibility parameter: each variant has exactly one answer built into
+     it — the Team Schedule carries no commercial content at all, the Supplier
+     Schedule is commercial-only — so there is no request a URL could make that
+     would widen or narrow either file. */
   const scopeTeamId = searchParams.get('teamId')
   const scopeSupplierId = searchParams.get('supplierId')
-  const costVisibility = resolveCostVisibility(variant, searchParams.get('costVisibility'))
 
   /* Row visibility. The Rate Calculator hides NPC entirely (those roles never
      appear on a supplier SOW); every other variant lists them — the Platform
@@ -554,9 +554,9 @@ export async function GET(request: Request): Promise<Response> {
         periodName: period.period_name,
         dateRange: scopedRange,
         exportedAt,
-        vatMultiplier,
+        // No vatMultiplier: this file's only money is the cross-charge, and
+        // the blended rate it uses is already VAT-inclusive.
         blendedDayRatePence: blendedDayRateOverridePence ?? 0,
-        costVisibility,
       })
     } else {
       const supplierRow = scopeSupplierId

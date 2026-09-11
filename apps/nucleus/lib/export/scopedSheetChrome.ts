@@ -14,6 +14,7 @@ import type ExcelJS from 'exceljs'
 import { toArgb, supplierTint } from './richText'
 import { planviewStyle, planviewLabel } from './planviewColours'
 import { NOT_APPLICABLE } from './scheduleVariantRows'
+import { roundDays } from '../schedule/ui'
 
 export const DARK_BAND = 'FF2A2A2D'
 const HEADER_BAND = 'FF404044'
@@ -25,6 +26,38 @@ const WHITE = 'FFFFFFFF'
 
 export const MONEY_FORMAT = '£#,##0.00'
 export const WHOLE_MONEY_FORMAT = '£#,##0'
+
+/**
+ * How a Days cell is written: the value already rounded through the shared
+ * roundDays() rule, displayed with Excel's General format.
+ *
+ * Not a "0.#" number format, which looks like the obvious choice and is the
+ * reason this needed thinking about: in Excel a format's decimal separator is
+ * literal, so "0.#" renders a whole number as "32." — a trailing point, which
+ * is worse than the trailing ".0" this is meant to remove. Excel has no
+ * format code for "one optional decimal", so the rounding happens in TypeScript
+ * — through the same roundDays() the page's Days column uses — and the cell is
+ * left on General, which prints exactly the digits it is given.
+ *
+ * The stored value is therefore the rounded one. Nothing sums this column
+ * (only the money columns carry totals), so no arithmetic depends on the
+ * sub-0.1-day precision this discards, and in exchange every Days figure in
+ * the file reads identically to the same figure on the page.
+ */
+export const DAYS_NUMBER_FORMAT = 'General'
+
+/** Writes a Days cell: shared rounding rule, numeric cell, General format. */
+export function writeDaysCell(
+  ws: ExcelJS.Worksheet,
+  row: number,
+  col: number,
+  days: number,
+): void {
+  const cell = ws.getCell(row, col)
+  cell.value = roundDays(days)
+  cell.numFmt = DAYS_NUMBER_FORMAT
+  cell.alignment = { horizontal: 'right' }
+}
 
 /** Where a column's values sit, and how wide it is. */
 export interface SheetColumn {

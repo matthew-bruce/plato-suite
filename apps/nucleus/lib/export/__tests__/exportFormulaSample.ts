@@ -212,8 +212,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
 
   // The two scoped sheets, built by the real renderers rather than mimicked,
   // so their SUM totals are covered by the same no-doubled-"=" guard as
-  // everything else in the workbook. "Both" cost visibility is used
-  // deliberately: it is the layout carrying the most formula cells.
+  // everything else in the workbook.
   const teamWs = workbook.addWorksheet('Pluto')
   const teamResult = buildTeamScheduleSheet({
     ws: teamWs,
@@ -223,9 +222,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: 1.07082,
     blendedDayRatePence: 60_500,
-    costVisibility: 'both',
   })
 
   const supplierWs = workbook.addWorksheet('Capgemini')

@@ -502,7 +502,6 @@ export function SchedulePageClient({ data }: Props) {
       const params = new URLSearchParams({
         periodId: activePeriodId,
         variant: variantId,
-        costVisibility: selection.costVisibility,
       })
       if (selection.teamId) params.set('teamId', selection.teamId)
       if (selection.supplierId) params.set('supplierId', selection.supplierId)
@@ -2046,7 +2045,9 @@ function TeamRunRateBar({
       <div style={labelStyle}>{teamName} — internal run rate</div>
 
       <div style={statStyle}>
-        <span style={valueStyle}>{totalCapacityDays.toFixed(1)}</span>
+        {/* Same formatter as the Days column, so a whole-number capacity
+            doesn't read "548.0" here while the column above it reads "548". */}
+        <span style={valueStyle}>{formatDaysTotal(totalCapacityDays)}</span>
         <span style={labelStyle}>capacity days</span>
       </div>
 
@@ -3956,7 +3957,10 @@ function AllocationRow({
           <span style={nullStyle}>—</span>
         ) : (
           <span style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-            {isProportional ? displayDays.toFixed(1) : row.capacity_days}
+            {/* Both branches go through the same formatter. They used to
+                differ — toFixed(1) when prorated, the raw value otherwise —
+                which is why one row read "32.0" and the next "64". */}
+            {formatDaysTotal(displayDays)}
           </span>
         )}
       </Cell>

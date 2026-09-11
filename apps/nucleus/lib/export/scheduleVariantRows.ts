@@ -10,7 +10,7 @@
 // That divergence is intentional and load-bearing; it is not an oversight to
 // tidy up.
 
-import { isChargeableRow, isIncludedInBaseCost } from '../schedule/ui'
+import { isChargeableRow } from '../schedule/ui'
 import { allocationBasePence, allocationVatPence } from '../schedule/scheduleTotals'
 import { getCapacitySplit } from '../scheduleUtils'
 
@@ -191,26 +191,27 @@ export interface CostGroupFigures {
   quarterPence: number | null
 }
 
-const NO_FIGURES: CostGroupFigures = {
-  sprintPence: null,
-  monthPence: null,
-  quarterPence: null,
-}
-
 /**
- * TEAM SCHEDULE — commercial cost group.
+ * TEAM SCHEDULE — cross-charge cost group. PR rows only; everything else "—".
  *
- * Gated on isIncludedInBaseCost: PR and F_Gov show real money, BAU and NPC
- * show "—". This file is about what running the team costs the PLATFORM, so a
- * cost the platform does not bear has no figure here even though the supplier
- * rate behind it exists.
+ * This is the ONLY cost group the Team Schedule has. There is deliberately no
+ * commercial counterpart: that file goes to the internal stakeholders who pay
+ * the Platform Head a cross-charge, and what the Platform Head in turn pays
+ * suppliers is a different number that is none of their business. Removing the
+ * commercial group entirely — rather than hiding it behind a toggle — is what
+ * makes the file safe to forward without anyone having to remember a setting.
  *
- * ⚠ The Supplier Schedule answers a different question and therefore gives a
- * different answer for the same NPC row — see supplierCommercialFigures.
+ * Every figure here is VAT-inclusive: the blended day rate is derived from a
+ * VAT-inclusive total (computeScheduleTotals — total platform cost ÷ chargeable
+ * days), so there is no ex/inc split to make on this file.
+ *
+ * There is no Day rate sub-column: the cross-charge rate is flat across the
+ * platform and is stated once in the header instead of repeated down a column
+ * of identical values.
  */
-export function teamCommercialFigures(
+export function teamCrossChargeFigures(
   row: VariantAllocationRow,
-  vatMultiplier: number,
+  blendedDayRatePence: number,
   /**
    * The team this file is scoped to. Required, not defaulted: silently
    * falling back to unprorated is the exact defect this parameter exists to
@@ -218,33 +219,9 @@ export function teamCommercialFigures(
    */
   teamScope: string | null,
 ): CostGroupFigures {
-  if (!isIncludedInBaseCost(row.planview_code)) return NO_FIGURES
-  // Every figure is prorated by the same team share — the quarter through the
-  // row's own prorated days, and the sprint/month conventions through a
-  // prorated slice of those fixed lengths. A person half-allocated to this
-  // team costs it half a sprint, not a whole one.
-  const share = teamShare(row, teamScope)
-  return {
-    sprintPence: commercialCostPence(row, SPRINT_WORKING_DAYS * share, vatMultiplier),
-    monthPence: commercialCostPence(row, MONTH_WORKING_DAYS * share, vatMultiplier),
-    quarterPence: commercialCostPence(row, proratedDays(row, teamScope), vatMultiplier),
-  }
-}
-
-/**
- * TEAM SCHEDULE — cross-charge cost group. PR rows only; everything else "—".
- * There is no Day rate sub-column here: the cross-charge rate is flat across
- * the platform and is stated once in the header instead of repeated down a
- * column of identical values.
- */
-export function teamCrossChargeFigures(
-  row: VariantAllocationRow,
-  blendedDayRatePence: number,
-  /** The team this file is scoped to — required, for the reason above. */
-  teamScope: string | null,
-): CostGroupFigures {
-  // Prorated on the same basis as the commercial group above: the recharge a
-  // team owes for a half-allocated person is half the recharge.
+  // Prorated: the recharge a team owes for a half-allocated person is half the
+  // recharge — the quarter through the row's own prorated days, and the
+  // sprint/month conventions through a prorated slice of those fixed lengths.
   const share = teamShare(row, teamScope)
   return {
     sprintPence: crossChargeCostPence(row, SPRINT_WORKING_DAYS * share, blendedDayRatePence),
@@ -253,18 +230,42 @@ export function teamCrossChargeFigures(
   }
 }
 
+/** One Supplier Schedule row's money, split the way a SOW is read. */
+export interface SupplierRowMoney {
+  /** The contracted rate, ex VAT. A rate, never prorated. */
+  dayRatePence: number
+  /** Period total ex VAT. */
+  basePence: number
+  /** The VAT on this row — £0 for a VAT-exempt resource. */
+  vatPence: number
+  /** Period total inc VAT. */
+  totalPence: number
+}
+
 /**
- * SUPPLIER SCHEDULE — commercial cost group.
+ * SUPPLIER SCHEDULE — one row's commercial money, ex and inc VAT.
  *
- * ⚠ DELIBERATE DIVERGENCE FROM teamCommercialFigures ABOVE. Every row gets a
- * real figure, NPC included, with no isIncludedInBaseCost gate.
+ * VAT is a per-resource fact, not a file-wide assumption: some resources are
+ * exempt, and the live Schedule page shows that by giving them an identical
+ * Base and +VAT. So the VAT column here is the DIFFERENCE between the two
+ * figures the page itself derives — allocationVatPence − allocationBasePence,
+ * both from lib/schedule/scheduleTotals — and never `base × rate` applied
+ * independently. An exempt row therefore lands on exactly £0 VAT by
+ * construction rather than by a second rule remembering to exempt it.
+ *
+ * SOWs are quoted ex VAT, which is why Base leads; the inc-VAT total is there
+ * because that is the figure that actually hits a budget.
+ *
+ * ⚠ DELIBERATE DIVERGENCE FROM THE TEAM SCHEDULE. Every row gets a real
+ * figure, NPC included, with no planview gate at all — where the Team
+ * Schedule gives that same NPC row no cost figure (its only cost group is
+ * cross-charge, which is PR-only).
  *
  * This is not an inconsistency to reconcile. The two files answer different
  * questions:
  *
- *   Team Schedule     — "what does running this team cost the platform?"
- *                       An NPC person's cost is borne by someone else's
- *                       budget, so it is not part of that answer: "—".
+ *   Team Schedule     — "what does this team cost its stakeholders?"
+ *                       An NPC person is not cross-charged to them at all.
  *   Supplier Schedule — "what does Royal Mail Group pay this supplier?"
  *                       An NPC person is still a real person the supplier
  *                       still invoices for. Which internal budget the cost
@@ -275,14 +276,22 @@ export function teamCrossChargeFigures(
  * Making these two agree would break one of the files. If a future change
  * needs them to converge, that is a product decision, not a cleanup.
  */
-export function supplierCommercialFigures(
+export function supplierRowMoney(
   row: VariantAllocationRow,
   vatMultiplier: number,
-): CostGroupFigures {
+): SupplierRowMoney {
+  // Unscoped: this file spans every team, so there is no team to prorate to
+  // and proratedDays returns the resource's full period. Routed through the
+  // same helper the Team Schedule uses rather than reading capacity_days
+  // directly, so both files derive Total days one way.
+  const days = proratedDays(row, null)
+  const basePence = commercialBasePence(row, days)
+  const totalPence = commercialCostPence(row, days, vatMultiplier)
   return {
-    sprintPence: commercialCostPence(row, SPRINT_WORKING_DAYS, vatMultiplier),
-    monthPence: commercialCostPence(row, MONTH_WORKING_DAYS, vatMultiplier),
-    quarterPence: commercialCostPence(row, row.capacity_days ?? 0, vatMultiplier),
+    dayRatePence: row.day_rate,
+    basePence,
+    vatPence: totalPence - basePence,
+    totalPence,
   }
 }
 
@@ -356,9 +365,18 @@ export function distinctTeamCount(rows: readonly VariantAllocationRow[]): number
   return teamIds.size
 }
 
-/** Headcount whose cost the platform actually bears — the stats-line figure. */
-export function costIncludedPeopleCount(rows: readonly VariantAllocationRow[]): number {
-  return uniqueNamedPeopleCount(rows.filter((r) => isIncludedInBaseCost(r.planview_code)))
+/**
+ * How many of the named people are actually cross-charged — the Team
+ * Schedule's masthead figure.
+ *
+ * Keyed on isChargeableRow (PR only), NOT isIncludedInBaseCost. The stat used
+ * to read "included in platform cost", which answered a question about
+ * commercial cost that this file no longer carries; on a file whose only money
+ * is the cross-charge, the useful denominator is how much of the team the
+ * stakeholder is actually billed for.
+ */
+export function crossChargedPeopleCount(rows: readonly VariantAllocationRow[]): number {
+  return uniqueNamedPeopleCount(rows.filter((r) => isChargeableRow(r.planview_code)))
 }
 
 /* ── Scoping ───────────────────────────────────────────────────────── */

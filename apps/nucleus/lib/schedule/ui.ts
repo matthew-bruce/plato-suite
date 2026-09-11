@@ -99,11 +99,23 @@ export function sumChargeableDays<T extends DaysRow>(
   }, 0)
 }
 
+/**
+ * The one rounding rule for a Days figure: at most one decimal place.
+ *
+ * Proration produces arbitrary floats (64 × 0.35 = 22.400000000000002, a
+ * third of a quarter = 21.333…), so every surface that shows Days has to
+ * decide where to cut them off. It is decided here, once, rather than at
+ * each call site — that is how the page came to show "32.0" beside "64",
+ * with one branch running toFixed(1) and the other printing the raw value.
+ */
+export function roundDays(days: number): number {
+  return Math.round(days * 10) / 10
+}
+
 // Formats a Days total: plain whole numbers, halves keep one decimal,
 // never a forced trailing zero (48 not 48.0, 48.5 stays 48.5).
 export function formatDaysTotal(days: number): string {
-  const rounded = Math.round(days * 10) / 10
-  return rounded.toLocaleString('en-GB', { maximumFractionDigits: 1 })
+  return roundDays(days).toLocaleString('en-GB', { maximumFractionDigits: 1 })
 }
 
 // Single source of truth for "X/Y confirmed" — used by both the per-supplier

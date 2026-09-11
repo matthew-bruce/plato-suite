@@ -4,15 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_EXPORT_VARIANT_ID,
   EXPORT_VARIANTS,
-  RATE_SENSITIVE_WARNING,
   getExportVariant,
-  isRateSensitive,
 } from '@/lib/export/exportVariants'
-import type {
-  CostVisibility,
-  ExportVariant,
-  ExportVariantId,
-} from '@/lib/export/exportVariants'
+import type { ExportVariant, ExportVariantId } from '@/lib/export/exportVariants'
 
 /**
  * Which workbook to export for this period, and — for the variants that need
@@ -20,10 +14,14 @@ import type {
  *
  * Renders whatever EXPORT_VARIANTS contains rather than a fixed set of
  * options, and renders each variant's extra controls from what that variant
- * DECLARES it needs (a team picker, a supplier picker, a cost-visibility
- * choice) rather than from an `if (id === 'team-schedule')` here. Adding a
- * fifth variant that needs a picker means adding a `scope` to its registry
- * entry; this component does not need to know it happened.
+ * DECLARES it needs (a team picker, a supplier picker, a fixed note) rather
+ * than from an `if (id === 'team-schedule')` here. Adding a fifth variant that
+ * needs a picker means adding a `scope` to its registry entry; this component
+ * does not need to know it happened.
+ *
+ * There is deliberately no control here for whose money a file shows. Each
+ * variant has exactly one answer built into it, so there is nothing to get
+ * wrong at export time — see the note at the top of lib/export/exportVariants.
  *
  * Styling is inline against --rmg-* tokens per ADR-023 — no hardcoded hex, and
  * the same overlay/card/header/footer shape the other Schedule modals use
@@ -39,7 +37,6 @@ export interface ExportSelection {
   variantId: ExportVariantId
   teamId?: string
   supplierId?: string
-  costVisibility: CostVisibility
 }
 
 export interface ExportChoiceModalProps {
@@ -55,20 +52,6 @@ export interface ExportChoiceModalProps {
   onConfirm: (selection: ExportSelection) => void
 }
 
-const COST_VISIBILITY_OPTIONS: { value: CostVisibility; label: string; hint: string }[] = [
-  {
-    value: 'internal',
-    label: 'Internal (blended) only',
-    hint: 'The cross-charge rate. No supplier rates in the file.',
-  },
-  {
-    value: 'commercial',
-    label: 'Commercial (supplier rates) only',
-    hint: 'What each supplier actually charges.',
-  },
-  { value: 'both', label: 'Both', hint: 'Internal and commercial side by side.' },
-]
-
 export function ExportChoiceModal({
   open,
   periodName,
@@ -82,30 +65,18 @@ export function ExportChoiceModal({
   const [hovered, setHovered] = useState<ExportVariantId | null>(null)
   const [teamId, setTeamId] = useState<string>('')
   const [supplierId, setSupplierId] = useState<string>('')
-  const [costVisibility, setCostVisibility] = useState<CostVisibility>('internal')
 
   const variant = useMemo(() => getExportVariant(selected), [selected])
 
   // Reopening always starts from the Finance-safe default rather than
-  // remembering the last, broader choice — including the cost visibility,
-  // which is the setting most costly to inherit by accident.
+  // remembering the last, broader choice.
   useEffect(() => {
     if (!open) return
     setSelected(DEFAULT_EXPORT_VARIANT_ID)
     setHovered(null)
     setTeamId('')
     setSupplierId('')
-    setCostVisibility('internal')
   }, [open])
-
-  // Changing variant resets the cost visibility to that variant's own default,
-  // so a choice made under one variant never silently carries into another.
-  useEffect(() => {
-    const control = getExportVariant(selected).costVisibility
-    if (control.kind === 'choice') setCostVisibility(control.default)
-    else if (control.kind === 'fixed') setCostVisibility(control.value)
-    else setCostVisibility('internal')
-  }, [selected])
 
   useEffect(() => {
     if (!open) return
@@ -215,76 +186,18 @@ export function ExportChoiceModal({
     )
   }
 
-  function renderCostVisibility(v: ExportVariant) {
-    const control = v.costVisibility
-    if (control.kind === 'none') return null
-
-    if (control.kind === 'fixed') {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={fieldLabel}>Cost shown</span>
-          <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--rmg-color-text-light)' }}>
-            {control.note}
-          </span>
-        </div>
-      )
-    }
-
+  /**
+   * A variant's fixed note, where it has one. Stating something the reader
+   * cannot change — not a control, and no longer backed by one.
+   */
+  function renderNote(v: ExportVariant) {
+    if (!v.note) return null
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         <span style={fieldLabel}>Cost shown</span>
-        {COST_VISIBILITY_OPTIONS.map((opt) => (
-          <label
-            key={opt.value}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 8,
-              cursor: busy ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <input
-              type="radio"
-              name="cost-visibility"
-              value={opt.value}
-              checked={costVisibility === opt.value}
-              disabled={busy}
-              onChange={() => setCostVisibility(opt.value)}
-              style={{
-                marginTop: 2,
-                accentColor: 'var(--rmg-color-red)',
-                flexShrink: 0,
-                cursor: busy ? 'not-allowed' : 'pointer',
-              }}
-            />
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 13, color: 'var(--rmg-color-text-heading)' }}>
-                {opt.label}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--rmg-color-text-light)' }}>{opt.hint}</span>
-            </span>
-          </label>
-        ))}
-        {/* Shown only once the choice actually exposes supplier rates —
-            a warning that is always on stops being read. */}
-        {isRateSensitive(costVisibility) && (
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              lineHeight: 1.45,
-              // Dark text on the orange tint rather than the orange token on
-              // it: this is a warning that has to be read, and orange-on-orange
-              // is the pairing that stops it being read.
-              color: 'var(--rmg-color-text-heading)',
-              background: 'var(--rmg-color-tint-orange)',
-              borderRadius: 5,
-              padding: '6px 9px',
-            }}
-          >
-            {RATE_SENSITIVE_WARNING}
-          </span>
-        )}
+        <span style={{ fontSize: 12, lineHeight: 1.45, color: 'var(--rmg-color-text-light)' }}>
+          {v.note}
+        </span>
       </div>
     )
   }
@@ -348,7 +261,7 @@ export function ExportChoiceModal({
           {EXPORT_VARIANTS.map((v) => {
             const isSelected = v.id === selected
             const isHovered = v.id === hovered
-            const hasExtras = Boolean(v.scope) || v.costVisibility.kind !== 'none'
+            const hasExtras = Boolean(v.scope) || Boolean(v.note)
             return (
               <div
                 key={v.id}
@@ -452,7 +365,7 @@ export function ExportChoiceModal({
                     }}
                   >
                     {renderScopePicker(v)}
-                    {renderCostVisibility(v)}
+                    {renderNote(v)}
                   </div>
                 )}
               </div>
@@ -495,7 +408,6 @@ export function ExportChoiceModal({
                 variantId: selected,
                 teamId: variant.scope === 'team' ? teamId : undefined,
                 supplierId: variant.scope === 'supplier' ? supplierId : undefined,
-                costVisibility,
               })
             }
             style={{

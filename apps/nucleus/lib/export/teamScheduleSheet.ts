@@ -1,12 +1,21 @@
-// The Team Schedule sheet: one team's people, days and cost for the quarter.
+// The Team Schedule sheet: one team's people, days and cross-charge for the
+// quarter.
 //
 // One row per ALLOCATION RECORD, not per person — a mid-quarter supplier
 // transition or a split across two teams is genuinely two records and both
 // belong in the table. Only the footer collapses them back to people.
 //
-// Which figures appear is the caller's choice (internal cross-charge,
-// commercial supplier rates, or both); which rows get a figure at all is not,
-// and is decided by the planview rules in ./scheduleVariantRows.
+// This file carries NO commercial content: no supplier day rate, no supplier
+// cost, in any state. Its readers are the internal stakeholders who pay the
+// Platform Head a cross-charge for a team; what the Platform Head pays
+// suppliers is a different number and not theirs to see. That is enforced
+// structurally — there is no commercial column set in this module to switch
+// on — rather than by a visibility option, because an option only protects
+// anyone if every person exporting the file remembers to pick the right one.
+//
+// Every figure here is VAT-inclusive. The blended cross-charge rate is derived
+// from a VAT-inclusive total, so there is no ex/inc split to make; the header
+// says so rather than leaving a reader to assume either way.
 
 import type ExcelJS from 'exceljs'
 import { formulaCell } from './formulaCell'
@@ -17,26 +26,22 @@ import {
   writeSupplierChip,
   writePlanviewCell,
   writeMoneyCell,
+  writeDaysCell,
   writeRule,
   writeFootnote,
 } from './scopedSheetChrome'
 import type { SheetColumn } from './scopedSheetChrome'
 import {
-  NOT_APPLICABLE,
   proratedDays,
-  teamCommercialFigures,
   teamCrossChargeFigures,
   teamSplitCell,
   uniqueNamedPeopleCount,
-  costIncludedPeopleCount,
+  crossChargedPeopleCount,
   totalFte,
 } from './scheduleVariantRows'
 import type { CostGroupFigures, VariantAllocationRow } from './scheduleVariantRows'
-import type { CostVisibility } from './exportVariants'
-import { showsCommercialCost, showsInternalCost } from './exportVariants'
 
-const COMMERCIAL_GROUP = 'COMMERCIAL COST — SUPPLIER RATES'
-const CROSS_CHARGE_GROUP = 'CROSS-CHARGE — INTERNAL'
+const CROSS_CHARGE_GROUP = 'CROSS-CHARGE — INTERNAL (VAT INCLUSIVE)'
 
 /**
  * F_Gov is the line most likely to be read as a mistake, so the file says why
@@ -44,6 +49,10 @@ const CROSS_CHARGE_GROUP = 'CROSS-CHARGE — INTERNAL'
  */
 export const CROSS_CHARGE_FOOTNOTE =
   'F_Gov and NPC resources are not cross-charged — F_Gov costs the platform but isn’t recovered against a PR ticket; NPC is borne elsewhere entirely.'
+
+/** Stated near the header, so no reader has to guess which way VAT runs. */
+export const VAT_INCLUSIVE_NOTE =
+  'Cross-charge figures are VAT-inclusive — the blended day rate already includes VAT.'
 
 export interface TeamScheduleSheetParams {
   ws: ExcelJS.Worksheet
@@ -60,10 +69,8 @@ export interface TeamScheduleSheetParams {
   periodName: string
   dateRange: string
   exportedAt: string
-  vatMultiplier: number
   /** Integer pence — the applied cross-charge rate, stated once in the header. */
   blendedDayRatePence: number
-  costVisibility: CostVisibility
 }
 
 export interface ScopedSheetResult {
@@ -73,8 +80,15 @@ export interface ScopedSheetResult {
   columnCount: number
 }
 
-export function teamScheduleColumns(costVisibility: CostVisibility): SheetColumn[] {
-  const columns: SheetColumn[] = [
+/**
+ * The Team Schedule's columns — a fixed list, taking no parameters.
+ *
+ * It used to take a cost-visibility argument and conditionally append a
+ * commercial group. That argument is gone along with the group: there is no
+ * input to this function that can produce a supplier rate or supplier cost.
+ */
+export function teamScheduleColumns(): SheetColumn[] {
+  return [
     { key: 'name', header: 'Name', width: 24 },
     { key: 'role', header: 'Role', width: 24 },
     { key: 'supplier', header: 'Supplier', width: 10, align: 'center' },
@@ -83,31 +97,13 @@ export function teamScheduleColumns(costVisibility: CostVisibility): SheetColumn
     { key: 'teamSplit', header: 'Team split', width: 24 },
     { key: 'utilisation', header: 'Utilisation', width: 11, align: 'right' },
     { key: 'days', header: 'Total days', width: 11, align: 'right' },
+    // No Day rate column in this group on purpose: the cross-charge rate is
+    // flat across the platform, so a column of it would repeat one number down
+    // the page. It is stated once, in the stats line.
+    { key: 'xcSprint', header: 'Sprint (10d)', width: 14, align: 'right', group: CROSS_CHARGE_GROUP },
+    { key: 'xcMonth', header: 'Month (21d)', width: 14, align: 'right', group: CROSS_CHARGE_GROUP },
+    { key: 'xcQuarter', header: 'Quarter', width: 15, align: 'right', group: CROSS_CHARGE_GROUP },
   ]
-
-  if (showsCommercialCost(costVisibility)) {
-    columns.push(
-      // Unscaled by utilisation, deliberately: a half-time person is not on a
-      // discounted rate, they are on their contracted rate for half the time.
-      { key: 'dayRate', header: 'Day rate', width: 13, align: 'right', group: COMMERCIAL_GROUP },
-      { key: 'commSprint', header: 'Sprint (10d)', width: 14, align: 'right', group: COMMERCIAL_GROUP },
-      { key: 'commMonth', header: 'Month (21d)', width: 14, align: 'right', group: COMMERCIAL_GROUP },
-      { key: 'commQuarter', header: 'Quarter', width: 15, align: 'right', group: COMMERCIAL_GROUP },
-    )
-  }
-
-  if (showsInternalCost(costVisibility)) {
-    // No Day rate column here on purpose: the cross-charge rate is flat across
-    // the platform, so a column of it would repeat one number down the page.
-    // It is stated once, in the stats line.
-    columns.push(
-      { key: 'xcSprint', header: 'Sprint (10d)', width: 14, align: 'right', group: CROSS_CHARGE_GROUP },
-      { key: 'xcMonth', header: 'Month (21d)', width: 14, align: 'right', group: CROSS_CHARGE_GROUP },
-      { key: 'xcQuarter', header: 'Quarter', width: 15, align: 'right', group: CROSS_CHARGE_GROUP },
-    )
-  }
-
-  return columns
 }
 
 function statsLine(
@@ -115,7 +111,7 @@ function statsLine(
   blendedDayRatePence: number,
 ): string {
   const named = uniqueNamedPeopleCount(rows)
-  const costIncluded = costIncludedPeopleCount(rows)
+  const crossCharged = crossChargedPeopleCount(rows)
   const rate = (blendedDayRatePence / 100).toLocaleString('en-GB', {
     style: 'currency',
     currency: 'GBP',
@@ -123,9 +119,11 @@ function statsLine(
   })
   return [
     `${named} named ${named === 1 ? 'person' : 'people'}`,
-    `${costIncluded} included in platform cost`,
+    // Replaces the old "included in platform cost", which measured commercial
+    // cost inclusion — a question this file no longer asks.
+    `${crossCharged} of ${named} cross-charged`,
     `${rate}/day, Current Rate`,
-    'All costs include VAT',
+    'All figures include VAT',
   ].join('  ·  ')
 }
 
@@ -138,15 +136,11 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     periodName,
     dateRange,
     exportedAt,
-    vatMultiplier,
     blendedDayRatePence,
-    costVisibility,
   } = params
 
-  const columns = teamScheduleColumns(costVisibility)
+  const columns = teamScheduleColumns()
   const colCount = columns.length
-  const withCommercial = showsCommercialCost(costVisibility)
-  const withInternal = showsInternalCost(costVisibility)
 
   ws.views = [{ showGridLines: false }]
 
@@ -161,6 +155,9 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     statsLine: statsLine(rows, blendedDayRatePence),
     colCount,
   })
+
+  writeFootnote(ws, row, VAT_INCLUSIVE_NOTE)
+  row += 2
 
   const headerRow = row
   row = writeTableHeader(ws, row, columns)
@@ -185,32 +182,13 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     // This team's share of the resource's days, not their whole period —
     // matching what the page shows under a team filter, where it labels the
     // totals "(PROPORTIONAL)".
-    const daysCell = ws.getCell(row, indexOf('days'))
-    daysCell.value = proratedDays(alloc, teamScope)
-    daysCell.numFmt = '0.#'
-    daysCell.alignment = { horizontal: 'right' }
+    writeDaysCell(ws, row, indexOf('days'), proratedDays(alloc, teamScope))
 
-    if (withCommercial) {
-      const figures = teamCommercialFigures(alloc, vatMultiplier, teamScope)
-      // The day rate shows whenever the row has a commercial figure at all —
-      // a BAU/NPC row's rate is withheld along with its cost, so the file
-      // can't be used to infer a rate it declined to price.
-      const showsRate = figures.quarterPence !== null
-      writeMoneyCell(ws, row, indexOf('dayRate'), showsRate ? alloc.day_rate : null)
-      writeCostGroup(ws, row, figures, {
-        sprint: indexOf('commSprint'),
-        month: indexOf('commMonth'),
-        quarter: indexOf('commQuarter'),
-      })
-    }
-
-    if (withInternal) {
-      writeCostGroup(ws, row, teamCrossChargeFigures(alloc, blendedDayRatePence, teamScope), {
-        sprint: indexOf('xcSprint'),
-        month: indexOf('xcMonth'),
-        quarter: indexOf('xcQuarter'),
-      })
-    }
+    writeCostGroup(ws, row, teamCrossChargeFigures(alloc, blendedDayRatePence, teamScope), {
+      sprint: indexOf('xcSprint'),
+      month: indexOf('xcMonth'),
+      quarter: indexOf('xcQuarter'),
+    })
 
     row++
   }
@@ -236,22 +214,9 @@ export function buildTeamScheduleSheet(params: TeamScheduleSheetParams): ScopedS
     cell.alignment = { horizontal: 'right' }
   }
 
-  if (withCommercial) {
-    // Not summed on purpose: adding up per-person day rates produces a number
-    // that looks like a team figure and means nothing.
-    const rateTotal = ws.getCell(totalRow, indexOf('dayRate'))
-    rateTotal.value = NOT_APPLICABLE
-    rateTotal.alignment = { horizontal: 'right' }
-    rateTotal.font = { bold: true, size: 10 }
-    sumColumn(indexOf('commSprint'))
-    sumColumn(indexOf('commMonth'))
-    sumColumn(indexOf('commQuarter'))
-  }
-  if (withInternal) {
-    sumColumn(indexOf('xcSprint'))
-    sumColumn(indexOf('xcMonth'))
-    sumColumn(indexOf('xcQuarter'))
-  }
+  sumColumn(indexOf('xcSprint'))
+  sumColumn(indexOf('xcMonth'))
+  sumColumn(indexOf('xcQuarter'))
   row++
 
   row++

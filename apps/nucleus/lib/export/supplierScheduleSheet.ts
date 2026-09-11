@@ -8,6 +8,16 @@
 // Commercial cost only — there is no cost-visibility choice to make. The
 // internal cross-charge is Royal Mail Group's own arithmetic and is none of a
 // supplier's business.
+//
+// VAT is shown as a real split rather than assumed. SOWs are quoted ex VAT, so
+// Base leads; the inc-VAT total is there because that is the figure that
+// actually hits a budget. VAT chargeability is a per-resource fact — some
+// resources are exempt and land on exactly £0 VAT — so the VAT column is the
+// difference between the two figures the live page itself derives, never a
+// rate applied independently. See supplierRowMoney.
+//
+// There is no Sprint or Month column: this file exists to reconcile a period
+// against a SOW, and a sprint cadence has no part in that.
 
 import type ExcelJS from 'exceljs'
 import { formulaCell } from './formulaCell'
@@ -17,11 +27,14 @@ import {
   writeTableHeader,
   writePlanviewCell,
   writeMoneyCell,
+  writeDaysCell,
   writeRule,
+  writeFootnote,
 } from './scopedSheetChrome'
 import type { SheetColumn } from './scopedSheetChrome'
 import {
-  supplierCommercialFigures,
+  supplierRowMoney,
+  proratedDays,
   formatTeamSplits,
   uniqueNamedPeopleCount,
   distinctTeamCount,
@@ -30,6 +43,8 @@ import {
 import type { VariantAllocationRow } from './scheduleVariantRows'
 import { columnLetter } from './teamScheduleSheet'
 import type { ScopedSheetResult } from './teamScheduleSheet'
+
+const COMMERCIAL_GROUP = 'COMMERCIAL COST — SUPPLIER RATES'
 
 export const SUPPLIER_SCHEDULE_COLUMNS: readonly SheetColumn[] = [
   { key: 'name', header: 'Name', width: 24 },
@@ -41,10 +56,12 @@ export const SUPPLIER_SCHEDULE_COLUMNS: readonly SheetColumn[] = [
   { key: 'location', header: 'Location', width: 13 },
   { key: 'utilisation', header: 'Utilisation', width: 11, align: 'right' },
   { key: 'days', header: 'Total days', width: 11, align: 'right' },
-  { key: 'dayRate', header: 'Day rate', width: 13, align: 'right' },
-  { key: 'sprint', header: 'Sprint (10d)', width: 14, align: 'right' },
-  { key: 'month', header: 'Month (21d)', width: 14, align: 'right' },
-  { key: 'quarter', header: 'Quarter', width: 15, align: 'right' },
+  // Ex-VAT columns say so in their header: a supplier reconciling against a
+  // SOW needs to know which of these to compare it against without asking.
+  { key: 'dayRate', header: 'Day rate (ex VAT)', width: 16, align: 'right', group: COMMERCIAL_GROUP },
+  { key: 'base', header: 'Base (ex VAT)', width: 16, align: 'right', group: COMMERCIAL_GROUP },
+  { key: 'vat', header: 'VAT', width: 14, align: 'right', group: COMMERCIAL_GROUP },
+  { key: 'total', header: 'Total (inc VAT)', width: 16, align: 'right', group: COMMERCIAL_GROUP },
 ]
 
 export interface SupplierScheduleSheetParams {
@@ -62,8 +79,14 @@ function statsLine(rows: readonly VariantAllocationRow[]): string {
   return [
     'Commercial cost only',
     `${named} named ${named === 1 ? 'resource' : 'resources'} across the platform`,
-    'All costs include VAT',
+    'Ex-VAT and inc-VAT shown separately',
   ].join('  ·  ')
+}
+
+/** "7.082%" from a 1.07082 multiplier — the rate the figures were built with. */
+export function formatVatRate(vatMultiplier: number): string {
+  const percent = (vatMultiplier - 1) * 100
+  return `${percent.toLocaleString('en-GB', { maximumFractionDigits: 3 })}%`
 }
 
 export function buildSupplierScheduleSheet(
@@ -109,18 +132,17 @@ export function buildSupplierScheduleSheet(
     utilCell.numFmt = '0%'
     utilCell.alignment = { horizontal: 'right' }
 
-    const daysCell = ws.getCell(row, indexOf('days'))
-    daysCell.value = alloc.capacity_days ?? 0
-    daysCell.numFmt = '0.#'
-    daysCell.alignment = { horizontal: 'right' }
+    // Unscoped, so this is the resource's full period — this file is not a
+    // team's view of them.
+    writeDaysCell(ws, row, indexOf('days'), proratedDays(alloc, null))
 
-    // Every row is priced, NPC included — see supplierCommercialFigures for
-    // why this file disagrees with the Team Schedule on exactly that point.
-    const figures = supplierCommercialFigures(alloc, vatMultiplier)
-    writeMoneyCell(ws, row, indexOf('dayRate'), alloc.day_rate)
-    writeMoneyCell(ws, row, indexOf('sprint'), figures.sprintPence)
-    writeMoneyCell(ws, row, indexOf('month'), figures.monthPence)
-    writeMoneyCell(ws, row, indexOf('quarter'), figures.quarterPence)
+    // Every row is priced, NPC included — see supplierRowMoney for why this
+    // file disagrees with the Team Schedule on exactly that point.
+    const money = supplierRowMoney(alloc, vatMultiplier)
+    writeMoneyCell(ws, row, indexOf('dayRate'), money.dayRatePence)
+    writeMoneyCell(ws, row, indexOf('base'), money.basePence)
+    writeMoneyCell(ws, row, indexOf('vat'), money.vatPence)
+    writeMoneyCell(ws, row, indexOf('total'), money.totalPence)
 
     row++
   }
@@ -133,13 +155,17 @@ export function buildSupplierScheduleSheet(
   ws.getCell(totalRow, 1).value = 'Supplier total'
   ws.getCell(totalRow, 1).font = { bold: true, size: 10 }
 
-  // Day rate is not summed, for the same reason as on the Team Schedule.
+  // Day rate is not summed: adding up per-person rates produces a number that
+  // looks like a supplier figure and means nothing.
   const rateTotal = ws.getCell(totalRow, indexOf('dayRate'))
   rateTotal.value = '—'
   rateTotal.alignment = { horizontal: 'right' }
   rateTotal.font = { bold: true, size: 10 }
 
-  for (const key of ['sprint', 'month', 'quarter']) {
+  // Each total is a SUM over the column printed above it, so the bar can only
+  // ever agree with the rows a reader can see — never a parallel recomputation
+  // that could drift from them.
+  for (const key of ['base', 'vat', 'total']) {
     const colIndex = indexOf(key)
     const letter = columnLetter(colIndex)
     const cell = ws.getCell(totalRow, colIndex)
@@ -150,6 +176,40 @@ export function buildSupplierScheduleSheet(
     cell.font = { bold: true, size: 10 }
     cell.alignment = { horizontal: 'right' }
   }
+  row += 2
+
+  // Summary bar: the two totals a SOW reconciliation needs, plus the rate they
+  // were built with so the arithmetic can be checked without opening a cell.
+  const exVatRef = `${columnLetter(indexOf('base'))}${totalRow}`
+  const incVatRef = `${columnLetter(indexOf('total'))}${totalRow}`
+
+  ws.getCell(row, 1).value = 'Ex VAT total'
+  ws.getCell(row, 1).font = { bold: true, size: 10 }
+  const exVatCell = ws.getCell(row, 2)
+  exVatCell.value = hasRows ? formulaCell(exVatRef) : 0
+  exVatCell.numFmt = MONEY_FORMAT
+  exVatCell.font = { bold: true, size: 10 }
+  row++
+
+  ws.getCell(row, 1).value = 'Inc VAT total'
+  ws.getCell(row, 1).font = { bold: true, size: 10 }
+  const incVatCell = ws.getCell(row, 2)
+  incVatCell.value = hasRows ? formulaCell(incVatRef) : 0
+  incVatCell.numFmt = MONEY_FORMAT
+  incVatCell.font = { bold: true, size: 10 }
+  row++
+
+  ws.getCell(row, 1).value = 'VAT rate applied'
+  ws.getCell(row, 1).font = { bold: true, size: 10 }
+  ws.getCell(row, 2).value = formatVatRate(vatMultiplier)
+  ws.getCell(row, 2).font = { bold: true, size: 10 }
+  row++
+
+  writeFootnote(
+    ws,
+    row,
+    'VAT is set per resource — an exempt resource shows £0 VAT, so its Base and Total match.',
+  )
   row += 2
 
   const people = uniqueNamedPeopleCount(rows)
@@ -165,8 +225,8 @@ export function buildSupplierScheduleSheet(
   ws.getCell(row, 1).font = { bold: true, size: 10 }
 
   ws.autoFilter = {
-    from: { row: headerRow, column: 1 },
-    to: { row: headerRow, column: colCount },
+    from: { row: headerRow + 1, column: 1 },
+    to: { row: headerRow + 1, column: colCount },
   }
 
   return { firstDataRow, lastDataRow, totalRow, columnCount: colCount }

@@ -5,10 +5,6 @@ import {
   DEFAULT_EXPORT_VARIANT_ID,
   parseExportVariantId,
   getExportVariant,
-  resolveCostVisibility,
-  showsCommercialCost,
-  showsInternalCost,
-  isRateSensitive,
 } from '../exportVariants'
 
 describe('export variant registry', () => {
@@ -36,52 +32,39 @@ describe('export variant registry', () => {
   })
 })
 
-describe('cost visibility', () => {
-  it('defaults the Team Schedule to internal-only — the forwardable file', () => {
-    expect(resolveCostVisibility('team-schedule', null)).toBe('internal')
-  })
+/* ══════════════════════════════════════════════════════════════════════
+   There is no cost-visibility control any more, on any variant.
 
-  it('honours an explicit Team Schedule choice', () => {
-    expect(resolveCostVisibility('team-schedule', 'commercial')).toBe('commercial')
-    expect(resolveCostVisibility('team-schedule', 'both')).toBe('both')
-  })
+   Each file now has exactly one answer built into it — the Team Schedule
+   carries no commercial content at all, the Supplier Schedule is
+   commercial-only — because an export-time option only keeps supplier rates
+   from the wrong reader when whoever exports it picks correctly every time.
+   These tests pin the ABSENCE, so reintroducing a toggle has to be a
+   deliberate act that breaks them rather than a quiet addition.
+══════════════════════════════════════════════════════════════════════ */
 
-  it('falls back to the default for a nonsense Team Schedule value', () => {
-    expect(resolveCostVisibility('team-schedule', 'everything')).toBe('internal')
-  })
-
-  // A hand-edited query string must not be able to change what a variant that
-  // fixes its own visibility will show — in either direction.
-  it('ignores any requested value on the Supplier Schedule', () => {
-    expect(resolveCostVisibility('supplier-schedule', null)).toBe('commercial')
-    expect(resolveCostVisibility('supplier-schedule', 'internal')).toBe('commercial')
-    expect(resolveCostVisibility('supplier-schedule', 'both')).toBe('commercial')
-  })
-
-  it('states the Supplier Schedule’s fixed note for the modal to show', () => {
-    const control = getExportVariant('supplier-schedule').costVisibility
-    expect(control.kind).toBe('fixed')
-    if (control.kind === 'fixed') {
-      expect(control.note).toBe(
-        'Always shows commercial cost only — the figure suppliers need for reconciliation.',
-      )
+describe('no variant offers a cost-visibility choice', () => {
+  it('exposes no cost-visibility field on any registered variant', () => {
+    for (const variant of EXPORT_VARIANTS) {
+      expect(variant).not.toHaveProperty('costVisibility')
     }
   })
 
-  it('maps each visibility to the cost groups it shows', () => {
-    expect(showsInternalCost('internal')).toBe(true)
-    expect(showsCommercialCost('internal')).toBe(false)
-
-    expect(showsCommercialCost('commercial')).toBe(true)
-    expect(showsInternalCost('commercial')).toBe(false)
-
-    expect(showsCommercialCost('both')).toBe(true)
-    expect(showsInternalCost('both')).toBe(true)
+  it('gives the Team Schedule no note and nothing to choose — just a team', () => {
+    const team = getExportVariant('team-schedule')
+    expect(team.scope).toBe('team')
+    expect(team.note).toBeUndefined()
   })
 
-  it('flags exactly the visibilities that put supplier rates in the file', () => {
-    expect(isRateSensitive('internal')).toBe(false)
-    expect(isRateSensitive('commercial')).toBe(true)
-    expect(isRateSensitive('both')).toBe(true)
+  it('keeps the Supplier Schedule’s fixed note, which states rather than offers', () => {
+    expect(getExportVariant('supplier-schedule').note).toBe(
+      'Always shows commercial cost only — the figure suppliers need for reconciliation.',
+    )
+  })
+
+  it('describes the Team Schedule as carrying no supplier rates', () => {
+    // The description is what a user reads before clicking Export; it should
+    // say the file is safe to forward, since that is now structurally true.
+    expect(getExportVariant('team-schedule').description).toContain('no supplier rates')
   })
 })
