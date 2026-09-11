@@ -72,6 +72,13 @@ export interface SupplierScheduleSheetParams {
   dateRange: string
   exportedAt: string
   vatMultiplier: number
+  /**
+   * The supplier's brand colour, read live from suppliers.supplier_colour —
+   * never a per-name lookup, since the table is the source of truth and a
+   * supplier can change theirs. Drives the header's left-edge accent stripe,
+   * and the title text too where it is light enough to read on the dark band.
+   */
+  supplierColour?: string | null
 }
 
 function statsLine(rows: readonly VariantAllocationRow[]): string {
@@ -92,7 +99,8 @@ export function formatVatRate(vatMultiplier: number): string {
 export function buildSupplierScheduleSheet(
   params: SupplierScheduleSheetParams,
 ): ScopedSheetResult {
-  const { ws, rows, supplierName, periodName, dateRange, exportedAt, vatMultiplier } = params
+  const { ws, rows, supplierName, periodName, dateRange, exportedAt, vatMultiplier, supplierColour } =
+    params
 
   const columns = SUPPLIER_SCHEDULE_COLUMNS
   const colCount = columns.length
@@ -109,6 +117,7 @@ export function buildSupplierScheduleSheet(
     exportedAt,
     statsLine: statsLine(rows),
     colCount,
+    accentHex: supplierColour,
   })
 
   const headerRow = row

@@ -577,6 +577,9 @@ export async function GET(request: Request): Promise<Response> {
         dateRange: scopedRange,
         exportedAt,
         vatMultiplier,
+        // Straight from the suppliers table via the allocation join — the
+        // header accent is never keyed on the supplier's name.
+        supplierColour: supplierRow.supplier_colour,
       })
     }
 

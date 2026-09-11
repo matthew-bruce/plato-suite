@@ -226,24 +226,52 @@ export function getPlanBadgeStyle(code: string | null | undefined): BadgeStyle {
 }
 
 // W3C relative luminance — pick readable text colour on supplier backgrounds.
-export function getTextColour(bgHex: string): '#ffffff' | '#2A2A2D' {
-  const hex = bgHex.trim().replace('#', '')
+/**
+ * W3C relative luminance, or null if the input is not a usable hex colour.
+ *
+ * Accepts "#abc", "#aabbcc", and the 8-digit "AARRGGBB" the workbook code
+ * passes around (the alpha is dropped — it says nothing about luminance).
+ * Tolerating all three matters because this codebase genuinely mixes them:
+ * the export's own palette constants are ARGB while the suppliers table
+ * stores plain "#RRGGBB".
+ */
+export function relativeLuminance(hex: string): number | null {
+  const clean = hex.trim().replace('#', '')
   const normalised =
-    hex.length === 3
-      ? hex
+    clean.length === 3
+      ? clean
           .split('')
           .map((c) => c + c)
           .join('')
-      : hex
-  if (normalised.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(normalised)) {
-    return '#2A2A2D'
-  }
-  const r = parseInt(normalised.slice(0, 2), 16) / 255
-  const g = parseInt(normalised.slice(2, 4), 16) / 255
-  const b = parseInt(normalised.slice(4, 6), 16) / 255
+      : clean.length === 8
+        ? clean.slice(2)
+        : clean
+  if (normalised.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(normalised)) return null
   const lin = (c: number) =>
     c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  const r = lin(parseInt(normalised.slice(0, 2), 16) / 255)
+  const g = lin(parseInt(normalised.slice(2, 4), 16) / 255)
+  const b = lin(parseInt(normalised.slice(4, 6), 16) / 255)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/**
+ * WCAG contrast ratio between two colours, 1 (identical) to 21 (black on
+ * white). Returns 1 — the least favourable answer — for an unreadable input,
+ * so a caller gating on a minimum ratio fails closed rather than open.
+ */
+export function contrastRatio(a: string, b: string): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  if (la === null || lb === null) return 1
+  const hi = Math.max(la, lb)
+  const lo = Math.min(la, lb)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+export function getTextColour(bgHex: string): '#ffffff' | '#2A2A2D' {
+  const L = relativeLuminance(bgHex)
+  if (L === null) return '#2A2A2D'
   return L > 0.5 ? '#2A2A2D' : '#ffffff'
 }
 

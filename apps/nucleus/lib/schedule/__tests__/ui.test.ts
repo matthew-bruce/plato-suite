@@ -20,6 +20,8 @@ import {
   sumChargeableDays,
   formatDaysTotal,
   roundDays,
+  relativeLuminance,
+  contrastRatio,
 } from '../ui'
 
 describe('formatMoney', () => {
@@ -261,6 +263,42 @@ describe('getPlanBadgeStyle', () => {
   })
   it('falls back to the default style for unmapped codes', () => {
     expect(getPlanBadgeStyle('SomethingElse')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
+  })
+})
+
+describe('relativeLuminance', () => {
+  it('anchors at the ends of the scale', () => {
+    expect(relativeLuminance('#000000')).toBe(0)
+    expect(relativeLuminance('#FFFFFF')).toBeCloseTo(1, 10)
+  })
+  it('accepts 3-digit, 6-digit and 8-digit ARGB alike', () => {
+    // The workbook code passes ARGB; the suppliers table stores #RRGGBB.
+    expect(relativeLuminance('#fff')).toBeCloseTo(relativeLuminance('#FFFFFF')!, 10)
+    expect(relativeLuminance('FF2A2A2D')).toBeCloseTo(relativeLuminance('#2A2A2D')!, 10)
+  })
+  it('returns null for anything unreadable', () => {
+    expect(relativeLuminance('not-a-colour')).toBeNull()
+    expect(relativeLuminance('')).toBeNull()
+    expect(relativeLuminance('#12345')).toBeNull()
+  })
+})
+
+describe('contrastRatio', () => {
+  it('spans 1:1 to 21:1', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5)
+    expect(contrastRatio('#123456', '#123456')).toBeCloseTo(1, 10)
+  })
+  it('is symmetric', () => {
+    expect(contrastRatio('#E2001A', '#2A2A2D')).toBeCloseTo(
+      contrastRatio('#2A2A2D', '#E2001A'),
+      10,
+    )
+  })
+  // Fails closed: an unusable colour must never be treated as legible, or a
+  // gate built on this would let illegible text through.
+  it('returns the least favourable answer for an unreadable input', () => {
+    expect(contrastRatio('garbage', '#FFFFFF')).toBe(1)
+    expect(contrastRatio('#FFFFFF', 'garbage')).toBe(1)
   })
 })
 

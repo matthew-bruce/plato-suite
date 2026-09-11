@@ -4,6 +4,12 @@ import ExcelJS from 'exceljs'
 import * as teamSheetModule from '../teamScheduleSheet'
 import { buildTeamScheduleSheet, teamScheduleColumns, columnLetter } from '../teamScheduleSheet'
 import { buildSupplierScheduleSheet, SUPPLIER_SCHEDULE_COLUMNS } from '../supplierScheduleSheet'
+import {
+  DARK_BAND,
+  HEADER_TITLE_MIN_CONTRAST,
+  headerTitleColour,
+} from '../scopedSheetChrome'
+import { contrastRatio } from '../../schedule/ui'
 import { buildSampleExportWorkbook, SCOPED_SHEET_FIXTURE } from './exportFormulaSample'
 import {
   NOT_APPLICABLE,
@@ -993,5 +999,167 @@ describe('Team Schedule never calls a commercial cost writer', () => {
     for (const name of exported) {
       expect(name.toLowerCase()).not.toContain('commercial')
     }
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   Supplier colour accent on the Supplier Schedule header.
+
+   The stripe is the identification cue and works for any colour, because a
+   border does not have to be legible as text. The title only takes the
+   brand colour where it actually reads on the near-black header band — most
+   of the current palette is dark (navy, deep blue, charcoal) and would be
+   close to invisible.
+
+   The palette below mirrors suppliers.supplier_colour as it stands. It is a
+   fixture, not a source of truth: production reads the column. Its job is to
+   prove the RULE holds across every colour in real use, and the last test in
+   this block asserts the invariant that matters — whatever colour is chosen,
+   it is legible — which stays true even if every value here changes.
+══════════════════════════════════════════════════════════════════════ */
+
+/** The light ground a sheet sits on, outside the header band's fill. */
+const PAGE_GROUND = '#F1F2F5'
+
+const LIVE_SUPPLIER_PALETTE: { name: string; colour: string }[] = [
+  { name: 'Royal Mail Group', colour: '#E2001A' },
+  { name: 'North Highland', colour: '#1A2B5B' },
+  { name: 'Happy Team', colour: '#FF8C00' },
+  { name: 'Capgemini', colour: '#003C82' },
+  { name: 'Tata Consultancy Services', colour: '#9B0A6E' },
+  { name: 'Lean Tree', colour: '#3ABFB8' },
+  { name: 'EPAM', colour: '#3D3D3D' },
+  { name: 'TAAS', colour: '#7C3AED' },
+  { name: 'HCL', colour: '#1976F2' },
+]
+
+function buildAccentSheet(colour: string | null, supplierName = 'Capgemini') {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('S')
+  const result = buildSupplierScheduleSheet({
+    ws,
+    rows: CAPGEMINI_ROWS,
+    supplierName,
+    periodName: 'Q3 FY 26/27',
+    dateRange: '01 Oct 2026 – 31 Dec 2026',
+    exportedAt: 'Exported 11 Sep 2026 at 09:00',
+    vatMultiplier: VAT,
+    supplierColour: colour,
+  })
+  return { ws, result }
+}
+
+describe('Supplier Schedule header accent', () => {
+  it('draws a left-edge stripe in the supplier’s own colour', () => {
+    const { ws } = buildAccentSheet('#9B0A6E') // TCS magenta
+    const stripe = ws.getCell(2, 1).border?.left
+    expect(stripe?.style).toBe('thick')
+    expect(stripe?.color?.argb).toBe('FF9B0A6E')
+  })
+
+  it('runs the stripe down the whole header block, not one row', () => {
+    const { ws } = buildAccentSheet('#9B0A6E')
+    for (let row = 1; row <= 4; row++) {
+      expect(ws.getCell(row, 1).border?.left?.color?.argb).toBe('FF9B0A6E')
+    }
+    // ...and stops before the table beneath it.
+    expect(ws.getCell(7, 1).border?.left?.color?.argb).not.toBe('FF9B0A6E')
+  })
+
+  it('takes the colour from what it is given, not from the supplier name', () => {
+    // Same supplier name, two different colours in, two different stripes out:
+    // there is no name-keyed lookup anywhere in the path.
+    expect(buildAccentSheet('#FF8C00', 'Capgemini').ws.getCell(2, 1).border?.left?.color?.argb)
+      .toBe('FFFF8C00')
+    expect(buildAccentSheet('#3ABFB8', 'Capgemini').ws.getCell(2, 1).border?.left?.color?.argb)
+      .toBe('FF3ABFB8')
+  })
+
+  it('draws no stripe at all when a supplier has no colour set', () => {
+    const { ws } = buildAccentSheet(null)
+    expect(ws.getCell(2, 1).border?.left).toBeUndefined()
+    // And the title stays white rather than becoming undefined.
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+  })
+
+  it('uses a light brand colour as the title text', () => {
+    // Happy Team orange is 6.13:1 on the band — comfortably legible.
+    const { ws } = buildAccentSheet('#FF8C00')
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFF8C00')
+  })
+
+  it('falls back to white for a dark brand colour, keeping the stripe coloured', () => {
+    // EPAM charcoal is 1.32:1 on the band — unreadable as text.
+    const { ws } = buildAccentSheet('#3D3D3D')
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+    // The stripe still carries the identification.
+    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe('FF3D3D3D')
+  })
+
+  it('falls back to white for TCS magenta too, at 1.81:1', () => {
+    // Worth pinning by name: TCS is the colour the original mockup showed,
+    // and it is NOT legible as text on this band. The stripe is what carries
+    // it, which is why the stripe is the primary cue rather than the text.
+    const { ws } = buildAccentSheet('#9B0A6E')
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe('FF9B0A6E')
+  })
+
+  it('ignores a malformed colour rather than emitting invalid XML', () => {
+    const { ws } = buildAccentSheet('not-a-colour')
+    // toArgb falls back to neutral grey; the title must not take it as text.
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+  })
+
+  // The invariant, checked across every colour actually in the suppliers
+  // table: whatever the rule picks, a reader can read it.
+  it.each(LIVE_SUPPLIER_PALETTE)(
+    'renders $name’s header title legibly (contrast ≥ 3:1)',
+    ({ colour }) => {
+      // contrastRatio takes ARGB or hex, so the chosen value goes in as-is.
+      expect(contrastRatio(headerTitleColour(colour), DARK_BAND))
+        .toBeGreaterThanOrEqual(HEADER_TITLE_MIN_CONTRAST)
+    },
+  )
+
+  it.each(LIVE_SUPPLIER_PALETTE)('gives $name a stripe in its exact brand colour', ({ colour }) => {
+    // Every supplier gets identified by the stripe, including the ones whose
+    // title falls back to white.
+    const { ws } = buildAccentSheet(colour)
+    expect(ws.getCell(2, 1).border?.left?.color?.argb).toBe(`FF${colour.slice(1).toUpperCase()}`)
+  })
+
+  // The stripe's own legibility invariant, and the reason the stripe can
+  // carry every colour where the title cannot: it has TWO edges. A dark
+  // brand (navy, charcoal) is invisible against the near-black band but
+  // strong against the light page beyond the sheet's left margin; a light
+  // brand (orange, teal) is the other way round. Text has only the band.
+  it.each(LIVE_SUPPLIER_PALETTE)('makes $name’s stripe visible at one of its edges', ({ colour }) => {
+    const againstPage = contrastRatio(colour, PAGE_GROUND)
+    const againstBand = contrastRatio(colour, DARK_BAND)
+    expect(Math.max(againstPage, againstBand)).toBeGreaterThanOrEqual(3)
+  })
+
+  it('only uses the brand colour as text when it genuinely passes the gate', () => {
+    // Not a blanket "always white" — the rule has to actually discriminate,
+    // or it is not doing the job the contrast check exists for.
+    const chosen = LIVE_SUPPLIER_PALETTE.map((s) => headerTitleColour(s.colour))
+    expect(chosen.some((c) => c === 'FFFFFFFF')).toBe(true)
+    expect(chosen.some((c) => c !== 'FFFFFFFF')).toBe(true)
+  })
+})
+
+describe('Team Schedule takes no supplier colour treatment', () => {
+  it('accepts no accent parameter and draws no stripe', () => {
+    const { ws } = buildTeamSheet()
+    expect(ws.getCell(2, 1).border?.left).toBeUndefined()
+    // Title stays white — a team has no owning supplier to colour it by.
+    expect(ws.getCell(2, 1).font?.color?.argb).toBe('FFFFFFFF')
+  })
+
+  it('never passes an accent through its sheet module', () => {
+    const source = readFileSync(new URL('../teamScheduleSheet.ts', import.meta.url), 'utf8')
+    expect(source).not.toContain('accentHex')
+    expect(source).not.toContain('supplierColour')
   })
 })

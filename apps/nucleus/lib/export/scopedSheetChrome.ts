@@ -14,7 +14,7 @@ import type ExcelJS from 'exceljs'
 import { toArgb, supplierTint } from './richText'
 import { planviewStyle, planviewLabel } from './planviewColours'
 import { NOT_APPLICABLE } from './scheduleVariantRows'
-import { roundDays } from '../schedule/ui'
+import { roundDays, contrastRatio } from '../schedule/ui'
 
 export const DARK_BAND = 'FF2A2A2D'
 const HEADER_BAND = 'FF404044'
@@ -45,6 +45,37 @@ export const WHOLE_MONEY_FORMAT = '£#,##0'
  * the file reads identically to the same figure on the page.
  */
 export const DAYS_NUMBER_FORMAT = 'General'
+
+/**
+ * The minimum contrast a supplier's own colour must reach against the header
+ * band before it is used as the title's TEXT colour.
+ *
+ * 3:1 is the WCAG AA threshold for large text, and the title genuinely is
+ * large — 22pt bold, well past the 18.66px-bold cutoff. Anything dimmer than
+ * this falls back to white; see headerTitleColour.
+ */
+export const HEADER_TITLE_MIN_CONTRAST = 3
+
+/**
+ * What colour a scoped sheet's title should actually be printed in.
+ *
+ * A supplier's brand colour is used only where it is legible on the dark
+ * header band, and white otherwise. This is not a stylistic preference: most
+ * of the current palette is dark — navy, deep blue, charcoal — and those
+ * colours on a near-black band are close to invisible. The left-edge stripe
+ * carries the identification regardless, so nothing is lost by printing an
+ * unreadable name in white instead.
+ *
+ * Measured live rather than assumed per supplier, so a supplier that later
+ * changes to a lighter colour picks it up automatically and one that darkens
+ * stops using it — no list of names anywhere.
+ */
+export function headerTitleColour(accentHex: string | null | undefined): string {
+  if (!accentHex) return WHITE
+  return contrastRatio(accentHex, DARK_BAND) >= HEADER_TITLE_MIN_CONTRAST
+    ? toArgb(accentHex)
+    : WHITE
+}
 
 /** Writes a Days cell: shared rounding rule, numeric cell, General format. */
 export function writeDaysCell(
@@ -83,6 +114,13 @@ export interface SheetColumn {
  * FY26/27), so there is no one number that is true for the whole file — and
  * printing one invites every figure below it to be checked against the wrong
  * denominator.
+ *
+ * `accentHex`, where given, draws a coloured stripe down the left edge of the
+ * whole block — the same cue the live Schedule page uses to mark a supplier
+ * group. It is the unambiguous "whose file is this" signal, and it works for
+ * every colour because a border does not have to be legible as text. The
+ * title only takes the colour too when it is light enough to read; see
+ * headerTitleColour.
  */
 export function writeScopedHeader(params: {
   ws: ExcelJS.Worksheet
@@ -94,10 +132,18 @@ export function writeScopedHeader(params: {
   exportedAt: string
   statsLine: string
   colCount: number
+  /**
+   * A supplier's brand colour, straight from suppliers.supplier_colour.
+   * Omitted for files that have no single owning supplier.
+   */
+  accentHex?: string | null
 }): number {
-  const { ws, startRow, eyebrow, title, periodName, dateRange, exportedAt, statsLine, colCount } =
-    params
+  const {
+    ws, startRow, eyebrow, title, periodName, dateRange, exportedAt, statsLine, colCount,
+    accentHex,
+  } = params
   let row = startRow
+  const headerFirstRow = startRow
 
   const band = (r: number) => {
     for (let c = 1; c <= colCount; c++) {
@@ -120,7 +166,11 @@ export function writeScopedHeader(params: {
   band(row)
   ws.getRow(row).height = 30
   ws.getCell(row, 1).value = title
-  ws.getCell(row, 1).font = { bold: true, color: { argb: toArgb(WHITE) }, size: 22 }
+  ws.getCell(row, 1).font = {
+    bold: true,
+    color: { argb: headerTitleColour(accentHex) },
+    size: 22,
+  }
   const rangeCell = ws.getCell(row, Math.max(1, colCount - 2))
   rangeCell.value = dateRange
   rangeCell.font = { color: { argb: toArgb(SUBTLE_TEXT) }, size: 10 }
@@ -142,6 +192,19 @@ export function writeScopedHeader(params: {
   // Row 5 — breathing room before the table.
   ws.getRow(row).height = 6
   row++
+
+  // The accent stripe, drawn last so it sits over the band fills: a thick
+  // left border down column A for the height of the header block. A border
+  // rather than a filled spacer column, because that is what the live page
+  // does for a supplier group and because a spacer would push an empty
+  // column through the data table underneath.
+  if (accentHex) {
+    const argb = toArgb(accentHex)
+    for (let r = headerFirstRow; r < row; r++) {
+      const cell = ws.getCell(r, 1)
+      cell.border = { ...cell.border, left: { style: 'thick', color: { argb } } }
+    }
+  }
 
   return row
 }
