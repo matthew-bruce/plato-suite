@@ -37,7 +37,6 @@ import {
   proratedDays,
   formatTeamSplits,
   uniqueNamedPeopleCount,
-  distinctTeamCount,
   totalFte,
 } from './scheduleVariantRows'
 import type { VariantAllocationRow } from './scheduleVariantRows'
@@ -160,8 +159,8 @@ export function buildSupplierScheduleSheet(
     // team's view of them.
     writeDaysCell(ws, row, indexOf('days'), proratedDays(alloc, null))
 
-    // Every row is priced, NPC included — see supplierRowMoney for why this
-    // file disagrees with the Team Schedule on exactly that point.
+    // NPC rows list but price at zero, matching the Rate Calculator and the
+    // Team Schedule — see supplierRowMoney.
     const money = supplierRowMoney(alloc, vatMultiplier)
     writeMoneyCell(ws, row, indexOf('dayRate'), money.dayRatePence)
     writeMoneyCell(ws, row, indexOf('base'), money.basePence)
@@ -236,16 +235,15 @@ export function buildSupplierScheduleSheet(
   )
   row += 2
 
+  // No team count here. A supplier's people are spread across teams by RMG's
+  // own planning and the number says nothing a supplier can act on; it is the
+  // Team Schedule that is about teams.
   const people = uniqueNamedPeopleCount(rows)
   const fte = totalFte(rows)
-  const teamCount = distinctTeamCount(rows)
   ws.getCell(row, 1).value = `Supplier size: ${people} named ${people === 1 ? 'person' : 'people'}`
   ws.getCell(row, 1).font = { bold: true, size: 10 }
   row++
   ws.getCell(row, 1).value = `Total FTE: ${fte.toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
-  ws.getCell(row, 1).font = { bold: true, size: 10 }
-  row++
-  ws.getCell(row, 1).value = `Teams covered: ${teamCount}`
   ws.getCell(row, 1).font = { bold: true, size: 10 }
 
   ws.autoFilter = {

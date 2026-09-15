@@ -232,17 +232,33 @@ describe('Supplier Schedule sheet', () => {
     expect(stats).toContain('Ex-VAT and inc-VAT shown separately')
   })
 
-  it('prices the NPC resource for real — the divergence from Team Schedule', () => {
+  it('prices the NPC resource at zero in every money column', () => {
     const { ws, result } = buildSupplierSheet()
-    const base = cellFor(
-      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, CAPGEMINI_ROWS, 'a-npc', 'base',
-    )
-    expect(typeof base.value).toBe('number')
-    expect(base.value as number).toBeGreaterThan(0)
+    for (const key of ['dayRate', 'base', 'vat', 'total']) {
+      const cell = cellFor(
+        ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, CAPGEMINI_ROWS, 'a-npc', key,
+      )
+      expect(cell.value, key).toBe(0)
+    }
   })
 
-  // The same fixture row, rendered by both sheets, on purpose disagreeing.
-  it('disagrees with the Team Schedule about that exact row', () => {
+  it('still lists the NPC person — this zeroes cost, it does not hide anyone', () => {
+    const { ws, result } = buildSupplierSheet()
+    const name = cellFor(
+      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, CAPGEMINI_ROWS, 'a-npc', 'name',
+    )
+    expect(name.value).toBeTruthy()
+    // And with their real day count: the row is a real person's real presence.
+    const days = cellFor(
+      ws, SUPPLIER_SCHEDULE_COLUMNS, result.firstDataRow, CAPGEMINI_ROWS, 'a-npc', 'days',
+    )
+    expect(days.value as number).toBeGreaterThan(0)
+  })
+
+  // The same fixture row, rendered by both sheets, now agreeing. This test
+  // previously asserted the opposite and was named "disagrees with the Team
+  // Schedule about that exact row".
+  it('agrees with the Team Schedule about that exact row', () => {
     const supplier = buildSupplierSheet()
     const team = buildTeamSheet()
 
@@ -250,14 +266,15 @@ describe('Supplier Schedule sheet', () => {
       supplier.ws, SUPPLIER_SCHEDULE_COLUMNS, supplier.result.firstDataRow,
       CAPGEMINI_ROWS, 'a-npc', 'total',
     ).value
-    // The Team Schedule's only cost group is cross-charge, and NPC is not
-    // cross-charged — so the same person is money here and nothing there.
     const onTeam = cellFor(
       team.ws, team.columns, team.result.firstDataRow, PLUTO_ROWS, 'a-npc', 'xcQuarter',
     ).value
 
+    // The two files still SAY it differently — the Team Schedule has no
+    // commercial column at all, so its cross-charge cell is "—" rather than a
+    // zero — but neither attributes money to this person.
     expect(onTeam).toBe(NOT_APPLICABLE)
-    expect(typeof onSupplier).toBe('number')
+    expect(onSupplier).toBe(0)
   })
 
   it('carries no cross-charge column at all', () => {
@@ -292,7 +309,7 @@ describe('Supplier Schedule sheet', () => {
     expect(header('total')).toBe('Total (inc VAT)')
   })
 
-  it('reports people, FTE and the number of teams covered', () => {
+  it('reports people and FTE, and no longer a team count', () => {
     const { ws } = buildSupplierSheet()
     const text: string[] = []
     ws.eachRow((r) => {
@@ -302,7 +319,105 @@ describe('Supplier Schedule sheet', () => {
     })
     expect(text.some((t) => t.startsWith('Supplier size:'))).toBe(true)
     expect(text.some((t) => t.startsWith('Total FTE:'))).toBe(true)
-    expect(text.some((t) => t.startsWith('Teams covered:'))).toBe(true)
+    // "Teams covered: N" was removed: a supplier cannot act on how RMG has
+    // spread their people across teams, and the number invited the reading
+    // that it was somehow theirs to manage.
+    expect(text.some((t) => t.startsWith('Teams covered'))).toBe(false)
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   NPC costs nothing on the Supplier Schedule — whole-sheet proof.
+
+   The row-level rule is tested in scheduleVariantRows.test.ts. What these add
+   is the built sheet: the totals bar is a SUM() over the printed column, so a
+   zeroed row and a zeroed total have to agree by construction, and an all-NPC
+   supplier has to come out at exactly nothing rather than nearly nothing.
+══════════════════════════════════════════════════════════════════════ */
+
+describe('Supplier Schedule — an all-NPC supplier totals zero', () => {
+  const ALL_NPC = [
+    { ...CAPGEMINI_ROWS[0], allocation_id: 'z1', resource_id: 'z-1', planview_code: 'NPC' },
+    { ...CAPGEMINI_ROWS[0], allocation_id: 'z2', resource_id: 'z-2', planview_code: 'NPC', day_rate: 99_900 },
+    { ...CAPGEMINI_ROWS[0], allocation_id: 'z3', resource_id: 'z-3', planview_code: 'NPC', capacity_days: 64 },
+  ]
+
+  function sheetFor(rows: typeof ALL_NPC) {
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('S')
+    const result = buildSupplierScheduleSheet({
+      ws,
+      rows,
+      supplierName: 'Nowhere Ltd',
+      periodName: 'Q3 FY 26/27',
+      dateRange: '01 Oct 2026 – 31 Dec 2026',
+      exportedAt: 'Exported 15 Sep 2026 at 09:00',
+      vatMultiplier: VAT,
+    })
+    return { ws, result }
+  }
+
+  it('writes a literal 0 in every money cell of every row', () => {
+    const { ws, result } = sheetFor(ALL_NPC)
+    for (let r = result.firstDataRow; r <= result.lastDataRow; r++) {
+      for (const key of ['dayRate', 'base', 'vat', 'total']) {
+        const col = SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === key) + 1
+        expect(ws.getCell(r, col).value, `row ${r} ${key}`).toBe(0)
+      }
+    }
+  })
+
+  it('still lists all three people', () => {
+    const { result } = sheetFor(ALL_NPC)
+    expect(result.lastDataRow - result.firstDataRow + 1).toBe(3)
+  })
+
+  it('sums the printed column, so the totals bar is zero by construction', () => {
+    const { ws, result } = sheetFor(ALL_NPC)
+    for (const key of ['base', 'vat', 'total']) {
+      const col = SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === key) + 1
+      const cell = ws.getCell(result.totalRow, col)
+      // A SUM() formula over rows that are all literal zero — not a separately
+      // computed figure that could drift from what the reader can see.
+      expect(cell.value, key).toHaveProperty('formula')
+    }
+  })
+
+  it('zeroes regardless of day rate or day count', () => {
+    // The three fixture rows differ in rate and days precisely so a passing
+    // total cannot be an accident of one row happening to price at nothing.
+    const { ws, result } = sheetFor(ALL_NPC)
+    const col = SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === 'base') + 1
+    expect(ws.getCell(result.lastDataRow, col).value).toBe(0)
+  })
+})
+
+describe('Supplier Schedule — a mixed supplier counts only the costed rows', () => {
+  it('leaves PR and F_Gov untouched while zeroing NPC and BAU', () => {
+    const base = (key: string, row: number, ws: ExcelJS.Worksheet) =>
+      ws.getCell(row, SUPPLIER_SCHEDULE_COLUMNS.findIndex((c) => c.key === key) + 1).value
+
+    const rows = ['PR', 'F_Gov', 'BAU', 'NPC'].map((code, i) => ({
+      ...CAPGEMINI_ROWS[0],
+      allocation_id: `m${i}`,
+      resource_id: `m-${i}`,
+      planview_code: code,
+    }))
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('M')
+    const result = buildSupplierScheduleSheet({
+      ws, rows, supplierName: 'Mixed', periodName: 'Q3 FY 26/27',
+      dateRange: '01 Oct 2026 – 31 Dec 2026', exportedAt: 'x', vatMultiplier: VAT,
+    })
+
+    const [pr, fgov, bau, npc] = [0, 1, 2, 3].map((i) => result.firstDataRow + i)
+    // F_Gov is the one that would break if this were keyed on is_chargeable:
+    // its cost is real and the supplier is genuinely owed it.
+    expect(base('base', pr, ws) as number).toBeGreaterThan(0)
+    expect(base('base', fgov, ws) as number).toBeGreaterThan(0)
+    expect(base('base', bau, ws)).toBe(0)
+    expect(base('base', npc, ws)).toBe(0)
+    expect(base('base', pr, ws)).toBe(base('base', fgov, ws))
   })
 })
 

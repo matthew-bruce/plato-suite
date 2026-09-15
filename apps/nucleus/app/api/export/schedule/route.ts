@@ -56,6 +56,8 @@ interface AllocationRow {
   capacity_days: number | null
   day_rate: number
   vat_applies: boolean
+  /** The manual drag-and-drop position within this row's supplier group. */
+  display_order: number | null
   /** The largest-split team — what the Rate Calculator and Platform Schedule show. */
   team_name: string
   /** Every team and its split, as the Schedule page carries it. */
@@ -273,6 +275,7 @@ export async function GET(request: Request): Promise<Response> {
       capacity_days,
       vat_applies,
       resource_location,
+      display_order,
       resources:resource_id!left ( resource_name, resource_location ),
       suppliers:supplier_id ( supplier_id, supplier_name, supplier_abbreviation, sort_order, supplier_colour )
     `)
@@ -291,6 +294,7 @@ export async function GET(request: Request): Promise<Response> {
     capacity_days: number | string | null
     vat_applies: boolean | null
     resource_location: string | null
+    display_order: number | null
     resource_id?: string | null
     resources: { resource_name: string; resource_location: string | null } | { resource_name: string; resource_location: string | null }[] | null
     suppliers: SupplierEmbed | SupplierEmbed[] | null
@@ -424,6 +428,7 @@ export async function GET(request: Request): Promise<Response> {
         role_title: r.role_title,
         resource_name: resource?.resource_name ?? 'TBC / Vacant',
         planview_code: r.planview_code,
+        display_order: r.display_order ?? null,
         supplier_id: supplier?.supplier_id ?? null,
         supplier_name: supplier?.supplier_name ?? null,
         supplier_abbreviation: supplier?.supplier_abbreviation ?? null,
@@ -454,10 +459,26 @@ export async function GET(request: Request): Promise<Response> {
           : '',
       }
     })
+    /* Row order, matching what the Schedule page shows.
+       Within a supplier the page honours the manual drag-and-drop order
+       persisted in display_order (ASC, NULLS LAST), falling back to resource
+       name — see packages/schema/src/queries/schedule.ts, which sorts exactly
+       this way. The export ignored display_order entirely until now: the
+       column was not even selected, so a reordered schedule exported in
+       alphabetical order and disagreed with the screen it was taken from.
+
+       The GROUP key is deliberately still supplier_sort_order rather than the
+       page's supplier_name: supplier ordering across the file is the Rate
+       Calculator's established convention and is a separate question from the
+       manual ordering of people inside a supplier, which is what drag-and-drop
+       actually controls. */
     .sort((a, b) => {
       const sa = a.supplier_sort_order ?? Infinity
       const sb = b.supplier_sort_order ?? Infinity
       if (sa !== sb) return sa - sb
+      const oa = a.display_order ?? Infinity
+      const ob = b.display_order ?? Infinity
+      if (oa !== ob) return oa - ob
       return (a.resource_name ?? 'ZZZ').localeCompare(b.resource_name ?? 'ZZZ')
     })
 

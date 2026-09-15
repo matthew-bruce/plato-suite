@@ -492,6 +492,7 @@ export function SchedulePageClient({ data }: Props) {
   async function handleExportToExcel(selection: ExportSelection) {
     const { variantId } = selection
     setExportChoiceOpen(false)
+    setAllocationError(null)
     setLoading('Building export', period.period_name)
     try {
       const params = new URLSearchParams({
@@ -500,7 +501,14 @@ export function SchedulePageClient({ data }: Props) {
       })
       if (selection.teamId) params.set('teamId', selection.teamId)
       const response = await fetch(`/api/export/schedule?${params.toString()}`)
-      if (!response.ok) throw new Error('Export failed')
+      if (!response.ok) {
+        // The route answers a refusal in plain text ("Team Schedule needs a
+        // teamId for a team in this period"), which is the only thing that can
+        // tell the user what to do differently. Surfaced rather than folded
+        // into a generic message.
+        const reason = (await response.text().catch(() => '')).trim()
+        throw new Error(reason || `Export failed (${response.status})`)
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -515,7 +523,17 @@ export function SchedulePageClient({ data }: Props) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err) {
+      // Failures used to end here, at a console.error nobody has open. The
+      // whole flow is one click and one downloaded file, so a swallowed error
+      // is indistinguishable from the button doing nothing at all — the user
+      // has no way to tell a refusal from a crash from a slow network. It goes
+      // to the same banner every other write on this page uses.
       console.error('Export error:', err)
+      setAllocationError(
+        err instanceof Error && err.message
+          ? `Export failed: ${err.message}`
+          : 'Export failed. Please try again.',
+      )
     } finally {
       clearLoading()
     }

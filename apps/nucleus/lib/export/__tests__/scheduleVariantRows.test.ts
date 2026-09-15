@@ -11,7 +11,6 @@ import {
   teamSplitCell,
   uniqueNamedPeopleCount,
   totalFte,
-  distinctTeamCount,
   crossChargedPeopleCount,
   rowsForTeam,
   rowsForSupplier,
@@ -193,6 +192,34 @@ describe('multi-row-per-person handling', () => {
     expect(totalFte(twoHalves)).toBe(1)
   })
 
+  it('equals the headcount when every person is at 100%, which is not a bug', () => {
+    /*
+     * The real case this pins: TCS's Q3 tab read "Supplier size: 36 named
+     * people · Total FTE: 36", which looks like an FTE calculation that has
+     * forgotten to read utilisation at all. It had not — all 39 TCS allocation
+     * rows genuinely carry utilisation_percent = 100 (3 of them vacant, so 36
+     * named people), and 36 whole people is 36 FTE.
+     *
+     * Kept alongside the partial-utilisation cases above and below so the two
+     * readings can be told apart: if FTE ever stops tracking utilisation, THOSE
+     * tests fail while this one keeps passing.
+     */
+    const allFullTime: VariantAllocationRow[] = Array.from({ length: 36 }, (_, i) =>
+      row({ allocation_id: `f${i}`, resource_id: `person-${i}`, utilisation_percent: 100 }),
+    )
+    expect(uniqueNamedPeopleCount(allFullTime)).toBe(36)
+    expect(totalFte(allFullTime)).toBe(36)
+  })
+
+  it('tracks utilisation, so the same 36 people at 80% are not 36 FTE', () => {
+    // The counterweight to the test above.
+    const allPartTime: VariantAllocationRow[] = Array.from({ length: 36 }, (_, i) =>
+      row({ allocation_id: `p${i}`, resource_id: `person-${i}`, utilisation_percent: 80 }),
+    )
+    expect(uniqueNamedPeopleCount(allPartTime)).toBe(36)
+    expect(totalFte(allPartTime)).toBeCloseTo(28.8, 10)
+  })
+
   it('excludes vacant/TBC seats from both people and FTE', () => {
     const withVacancy: VariantAllocationRow[] = [
       row({ allocation_id: 'named', resource_id: 'real-person' }),
@@ -203,9 +230,16 @@ describe('multi-row-per-person handling', () => {
   })
 })
 
-/* ── The deliberate Team vs Supplier divergence on NPC ── */
+/* ── Team and Supplier Schedules agree on NPC ── */
 
-describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
+describe('NPC on the Team Schedule and the Supplier Schedule — they agree', () => {
+  // This block used to be called "NPC divergence" and pinned the opposite
+  // behaviour: the Supplier Schedule priced NPC for real while the Team
+  // Schedule showed nothing. That was a deliberate decision, and it was
+  // reversed — a Supplier Schedule answers "what does this platform owe this
+  // supplier", and an NPC resource is by definition not owed on the platform's
+  // account. The tests are kept pointing the other way rather than deleted, so
+  // the reversal is visible to anyone who goes looking.
   const npc = row({
     allocation_id: 'npc-row',
     resource_id: 'npc-person',
@@ -215,17 +249,16 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
     day_rate: 60_500,
   })
 
-  it('gives the same NPC resource a real commercial figure on the Supplier Schedule', () => {
+  it('prices an NPC row at zero on the Supplier Schedule, every column', () => {
     const money = supplierRowMoney(npc, VAT)
-    expect(money.basePence).toBeGreaterThan(0)
-    expect(money.totalPence).toBeGreaterThan(0)
-    expect(money.basePence).toBe(commercialBasePence(npc, 11))
+    expect(money.basePence).toBe(0)
+    expect(money.vatPence).toBe(0)
+    expect(money.totalPence).toBe(0)
+    // The day rate goes too: a rate printed beside three zeroes reads as an
+    // invoice line someone forgot to total.
+    expect(money.dayRatePence).toBe(0)
   })
 
-  // The divergence now runs through the cross-charge rule rather than a
-  // commercial one, because the Team Schedule no longer has any commercial
-  // content to withhold — but it lands in the same place: this row is money
-  // to the supplier and nothing to the team's stakeholders.
   it('gives that identical row no figure at all on the Team Schedule', () => {
     const figures = teamCrossChargeFigures(npc, BLENDED_RATE, JANUS_SCOPE)
     expect(figures.quarterPence).toBeNull()
@@ -233,17 +266,39 @@ describe('NPC divergence between Team Schedule and Supplier Schedule', () => {
     expect(figures.monthPence).toBeNull()
   })
 
-  // Stated as a single assertion so the intent survives a future reader who
-  // spots the two functions and assumes one of them is a bug.
-  it('is a deliberate disagreement: same row, same inputs, different answers', () => {
+  it('agrees across both files: no money for this person on either', () => {
     expect(teamCrossChargeFigures(npc, BLENDED_RATE, JANUS_SCOPE).quarterPence).toBeNull()
-    expect(supplierRowMoney(npc, VAT).totalPence).toBeGreaterThan(0)
+    expect(supplierRowMoney(npc, VAT).totalPence).toBe(0)
   })
 
-  it('includes the NPC row in a Supplier Schedule total', () => {
+  it('uses isIncludedInBaseCost, so BAU is zeroed too and F_Gov is not', () => {
+    // The distinction that matters: F_Gov cost is real and the supplier is
+    // genuinely owed it, so gating on is_chargeable (PR only) would have been
+    // the wrong rule and would have wiped it.
+    const bau = row({ ...npc, allocation_id: 'bau', planview_code: 'BAU' })
+    const fgov = row({ ...npc, allocation_id: 'fgov', planview_code: 'F_Gov' })
+    expect(supplierRowMoney(bau, VAT).basePence).toBe(0)
+    expect(supplierRowMoney(fgov, VAT).basePence).toBeGreaterThan(0)
+    expect(supplierRowMoney(fgov, VAT).basePence).toBe(commercialBasePence(fgov, 11))
+  })
+
+  it('excludes the NPC row from a Supplier Schedule total', () => {
     const supplierRows = [row({ resource_id: 'p1' }), npc]
     const total = supplierRows.reduce((sum, r) => sum + supplierRowMoney(r, VAT).basePence, 0)
-    expect(total).toBe(commercialBasePence(supplierRows[0], 64) + commercialBasePence(npc, 11))
+    expect(total).toBe(commercialBasePence(supplierRows[0], 64))
+  })
+
+  it('totals exactly zero for a supplier whose every resource is NPC', () => {
+    const allNpc = [
+      row({ allocation_id: 'n1', resource_id: 'a', planview_code: 'NPC' }),
+      row({ allocation_id: 'n2', resource_id: 'b', planview_code: 'NPC', day_rate: 99_900 }),
+      row({ allocation_id: 'n3', resource_id: 'c', planview_code: 'NPC', capacity_days: 64 }),
+    ]
+    for (const key of ['basePence', 'vatPence', 'totalPence'] as const) {
+      expect(allNpc.reduce((sum, r) => sum + supplierRowMoney(r, VAT)[key], 0)).toBe(0)
+    }
+    // Still real people, still listed — this zeroes cost, it does not hide anyone.
+    expect(uniqueNamedPeopleCount(allNpc)).toBe(3)
   })
 
   it('omits it from a Team Schedule total, which skips "—" rather than adding zero', () => {
@@ -298,11 +353,6 @@ describe('scoping and footer aggregates', () => {
 
   it('scopes to a supplier by name', () => {
     expect(rowsForSupplier(rows, 'Capgemini').map((r) => r.allocation_id)).toEqual(['1', '2'])
-  })
-
-  it('counts distinct teams a supplier appears on', () => {
-    expect(distinctTeamCount(rowsForSupplier(rows, 'Capgemini'))).toBe(3)
-    expect(distinctTeamCount(rowsForSupplier(rows, 'EPAM'))).toBe(1)
   })
 
   it('counts cross-charged people via isChargeableRow, not headcount', () => {

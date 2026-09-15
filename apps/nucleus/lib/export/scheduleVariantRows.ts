@@ -5,12 +5,15 @@
 // (Capgemini → TCS) is two records, and so is a split across two teams. The
 // table shows both; only the footer collapses them back to people.
 //
-// The two variants deliberately disagree about NPC — see
-// commercialCostPence's contract and the note above supplierScheduleIncludes.
-// That divergence is intentional and load-bearing; it is not an oversight to
-// tidy up.
+// Both variants give an NPC row no cost. They arrive there by different
+// routes — the Team Schedule because its only cost group is the PR-only
+// cross-charge, the Supplier Schedule because it gates commercial cost on
+// isIncludedInBaseCost — but the answer a reader sees is the same £0 on both.
+//
+// This file used to say the opposite, and said it emphatically. See
+// supplierRowMoney for what that reasoning was and why it was reversed.
 
-import { isChargeableRow } from '../schedule/ui'
+import { isChargeableRow, isIncludedInBaseCost } from '../schedule/ui'
 import { allocationBasePence, allocationVatPence } from '../schedule/scheduleTotals'
 import { getCapacitySplit } from '../scheduleUtils'
 
@@ -256,25 +259,25 @@ export interface SupplierRowMoney {
  * SOWs are quoted ex VAT, which is why Base leads; the inc-VAT total is there
  * because that is the figure that actually hits a budget.
  *
- * ⚠ DELIBERATE DIVERGENCE FROM THE TEAM SCHEDULE. Every row gets a real
- * figure, NPC included, with no planview gate at all — where the Team
- * Schedule gives that same NPC row no cost figure (its only cost group is
- * cross-charge, which is PR-only).
+ * NPC rows are priced at zero, the same rule the Rate Calculator and the live
+ * Schedule page apply: isIncludedInBaseCost, which excludes BAU and NPC. The
+ * row itself still appears — an NPC person is real headcount and is counted as
+ * such in the footer — it simply carries no money.
  *
- * This is not an inconsistency to reconcile. The two files answer different
- * questions:
+ * ⚠ THIS REVERSES AN EARLIER DELIBERATE DECISION, recorded here so it is not
+ * rediscovered and "fixed" back. The argument for pricing NPC was that this
+ * file reconciles against a supplier invoice, and a supplier invoices for
+ * whoever they staffed regardless of which internal budget absorbs them.
  *
- *   Team Schedule     — "what does this team cost its stakeholders?"
- *                       An NPC person is not cross-charged to them at all.
- *   Supplier Schedule — "what does Royal Mail Group pay this supplier?"
- *                       An NPC person is still a real person the supplier
- *                       still invoices for. Which internal budget the cost
- *                       lands against is RMG's business, not the supplier's,
- *                       and dropping the row would make the file disagree
- *                       with the invoice it exists to reconcile.
+ * What settles it is what the file is FOR: "what does this platform owe this
+ * supplier". An NPC resource is by definition not someone the platform owes
+ * this supplier for on its own account — that is what the code means. Pricing
+ * them made the Supplier Schedule the one file in the suite that disagreed
+ * with every other view of the same person.
  *
- * Making these two agree would break one of the files. If a future change
- * needs them to converge, that is a product decision, not a cleanup.
+ * The need the old reasoning served — seeing everyone a supplier has, priced
+ * or not — is met by the row still being listed, and by the Team Schedule,
+ * which names NPC people at zero cost too.
  */
 export function supplierRowMoney(
   row: VariantAllocationRow,
@@ -285,6 +288,11 @@ export function supplierRowMoney(
   // same helper the Team Schedule uses rather than reading capacity_days
   // directly, so both files derive Total days one way.
   const days = proratedDays(row, null)
+  if (!isIncludedInBaseCost(row.planview_code)) {
+    // Zero across every money column, the day rate included: a rate printed
+    // beside four zeroes reads as an invoice line someone forgot to total.
+    return { dayRatePence: 0, basePence: 0, vatPence: 0, totalPence: 0 }
+  }
   const basePence = commercialBasePence(row, days)
   const totalPence = commercialCostPence(row, days, vatMultiplier)
   return {
@@ -356,15 +364,6 @@ export function totalFte(
   return fte
 }
 
-/** How many distinct teams these rows touch — the Supplier Schedule footer. */
-export function distinctTeamCount(rows: readonly VariantAllocationRow[]): number {
-  const teamIds = new Set<string>()
-  for (const row of rows) {
-    for (const team of row.teams) teamIds.add(team.teamId)
-  }
-  return teamIds.size
-}
-
 /**
  * How many of the named people are actually cross-charged — the Team
  * Schedule's masthead figure.
@@ -392,8 +391,9 @@ export function rowsForTeam(
 /**
  * The allocation records belonging to one supplier, by supplier name.
  *
- * No planview filter: the Supplier Schedule shows everyone this supplier has
- * on the platform, NPC included — see supplierCommercialFigures.
+ * No planview filter: the Supplier Schedule LISTS everyone this supplier has
+ * on the platform, NPC included. Whether a listed row carries money is a
+ * separate question, answered by supplierRowMoney — which prices NPC at zero.
  */
 export function rowsForSupplier(
   rows: readonly VariantAllocationRow[],
