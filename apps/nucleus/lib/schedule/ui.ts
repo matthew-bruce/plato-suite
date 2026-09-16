@@ -60,6 +60,30 @@ export function isCountedInHeadcount(planviewCode: string | null | undefined): b
   return planviewCode !== 'NPC'
 }
 
+/**
+ * The text-decoration a row's Base and +VAT cells carry — struck through for
+ * NPC, nothing for anything else.
+ *
+ * An NPC row shows a real, non-zero figure (it has a genuine day rate and day
+ * count) that the platform nonetheless does not bear, so the number needs to
+ * read as "this cost exists, but not here". Keyed on planview_code === 'NPC'
+ * directly, and deliberately NOT on either of the neighbouring rules:
+ *
+ *   - !isIncludedInBaseCost() would also strike BAU, which already renders as
+ *     £0.00 and is unambiguous without it.
+ *   - !isChargeableRow() / is_chargeable would strike F_Gov, whose cost is
+ *     real, borne by the platform, and counted in every total — it is merely
+ *     not recharged. Striking it through would say the opposite.
+ *
+ * Day Rate is left alone in all cases: it is descriptive of the person, not a
+ * rolled-up total, so there is nothing there to disclaim.
+ */
+export function costCellDecoration(
+  planviewCode: string | null | undefined,
+): 'line-through' | undefined {
+  return planviewCode === 'NPC' ? 'line-through' : undefined
+}
+
 interface DaysRow {
   capacity_days: number | null
   planview_code: string | null | undefined
@@ -81,20 +105,40 @@ export function sumFilteredDays<T extends DaysRow>(
   }, 0)
 }
 
+interface ChargeableDaysRow extends DaysRow {
+  utilisation_percent: number
+}
+
 // Sums capacity_days across groups/rows the same way sumFilteredDays does,
-// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost.
-// This is the capacity base for "Internal Run Rate": F_Gov and BAU cost the
-// platform and stay in the BASE/+VAT footer via isIncludedInBaseCost, but
-// they are not cross-charged, so they must not inflate the recoverable-days
-// figure stakeholders are shown per team. NPC is excluded from both rules.
-export function sumChargeableDays<T extends DaysRow>(
+// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost,
+// and weighted by utilisation_percent as well as team capacity_split. This is
+// the capacity base for "Internal Run Rate": F_Gov and BAU cost the platform
+// and stay in the BASE/+VAT footer via isIncludedInBaseCost, but they are not
+// cross-charged, so they must not inflate the recoverable-days figure
+// stakeholders are shown per team. NPC is excluded from both rules.
+//
+// Utilisation weighting matches xChargeableDays in scheduleTotals.ts, which
+// applies the identical isChargeableRow filter to the identical population
+// (PR rows) and multiplies by utilisation_percent / 100 — this function used
+// not to, which meant a person at 90% utilisation was charged to a team at
+// their full 100%, inflating the Full Quarter / Per Sprint figures actually
+// billed to stakeholders. The two functions are not merged into one: this one
+// sums pre-grouped, team-split-weighted rows for a single team filter, while
+// xChargeableDays sums a flat, unfiltered-by-team allocation list for the
+// whole platform — genuinely different shapes, not worth forcing together.
+export function sumChargeableDays<T extends ChargeableDaysRow>(
   groups: { rows: T[] }[],
   activeTeamFilter: string | null,
 ): number {
   return groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
       if (!isChargeableRow(r.planview_code)) return rs
-      return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
+      return (
+        rs +
+        (r.capacity_days ?? 0) *
+          (r.utilisation_percent / 100) *
+          getCapacitySplit(r.teams ?? [], activeTeamFilter)
+      )
     }, 0)
   }, 0)
 }
