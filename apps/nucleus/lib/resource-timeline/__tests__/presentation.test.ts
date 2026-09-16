@@ -41,6 +41,7 @@ function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
     name: 'Test Person',
     initials: 'TP',
     discipline: 'Quality Assurance',
+    disciplineSortOrder: 100,
     teams: [{ teamName: 'Sagan', capacitySplit: 1 }],
     status: 'incumbent',
     category: null,

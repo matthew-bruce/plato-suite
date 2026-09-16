@@ -10,6 +10,7 @@ function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
     name: 'Dipti Borole',
     initials: 'DB',
     discipline: 'Quality Assurance',
+    disciplineSortOrder: 100,
     teams: [{ teamName: 'Orion', capacitySplit: 1 }],
     status: 'mover',
     category: 'transitioned',

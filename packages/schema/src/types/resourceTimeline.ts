@@ -35,6 +35,8 @@ export interface TimelineResource {
   initials: string
   /** Role taxonomy — "Skillset" in the UI. Null where none is recorded. */
   discipline: string | null
+  /** The disciplines table's own sort_order, for grouping the Skillset view. */
+  disciplineSortOrder: number | null
   teams: TimelineTeam[]
   status: TransitionStatus
   category: TransitionCategory
