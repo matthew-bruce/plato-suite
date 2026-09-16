@@ -63,7 +63,7 @@ import { EditTeamsModal } from './EditTeamsModal'
 import type { EditTeamsTarget } from './EditTeamsModal'
 import { ExportCurrentViewModal } from './ExportCurrentViewModal'
 import { ExportChoiceModal } from './ExportChoiceModal'
-import type { ExportVariantId } from '@/lib/export/exportVariants'
+import type { ExportSelection } from './ExportChoiceModal'
 import type { ExportRow } from '@/lib/schedule/exportView'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { getRateEditability } from '@/lib/rates/editability'
@@ -329,6 +329,24 @@ export function SchedulePageClient({ data }: Props) {
     return Array.from(set).sort()
   }, [localAllocations])
 
+  // The team picker for the team-scoped export. Built from the period's own
+  // allocations rather than the full teams table, so the modal can only offer
+  // a team that would actually produce rows.
+  //
+  // There is no supplier equivalent: the Supplier Schedule builds one tab per
+  // supplier with resources in the period, so nothing is picked in the modal
+  // and the same "only what's actually on the schedule" rule is applied in the
+  // export route instead (see suppliersInPeriod).
+  const exportTeamOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const a of localAllocations) {
+      for (const t of a.teams ?? []) byId.set(t.teamId, t.teamName)
+    }
+    return [...byId.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [localAllocations])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return localAllocations.filter((a) => {
@@ -472,14 +490,26 @@ export function SchedulePageClient({ data }: Props) {
     locationFilter === 'all' &&
     teamFilter === 'all'
 
-  async function handleExportToExcel(variantId: ExportVariantId) {
+  async function handleExportToExcel(selection: ExportSelection) {
+    const { variantId } = selection
     setExportChoiceOpen(false)
+    setAllocationError(null)
     setLoading('Building export', period.period_name)
     try {
-      const response = await fetch(
-        `/api/export/schedule?periodId=${activePeriodId}&variant=${variantId}`,
-      )
-      if (!response.ok) throw new Error('Export failed')
+      const params = new URLSearchParams({
+        periodId: activePeriodId,
+        variant: variantId,
+      })
+      if (selection.teamId) params.set('teamId', selection.teamId)
+      const response = await fetch(`/api/export/schedule?${params.toString()}`)
+      if (!response.ok) {
+        // The route answers a refusal in plain text ("Team Schedule needs a
+        // teamId for a team in this period"), which is the only thing that can
+        // tell the user what to do differently. Surfaced rather than folded
+        // into a generic message.
+        const reason = (await response.text().catch(() => '')).trim()
+        throw new Error(reason || `Export failed (${response.status})`)
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -494,7 +524,17 @@ export function SchedulePageClient({ data }: Props) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch (err) {
+      // Failures used to end here, at a console.error nobody has open. The
+      // whole flow is one click and one downloaded file, so a swallowed error
+      // is indistinguishable from the button doing nothing at all — the user
+      // has no way to tell a refusal from a crash from a slow network. It goes
+      // to the same banner every other write on this page uses.
       console.error('Export error:', err)
+      setAllocationError(
+        err instanceof Error && err.message
+          ? `Export failed: ${err.message}`
+          : 'Export failed. Please try again.',
+      )
     } finally {
       clearLoading()
     }
@@ -1145,8 +1185,9 @@ export function SchedulePageClient({ data }: Props) {
     <ExportChoiceModal
       open={exportChoiceOpen}
       periodName={period.period_name}
+      teams={exportTeamOptions}
       onClose={() => setExportChoiceOpen(false)}
-      onConfirm={(variantId) => void handleExportToExcel(variantId)}
+      onConfirm={(selection) => void handleExportToExcel(selection)}
     />
     <ExportCurrentViewModal
       open={exportViewOpen}
@@ -2016,7 +2057,9 @@ function TeamRunRateBar({
       <div style={labelStyle}>{teamName} — internal run rate</div>
 
       <div style={statStyle}>
-        <span style={valueStyle}>{totalCapacityDays.toFixed(1)}</span>
+        {/* Same formatter as the Days column, so a whole-number capacity
+            doesn't read "548.0" here while the column above it reads "548". */}
+        <span style={valueStyle}>{formatDaysTotal(totalCapacityDays)}</span>
         <span style={labelStyle}>capacity days</span>
       </div>
 
@@ -3940,7 +3983,10 @@ function AllocationRow({
           <span style={nullStyle}>—</span>
         ) : (
           <span style={{ fontSize: 13, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-            {isProportional ? displayDays.toFixed(1) : row.capacity_days}
+            {/* Both branches go through the same formatter. They used to
+                differ — toFixed(1) when prorated, the raw value otherwise —
+                which is why one row read "32.0" and the next "64". */}
+            {formatDaysTotal(displayDays)}
           </span>
         )}
       </Cell>

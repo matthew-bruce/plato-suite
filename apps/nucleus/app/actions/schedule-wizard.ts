@@ -109,10 +109,16 @@ export async function fetchWizardData(): Promise<WizardData> {
       .select('supplier_id, supplier_name, supplier_colour, sort_order')
       .order('sort_order', { ascending: true }),
     supabase.from('teams').select('team_id, team_name').order('team_name'),
+    // sort_order, not discipline_name: the disciplines table carries a
+    // deliberate taxonomy order (engineering, then architecture and security,
+    // then product, delivery, commercial, data) gapped by 10s so a new one can
+    // be slotted in. Alphabetical scattered that — "AI / ML Engineering" and
+    // "Agile Coaching" opened the list, and the picker no longer read as the
+    // grouped list it was designed to be. Same convention as suppliers above.
     supabase
       .from('disciplines')
-      .select('discipline_id, discipline_name')
-      .order('discipline_name'),
+      .select('discipline_id, discipline_name, sort_order')
+      .order('sort_order', { ascending: true }),
   ])
 
   type RawSupplier = {

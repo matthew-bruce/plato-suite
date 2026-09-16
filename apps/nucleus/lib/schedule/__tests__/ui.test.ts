@@ -20,6 +20,9 @@ import {
   sumChargeableDays,
   costCellDecoration,
   formatDaysTotal,
+  roundDays,
+  relativeLuminance,
+  contrastRatio,
 } from '../ui'
 import { computeScheduleTotals } from '../scheduleTotals'
 
@@ -262,6 +265,42 @@ describe('getPlanBadgeStyle', () => {
   })
   it('falls back to the default style for unmapped codes', () => {
     expect(getPlanBadgeStyle('SomethingElse')).toEqual({ background: '#EEEEEE', color: '#8F9495' })
+  })
+})
+
+describe('relativeLuminance', () => {
+  it('anchors at the ends of the scale', () => {
+    expect(relativeLuminance('#000000')).toBe(0)
+    expect(relativeLuminance('#FFFFFF')).toBeCloseTo(1, 10)
+  })
+  it('accepts 3-digit, 6-digit and 8-digit ARGB alike', () => {
+    // The workbook code passes ARGB; the suppliers table stores #RRGGBB.
+    expect(relativeLuminance('#fff')).toBeCloseTo(relativeLuminance('#FFFFFF')!, 10)
+    expect(relativeLuminance('FF2A2A2D')).toBeCloseTo(relativeLuminance('#2A2A2D')!, 10)
+  })
+  it('returns null for anything unreadable', () => {
+    expect(relativeLuminance('not-a-colour')).toBeNull()
+    expect(relativeLuminance('')).toBeNull()
+    expect(relativeLuminance('#12345')).toBeNull()
+  })
+})
+
+describe('contrastRatio', () => {
+  it('spans 1:1 to 21:1', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5)
+    expect(contrastRatio('#123456', '#123456')).toBeCloseTo(1, 10)
+  })
+  it('is symmetric', () => {
+    expect(contrastRatio('#E2001A', '#2A2A2D')).toBeCloseTo(
+      contrastRatio('#2A2A2D', '#E2001A'),
+      10,
+    )
+  })
+  // Fails closed: an unusable colour must never be treated as legible, or a
+  // gate built on this would let illegible text through.
+  it('returns the least favourable answer for an unreadable input', () => {
+    expect(contrastRatio('garbage', '#FFFFFF')).toBe(1)
+    expect(contrastRatio('#FFFFFF', 'garbage')).toBe(1)
   })
 })
 
@@ -651,6 +690,27 @@ describe('sumChargeableDays', () => {
   })
 })
 
+// The Days column used to run toFixed(1) on a prorated value and print the
+// raw value otherwise, so one row read "32.0" and the next "64". Both the
+// page and the exported sheets now go through this one rule.
+describe('roundDays', () => {
+  it('leaves a whole number whole', () => {
+    expect(roundDays(64)).toBe(64)
+    expect(roundDays(32)).toBe(32)
+  })
+  it('keeps a genuine half day', () => {
+    expect(roundDays(20.5)).toBe(20.5)
+  })
+  it('cuts a long proration float to one decimal', () => {
+    expect(roundDays(21.333333333)).toBe(21.3)
+    expect(roundDays(22.400000000000002)).toBe(22.4)
+  })
+  it('never invents a decimal on an exact proration', () => {
+    // 64 × 0.5 is exactly 32 — it must not come back as 32.0-ish.
+    expect(Number.isInteger(roundDays(64 * 0.5))).toBe(true)
+  })
+})
+
 describe('formatDaysTotal', () => {
   it('formats zero', () => {
     expect(formatDaysTotal(0)).toBe('0')
@@ -665,5 +725,13 @@ describe('formatDaysTotal', () => {
   it('rounds to one decimal without forcing a trailing zero', () => {
     expect(formatDaysTotal(48.04)).toBe('48')
     expect(formatDaysTotal(48.06)).toBe('48.1')
+  })
+  // The reported inconsistency, stated directly: a prorated 32 and a raw 64
+  // have to read the same way as each other.
+  it('formats a prorated whole number and a raw whole number identically', () => {
+    expect(formatDaysTotal(64 * 0.5)).toBe('32')
+    expect(formatDaysTotal(64)).toBe('64')
+    expect(formatDaysTotal(6)).toBe('6')
+    expect(formatDaysTotal(20.5)).toBe('20.5')
   })
 })

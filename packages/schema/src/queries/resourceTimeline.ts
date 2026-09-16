@@ -72,10 +72,58 @@ type MonthlyDaysRow = {
   days: number | string
 }
 
+/* The label for a resource with no discipline row. Duplicated from the UI's
+   own UNASSIGNED_DISCIPLINE rather than imported: @plato/schema is the data
+   boundary and must not depend on an app. The two must agree — the UI groups
+   on the string this query emits. */
+const UNASSIGNED_DISCIPLINE_LABEL = 'Unassigned discipline'
+
+type DisciplineEmbed = { discipline_name: string; sort_order: number | null }
+
+/**
+ * The distinct Skillset names present, in the disciplines table's own
+ * sort_order — the grouping order for the timeline's Skillset view and the
+ * options in its secondary filter.
+ *
+ * This used to be a plain `.sort()`, which is alphabetical and is not an order
+ * anyone chose: it opened the list with "AI / ML Engineering" and "Agile
+ * Coaching" and scattered the taxonomy the column exists to express. The
+ * column was not even selected by the query, so the data to order by never
+ * reached the sort — the same shape of defect as display_order going unread by
+ * the schedule exports.
+ *
+ * Ordered by sort_order with the name as the tiebreak, matching how the
+ * supplier list here and the filter chips on Schedule and People already do
+ * it. "Unassigned discipline" has no table row and therefore no order, so it
+ * sorts last rather than wherever its initial letter would put it.
+ *
+ * Exported for its own tests: the ordering is the part worth pinning, and it
+ * is not reachable through the full query.
+ */
+export function orderDisciplines(
+  resources: readonly { discipline: string | null; disciplineSortOrder: number | null }[],
+): string[] {
+  const order = new Map<string, number>()
+  for (const r of resources) {
+    if (r.discipline && !order.has(r.discipline)) {
+      order.set(r.discipline, r.disciplineSortOrder ?? Number.POSITIVE_INFINITY)
+    }
+  }
+  return [...new Set(resources.map((r) => r.discipline ?? UNASSIGNED_DISCIPLINE_LABEL))].sort(
+    (a, b) => {
+      if (a === UNASSIGNED_DISCIPLINE_LABEL) return 1
+      if (b === UNASSIGNED_DISCIPLINE_LABEL) return -1
+      const oa = order.get(a) ?? Number.POSITIVE_INFINITY
+      const ob = order.get(b) ?? Number.POSITIVE_INFINITY
+      return oa !== ob ? oa - ob : a.localeCompare(b)
+    },
+  )
+}
+
 type ResourceRow = {
   resource_id: string
   resource_name: string
-  disciplines: { discipline_name: string } | { discipline_name: string }[] | null
+  disciplines: DisciplineEmbed | DisciplineEmbed[] | null
 }
 
 type TeamAssignmentRow = {
@@ -195,7 +243,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const [resourcesResult, teamsResult, monthlyResult] = await Promise.all([
     supabase
       .from('resources')
-      .select('resource_id, resource_name, disciplines ( discipline_name )')
+      .select('resource_id, resource_name, disciplines ( discipline_name, sort_order )')
       .in('resource_id', resourceIds)
       .is('deleted_at', null),
     supabase
@@ -315,6 +363,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
         name: row.resource_name,
         initials: initialsOf(row.resource_name),
         discipline: pickEmbed(row.disciplines)?.discipline_name ?? null,
+        disciplineSortOrder: pickEmbed(row.disciplines)?.sort_order ?? null,
         teams: teams.length > 0 ? teams : [{ teamName: 'Unassigned', capacitySplit: 1 }],
         status: classification.status,
         category: classification.category,
@@ -343,9 +392,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const teams = [...new Set(resources.flatMap((r) => r.teams.map((t) => t.teamName)))].sort((a, b) =>
     a === 'Unassigned' ? 1 : b === 'Unassigned' ? -1 : a.localeCompare(b),
   )
-  const disciplines = [
-    ...new Set(resources.map((r) => r.discipline ?? 'Unassigned discipline')),
-  ].sort()
+  const disciplines = orderDisciplines(resources)
 
   return {
     windowStart: coarseWindow.start,
