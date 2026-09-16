@@ -21,6 +21,7 @@ import {
   costCellDecoration,
   formatDaysTotal,
 } from '../ui'
+import { computeScheduleTotals } from '../scheduleTotals'
 
 describe('formatMoney', () => {
   it('formats pence to pounds with commas and 2dp by default', () => {
@@ -522,6 +523,7 @@ describe('sumChargeableDays', () => {
   type Row = {
     capacity_days: number | null
     planview_code: string | null
+    utilisation_percent: number
     teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
   }
   function groupOf(rows: Row[]) {
@@ -532,10 +534,10 @@ describe('sumChargeableDays', () => {
     expect(sumChargeableDays([], null)).toBe(0)
   })
 
-  it('sums PR rows only', () => {
+  it('sums PR rows only, at full utilisation', () => {
     const rows: Row[] = [
-      { capacity_days: 10, planview_code: 'PR' },
-      { capacity_days: 20, planview_code: 'PR' },
+      { capacity_days: 10, planview_code: 'PR', utilisation_percent: 100 },
+      { capacity_days: 20, planview_code: 'PR', utilisation_percent: 100 },
     ]
     expect(sumChargeableDays(groupOf(rows), null)).toBe(30)
   })
@@ -549,11 +551,11 @@ describe('sumChargeableDays', () => {
   // use (isCountedInHeadcount, isIncludedInBaseCost).
   it('excludes NPC and F_Gov rows, unlike sumFilteredDays which includes F_Gov', () => {
     const rows: Row[] = [
-      { capacity_days: 548, planview_code: 'PR' },
-      { capacity_days: 11, planview_code: 'NPC' },
-      { capacity_days: 6, planview_code: 'NPC' },
-      { capacity_days: 25, planview_code: 'F_Gov' },
-      { capacity_days: 99, planview_code: 'BAU' },
+      { capacity_days: 548, planview_code: 'PR', utilisation_percent: 100 },
+      { capacity_days: 11, planview_code: 'NPC', utilisation_percent: 100 },
+      { capacity_days: 6, planview_code: 'NPC', utilisation_percent: 100 },
+      { capacity_days: 25, planview_code: 'F_Gov', utilisation_percent: 100 },
+      { capacity_days: 99, planview_code: 'BAU', utilisation_percent: 100 },
     ]
     expect(sumChargeableDays(groupOf(rows), null)).toBe(548)
     // sumFilteredDays (the BASE/+VAT footer's rule) keeps F_Gov — the two
@@ -564,9 +566,9 @@ describe('sumChargeableDays', () => {
 
   it('reproduces the reported Cygnus example: 565 total, 548 PR-only after excluding 17 NPC days', () => {
     const rows: Row[] = [
-      { capacity_days: 548, planview_code: 'PR' },
-      { capacity_days: 6, planview_code: 'NPC' },
-      { capacity_days: 11, planview_code: 'NPC' },
+      { capacity_days: 548, planview_code: 'PR', utilisation_percent: 100 },
+      { capacity_days: 6, planview_code: 'NPC', utilisation_percent: 100 },
+      { capacity_days: 11, planview_code: 'NPC', utilisation_percent: 100 },
     ]
     const totalAllCodes = rows.reduce((s, r) => s + (r.capacity_days ?? 0), 0)
     expect(totalAllCodes).toBe(565)
@@ -578,15 +580,74 @@ describe('sumChargeableDays', () => {
       {
         capacity_days: 10,
         planview_code: 'PR',
+        utilisation_percent: 100,
         teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
       },
       {
         capacity_days: 40,
         planview_code: 'NPC',
+        utilisation_percent: 100,
         teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
       },
     ]
     expect(sumChargeableDays(groupOf(rows), 'Alpha')).toBe(5)
+  })
+
+  // The bug this task exists to fix: Internal Run Rate applied zero
+  // utilisation weighting, so a PR resource at less than 100% utilisation was
+  // charged to their team at their FULL capacity_days, not their real
+  // (capacity_days × utilisation_percent / 100) contribution — the same real
+  // figure the per-row Base cost and xChargeableDays both already used.
+  it('weights by utilisation_percent, not just capacity_days and team split', () => {
+    const rows: Row[] = [
+      { capacity_days: 32, planview_code: 'PR', utilisation_percent: 90 },
+    ]
+    // 32 * 0.9 = 28.8, not 32.
+    expect(sumChargeableDays(groupOf(rows), null)).toBeCloseTo(28.8, 10)
+  })
+
+  it('combines utilisation and team-split weighting multiplicatively', () => {
+    const rows: Row[] = [
+      {
+        capacity_days: 100,
+        planview_code: 'PR',
+        utilisation_percent: 90,
+        teams: [{ teamId: 't1', teamName: 'Alpha', capacitySplit: 0.5 }],
+      },
+    ]
+    // 100 * 0.9 * 0.5 = 45.
+    expect(sumChargeableDays(groupOf(rows), 'Alpha')).toBeCloseTo(45, 10)
+  })
+
+  it('leaves a fully-utilised row unchanged — the pre-fix behaviour was only wrong below 100%', () => {
+    const rows: Row[] = [{ capacity_days: 64, planview_code: 'PR', utilisation_percent: 100 }]
+    expect(sumChargeableDays(groupOf(rows), null)).toBe(64)
+  })
+
+  // sumChargeableDays and xChargeableDays (scheduleTotals.ts) apply the
+  // IDENTICAL rule to the IDENTICAL population — isChargeableRow (PR only),
+  // weighted by utilisation_percent — and must therefore agree, unlike the
+  // deliberate Team Schedule vs Supplier Schedule NPC divergence pinned
+  // elsewhere. Compared with no team filter (capacitySplit neutral at 1.0 for
+  // every row via getCapacitySplit's null-filter branch) so the comparison
+  // isn't confounded by sumChargeableDays' team-split weighting, which
+  // xChargeableDays has no equivalent of — it sums the whole platform, not
+  // one team.
+  it('agrees exactly with xChargeableDays on the same mixed fixture', () => {
+    const mixed = [
+      { planview_code: 'PR', utilisation_percent: 90, capacity_days: 32, day_rate: 58_000, vat_applies: true },
+      { planview_code: 'F_Gov', utilisation_percent: 80, capacity_days: 63, day_rate: 72_000, vat_applies: true },
+      { planview_code: 'BAU', utilisation_percent: 50, capacity_days: 64, day_rate: 0, vat_applies: true },
+      { planview_code: 'NPC', utilisation_percent: 100, capacity_days: 11, day_rate: 54_000, vat_applies: true },
+      { planview_code: 'PR', utilisation_percent: 100, capacity_days: 20, day_rate: 58_000, vat_applies: true },
+    ]
+
+    const fromSumChargeableDays = sumChargeableDays(groupOf(mixed), null)
+    const fromXChargeableDays = computeScheduleTotals(mixed, [], 1).xChargeableDays
+
+    expect(fromSumChargeableDays).toBeCloseTo(fromXChargeableDays, 10)
+    // Concretely: (32*0.9) + (20*1.0) = 28.8 + 20 = 48.8. F_Gov/BAU/NPC excluded.
+    expect(fromSumChargeableDays).toBeCloseTo(48.8, 10)
   })
 })
 

@@ -105,20 +105,40 @@ export function sumFilteredDays<T extends DaysRow>(
   }, 0)
 }
 
+interface ChargeableDaysRow extends DaysRow {
+  utilisation_percent: number
+}
+
 // Sums capacity_days across groups/rows the same way sumFilteredDays does,
-// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost.
-// This is the capacity base for "Internal Run Rate": F_Gov and BAU cost the
-// platform and stay in the BASE/+VAT footer via isIncludedInBaseCost, but
-// they are not cross-charged, so they must not inflate the recoverable-days
-// figure stakeholders are shown per team. NPC is excluded from both rules.
-export function sumChargeableDays<T extends DaysRow>(
+// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost,
+// and weighted by utilisation_percent as well as team capacity_split. This is
+// the capacity base for "Internal Run Rate": F_Gov and BAU cost the platform
+// and stay in the BASE/+VAT footer via isIncludedInBaseCost, but they are not
+// cross-charged, so they must not inflate the recoverable-days figure
+// stakeholders are shown per team. NPC is excluded from both rules.
+//
+// Utilisation weighting matches xChargeableDays in scheduleTotals.ts, which
+// applies the identical isChargeableRow filter to the identical population
+// (PR rows) and multiplies by utilisation_percent / 100 — this function used
+// not to, which meant a person at 90% utilisation was charged to a team at
+// their full 100%, inflating the Full Quarter / Per Sprint figures actually
+// billed to stakeholders. The two functions are not merged into one: this one
+// sums pre-grouped, team-split-weighted rows for a single team filter, while
+// xChargeableDays sums a flat, unfiltered-by-team allocation list for the
+// whole platform — genuinely different shapes, not worth forcing together.
+export function sumChargeableDays<T extends ChargeableDaysRow>(
   groups: { rows: T[] }[],
   activeTeamFilter: string | null,
 ): number {
   return groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
       if (!isChargeableRow(r.planview_code)) return rs
-      return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
+      return (
+        rs +
+        (r.capacity_days ?? 0) *
+          (r.utilisation_percent / 100) *
+          getCapacitySplit(r.teams ?? [], activeTeamFilter)
+      )
     }, 0)
   }, 0)
 }
