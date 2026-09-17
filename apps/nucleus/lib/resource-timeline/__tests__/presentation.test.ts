@@ -67,6 +67,15 @@ describe('disciplineRank / sortForTeamView', () => {
     expect(disciplineRank(null)).toBeGreaterThan(disciplineRank('Quality Assurance'))
   })
 
+  it('resolves Leadership to the top tier', () => {
+    expect(disciplineRank('Leadership')).toBe(0)
+    expect(disciplineRank('Leadership')).toBeLessThan(disciplineRank('Analysis'))
+  })
+
+  it('still puts an unrecognised discipline last, Leadership notwithstanding', () => {
+    expect(disciplineRank('Something New')).toBeGreaterThan(disciplineRank('Leadership'))
+  })
+
   it('sorts by tier, then alphabetically within a tier', () => {
     const sorted = sortForTeamView([
       resource({ name: 'Zoe QA', discipline: 'Quality Assurance' }),

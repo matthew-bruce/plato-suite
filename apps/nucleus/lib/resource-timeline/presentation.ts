@@ -40,6 +40,7 @@ export const STATUS_LABELS: Record<TransitionStatus, { text: string; colour: str
  * reading it, because that order is stored per period and this view spans two.
  */
 const DISCIPLINE_RANK: Record<string, number> = {
+  Leadership: 0,
   'Product Management': 0,
   'Product Strategy': 0,
   'Product Discovery': 0,
