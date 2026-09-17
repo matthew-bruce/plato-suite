@@ -130,6 +130,33 @@ export function monthStartOf(iso: IsoDate): MonthStart {
   return `${iso.slice(0, 7)}-01`
 }
 
+/**
+ * The month before this one, as YYYY-MM-01. Rolls the year over correctly, so
+ * the month before 2027-01-01 is 2026-12-01.
+ *
+ * Used to ask "was this resource here last month?" — the question that decides
+ * whether a partial month is someone arriving late or someone already present
+ * winding down.
+ */
+export function previousMonthStart(monthStart: MonthStart): MonthStart {
+  const date = toUtcDate(monthStart)
+  date.setUTCMonth(date.getUTCMonth() - 1)
+  return monthStartOf(toIso(date))
+}
+
+/** Every YYYY-MM-01 from the month containing `from` to the one containing `to`. */
+export function monthStartsBetween(from: IsoDate, to: IsoDate): MonthStart[] {
+  const months: MonthStart[] = []
+  const cursor = toUtcDate(monthStartOf(from))
+  const last = monthStartOf(to)
+
+  while (monthStartOf(toIso(cursor)) <= last) {
+    months.push(monthStartOf(toIso(cursor)))
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1)
+  }
+  return months
+}
+
 /** Chronological compare for two ISO dates. */
 export function minIso(a: IsoDate, b: IsoDate): IsoDate {
   return a <= b ? a : b

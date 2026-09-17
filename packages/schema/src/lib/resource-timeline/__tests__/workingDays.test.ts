@@ -6,7 +6,9 @@ import {
   fullMonthWorkingDays,
   lastWorkingDayOfMonth,
   monthStartOf,
+  monthStartsBetween,
   nthWorkingDay,
+  previousMonthStart,
   weekdaysInMonth,
   workingDaysInMonth,
 } from '../workingDays'
@@ -95,5 +97,22 @@ describe('date helpers', () => {
     expect(clampIso('2026-06-01', '2026-07-01', '2026-12-31')).toBe('2026-07-01')
     expect(clampIso('2027-02-01', '2026-07-01', '2026-12-31')).toBe('2026-12-31')
     expect(clampIso('2026-09-15', '2026-07-01', '2026-12-31')).toBe('2026-09-15')
+  })
+
+  it('steps back a month, rolling the year over', () => {
+    expect(previousMonthStart('2026-10-01')).toBe('2026-09-01')
+    expect(previousMonthStart('2027-01-01')).toBe('2026-12-01')
+    // March back to February, the month a naive 30-day subtraction gets wrong.
+    expect(previousMonthStart('2026-03-01')).toBe('2026-02-01')
+  })
+
+  it('lists the months a window spans, inclusive of both ends', () => {
+    expect(monthStartsBetween('2026-10-01', '2026-12-31')).toEqual([
+      '2026-10-01',
+      '2026-11-01',
+      '2026-12-01',
+    ])
+    // A window inside one month is that one month, not nothing.
+    expect(monthStartsBetween('2026-10-05', '2026-10-20')).toEqual(['2026-10-01'])
   })
 })
