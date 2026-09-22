@@ -212,6 +212,208 @@ describe('granular period (Q3) — start-anchored segments', () => {
   })
 })
 
+/* ── Anchoring: front vs back ──────────────────────────────────────── */
+// Rule 4. A partial month is only a late start if nobody was here the month
+// before. These four cases are the whole decision table.
+
+describe('anchoring — no transition record', () => {
+  it('back-anchors a genuine new start (no prior presence)', () => {
+    // Naresh Kottala's shape: nothing in Q2, nothing in October, arrives in
+    // November. Unchanged behaviour — the days sit at the END of the month.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 11, '2026-12-01': 21 }),
+        ],
+      }),
+    )
+
+    expect(segs[0]?.start).toBe('2026-11-16')
+  })
+
+  it('back-anchors a partial first month when the coarse period is empty', () => {
+    // Dipti Borole's day shape without a record: 15 of 22 October days and no
+    // Q2 line at all, so October really is an arrival.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 15, '2026-11-01': 21, '2026-12-01': 21 }),
+        ],
+      }),
+    )
+
+    expect(segs[0]?.start).toBe('2026-10-12')
+  })
+
+  it('front-anchors a tapering resource present in the prior period', () => {
+    // Jan Urbaniak: Happy Team through Q2, 9 of 22 October days, then nothing.
+    // He is winding down, not arriving on the 20th — the bar starts on the 1st
+    // and runs out after nine working days.
+    const segs = deriveSegments(
+      build({
+        coarseAllocations: [alloc('HT', 'REG')],
+        granularAllocations: [
+          alloc('HT', 'REG', { '2026-10-01': 9, '2026-11-01': 0, '2026-12-01': 0 }),
+        ],
+      }),
+    )
+
+    const q3 = segs.filter((seg) => seg.start >= '2026-10-01')
+    expect(q3).toHaveLength(1)
+    expect(q3[0]).toMatchObject({ start: '2026-10-01', end: '2026-10-13', realEnd: true })
+  })
+
+  it('front-anchors a permanently part-time resource into one continuous bar', () => {
+    // Chris Horton: same EPAM allocation every month at five days. Never
+    // absent, so never a second bar and never a late start.
+    const segs = deriveSegments(
+      build({
+        coarseAllocations: [alloc('EPAM', 'REG')],
+        granularAllocations: [
+          alloc('EPAM', 'REG', { '2026-10-01': 5, '2026-11-01': 5, '2026-12-01': 5 }),
+        ],
+      }),
+    )
+
+    const q3 = segs.filter((seg) => seg.start >= '2026-10-01')
+    expect(q3).toHaveLength(1)
+    expect(q3[0]?.start).toBe('2026-10-01')
+  })
+
+  it('front-anchors from presence in the prior MONTH, not just the prior period', () => {
+    // Full October, then a short November. November is a taper, not an arrival,
+    // and the evidence for that is entirely inside the granular window.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 22, '2026-11-01': 8, '2026-12-01': 0 }),
+        ],
+      }),
+    )
+
+    expect(segs[0]).toMatchObject({ start: '2026-10-01', end: '2026-11-11' })
+  })
+
+  it('treats a coarse block clipped long before the seam as no prior presence', () => {
+    // Left CG in July, so by the time October comes round nobody was here last
+    // month — a fresh October start, back-anchored.
+    const segs = deriveSegments(
+      build({
+        coarseAllocations: [alloc('CG', 'REG')],
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 15, '2026-11-01': 21, '2026-12-01': 21 }),
+        ],
+        transition: transition({ fromSupplier: 'CG', toSupplier: null, lastWorkingDay: '2026-07-10' }),
+      }),
+    )
+
+    expect(segs.find((seg) => seg.supplier === 'TCS')?.start).toBe('2026-10-12')
+  })
+
+  it('counts presence per resource, not per allocation', () => {
+    // A CG line running through October and a TCS line starting in November:
+    // the person was here last month, just on someone else's paper.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('CG', 'REG', { '2026-10-01': 22 }),
+          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 11, '2026-12-01': 21 }),
+        ],
+      }),
+    )
+
+    expect(segs.find((seg) => seg.supplier === 'TCS')?.start).toBe('2026-11-02')
+  })
+})
+
+describe('anchoring — transition record present', () => {
+  it('ends the outgoing bar on the last working day even though monthly rows exist', () => {
+    // Makarand Parab, as the data stands now: a CG PR line with a real October
+    // row of 12 days and a confirmed last working day of the 16th. The record
+    // was being ignored entirely whenever monthly rows existed, which put him
+    // on the wrong half of the month.
+    const segs = deriveSegments(
+      build({
+        coarseAllocations: [alloc('CG', 'REG')],
+        granularAllocations: [
+          alloc('CG', 'REG', { '2026-10-01': 12 }),
+          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 20, '2026-12-01': 21 }),
+        ],
+        transition: transition({
+          lastWorkingDay: '2026-10-16',
+          joiningDate: '2026-10-22',
+          commercialStart: '2026-11-02',
+        }),
+      }),
+    )
+
+    const cgQ3 = segs.find((seg) => seg.supplier === 'CG' && seg.start >= '2026-10-01')
+    expect(cgQ3).toMatchObject({ start: '2026-10-01', end: '2026-10-16', realEnd: true })
+    expect(segs.find((seg) => seg.supplier === 'TCS')).toMatchObject({
+      start: '2026-11-02',
+      end: '2026-12-31',
+    })
+  })
+
+  it('still honours the record when the allocation has no monthly rows', () => {
+    // The path that already worked. Kept so removing the gate cannot regress it.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [alloc('HT', 'REG')],
+        transition: transition({
+          fromSupplier: 'HT',
+          toSupplier: null,
+          lastWorkingDay: '2026-11-13',
+        }),
+      }),
+    )
+
+    expect(segs[0]?.end).toBe('2026-11-13')
+  })
+
+  it('ignores a last working day belonging to a different supplier', () => {
+    // The date is the last day at CG. It says nothing about the TCS bar and
+    // must not clip it.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 22, '2026-11-01': 21, '2026-12-01': 21 }),
+        ],
+        transition: transition({ lastWorkingDay: '2026-11-13' }),
+      }),
+    )
+
+    expect(segs[0]?.end).toBe('2026-12-31')
+  })
+
+  it('leaves hypercare anchored on its own day count', () => {
+    // Hypercare IS the wind-down: its twelve booked days end it on the 16th,
+    // and a last working day describes the substantive role before it.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [alloc('CG', 'NPC', { '2026-10-01': 12 })],
+        transition: transition({ toSupplier: null, lastWorkingDay: '2026-10-30' }),
+      }),
+    )
+
+    expect(segs[0]).toMatchObject({ start: '2026-10-01', end: '2026-10-16' })
+  })
+
+  it('never lets joining_date move a bar, even as the only date on record', () => {
+    // Rule 7, and the schema's own instruction on the column.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [
+          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 21, '2026-12-01': 21 }),
+        ],
+        transition: transition({ fromSupplier: null, joiningDate: '2026-10-26' }),
+      }),
+    )
+
+    expect(segs[0]?.start).toBe('2026-11-02')
+  })
+})
+
 describe('granular period (Q3) — end-anchored NPC hypercare', () => {
   it('runs flat from the start of the period and ends on the Nth working day', () => {
     // Manasi Ketkar: 5 days of October hypercare.
@@ -356,7 +558,11 @@ describe('joining_date', () => {
 /* ── commercial_start reconciliation ───────────────────────────────── */
 
 describe('commercial_start', () => {
-  it('records a divergence from the derived start without overriding it', () => {
+  // Reversed deliberately. This block used to assert that the monthly days won
+  // and the record was merely noted; the record is the agreed commercial fact
+  // and now sets the bar, with the overridden day-derived date kept as the
+  // divergence signal.
+  it('overrides the day-derived start and keeps the derived date as the divergence', () => {
     const segs = deriveSegments(
       build({
         granularAllocations: [alloc('TCS', 'REG', { '2026-10-01': 15, '2026-11-01': 21 })],
@@ -364,8 +570,8 @@ describe('commercial_start', () => {
       }),
     )
 
-    expect(segs[0]?.start).toBe('2026-10-12')
-    expect(segs[0]?.commercialStartMismatch).toBe('2026-10-19')
+    expect(segs[0]?.start).toBe('2026-10-19')
+    expect(segs[0]?.commercialStartMismatch).toBe('2026-10-12')
   })
 
   it('reports no mismatch when the two agree', () => {
@@ -376,6 +582,21 @@ describe('commercial_start', () => {
       }),
     )
 
+    expect(segs[0]?.start).toBe('2026-10-12')
+    expect(segs[0]?.commercialStartMismatch).toBeNull()
+  })
+
+  it('leaves the bar alone when the commercial start falls outside this window', () => {
+    // Amol Tate: moved in August, so his Q3 TCS bar is ordinary cover and the
+    // August date has nothing to say about it.
+    const segs = deriveSegments(
+      build({
+        granularAllocations: [alloc('TCS', 'REG', { '2026-10-01': 22, '2026-11-01': 21 })],
+        transition: transition({ commercialStart: '2026-08-24' }),
+      }),
+    )
+
+    expect(segs[0]?.start).toBe('2026-10-01')
     expect(segs[0]?.commercialStartMismatch).toBeNull()
   })
 })
@@ -537,66 +758,99 @@ describe('Q3 allocation with no monthly rows falls back to a flat quarter block'
 /* ── Gaps ──────────────────────────────────────────────────────────── */
 
 describe('deriveGaps', () => {
-  it('marks the gap between a CG roll-off and a later TCS commercial start', () => {
+  it('reads the gap off the transition record, not off the segments', () => {
+    const gaps = deriveGaps(
+      transition({ lastWorkingDay: '2026-09-30', commercialStart: '2026-11-02' }),
+      BANK_HOLIDAYS,
+    )
+
+    expect(gaps).toEqual([{ start: '2026-09-30', end: '2026-11-02' }])
+  })
+
+  it('never produces a gap without a transition record, whatever the segments look like', () => {
+    // Chris Horton's shape: continuous EPAM cover at five days a month. The old
+    // adjacency check called the Q2/Q3 seam a gap; there is no record, so there
+    // is no gap.
     const segs = deriveSegments(
       build({
-        coarseAllocations: [alloc('CG', 'REG')],
+        coarseAllocations: [alloc('EPAM', 'REG')],
         granularAllocations: [
-          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 21, '2026-12-01': 21 }),
+          alloc('EPAM', 'REG', { '2026-10-01': 5, '2026-11-01': 5, '2026-12-01': 5 }),
         ],
-        transition: transition({ lastWorkingDay: '2026-09-30' }),
       }),
     )
 
-    expect(deriveGaps(segs, BANK_HOLIDAYS)).toEqual([{ start: '2026-09-30', end: '2026-11-02' }])
+    expect(segs.length).toBeGreaterThan(1)
+    expect(deriveGaps(null, BANK_HOLIDAYS)).toEqual([])
   })
 
-  it('never renders a leading gap for a brand-new joiner', () => {
-    // A gap means "should have been covered and wasn't" — which is not true of
-    // someone who simply had not started yet.
-    const segs = deriveSegments(
-      build({
-        granularAllocations: [alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 21 })],
-        transition: transition({ fromSupplier: null }),
-      }),
-    )
-
-    expect(segs).toHaveLength(1)
-    expect(deriveGaps(segs, BANK_HOLIDAYS)).toEqual([])
+  it('produces no gap without a last working day', () => {
+    // Hitendrasinh Rajput: everything else populated, no resignation date on
+    // record at CG. Nothing to measure a gap from, so none is drawn.
+    expect(
+      deriveGaps(
+        transition({ lastWorkingDay: null, joiningDate: '2026-10-07', commercialStart: '2026-10-14' }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([])
   })
 
-  it('reports no gap across the Q2/Q3 seam for continuous cover', () => {
-    // Cover runs to 30 Sep and resumes 1 Oct. Two segments because they are
-    // two allocations, but not one uncovered day between them.
-    const segs = deriveSegments(
-      build({
-        coarseAllocations: [alloc('HT', 'REG')],
-        granularAllocations: [alloc('HT', 'REG', { '2026-10-01': 22, '2026-11-01': 21 })],
-      }),
-    )
+  it('produces no gap without a resume date', () => {
+    expect(
+      deriveGaps(
+        transition({ lastWorkingDay: '2026-09-30', commercialStart: null, joiningDate: null }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([])
+  })
 
-    expect(segs).toHaveLength(2)
-    expect(deriveGaps(segs, BANK_HOLIDAYS)).toEqual([])
+  it('falls back to joining_date only where commercial_start is null', () => {
+    expect(
+      deriveGaps(
+        transition({ lastWorkingDay: '2026-09-30', joiningDate: '2026-10-19', commercialStart: null }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([{ start: '2026-09-30', end: '2026-10-19' }])
+
+    // With both set, commercial_start wins — joining_date is informational.
+    expect(
+      deriveGaps(
+        transition({
+          lastWorkingDay: '2026-09-30',
+          joiningDate: '2026-10-19',
+          commercialStart: '2026-11-02',
+        }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([{ start: '2026-09-30', end: '2026-11-02' }])
   })
 
   it('reports no gap for a handover across a weekend', () => {
-    // CG hypercare ends Friday 30 Oct, TCS starts Monday 2 Nov. Nobody was
-    // uncovered on a working day, so this is not a gap.
-    const segs = deriveSegments(
-      build({
-        granularAllocations: [
-          alloc('CG', 'NPC', { '2026-10-01': 22 }),
-          alloc('TCS', 'REG', { '2026-10-01': 0, '2026-11-01': 21, '2026-12-01': 21 }),
-        ],
-        transition: transition({ lastWorkingDay: '2026-10-30' }),
-      }),
-    )
+    // CG finishes Friday 30 Oct, TCS starts Monday 2 Nov. Nobody was uncovered
+    // on a working day, so this is a clean handover even with a record behind it.
+    expect(
+      deriveGaps(
+        transition({ lastWorkingDay: '2026-10-30', commercialStart: '2026-11-02' }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([])
+  })
 
-    expect(segs.map((s) => [s.start, s.end])).toEqual([
-      ['2026-10-01', '2026-10-30'],
-      ['2026-11-02', '2026-12-31'],
-    ])
-    expect(deriveGaps(segs, BANK_HOLIDAYS)).toEqual([])
+  it('reports no gap when cover resumes on or before the last working day', () => {
+    expect(
+      deriveGaps(
+        transition({ lastWorkingDay: '2026-10-30', commercialStart: '2026-10-30' }),
+        BANK_HOLIDAYS,
+      ),
+    ).toEqual([])
+  })
+
+  it('never renders a leading gap for a brand-new joiner', () => {
+    // A gap means "should have been covered and wasn't" — not true of someone
+    // who simply had not started yet. No from-supplier, no last working day.
+    expect(
+      deriveGaps(transition({ fromSupplier: null, joiningDate: '2026-10-26' }), BANK_HOLIDAYS),
+    ).toEqual([])
   })
 })
 

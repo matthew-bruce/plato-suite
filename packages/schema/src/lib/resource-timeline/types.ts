@@ -90,8 +90,13 @@ export interface TimelineSegment {
   flag: string | null
   /**
    * Set when resource_supplier_transitions.commercial_start disagrees with the
-   * date derived from monthly days. The derived value still wins (monthly days
-   * are the primary source per the algorithm); this exists so a divergence
+   * date the monthly days imply. Carries the DAY-DERIVED date — the one that
+   * was overridden — since the record itself is now the segment's start.
+   *
+   * Note this is the reverse of the original contract, where monthly days won
+   * and this field carried the record's date. The record is the agreed
+   * commercial fact and now takes priority (rule 5 in deriveSegments.ts); the
+   * field still exists for the same reason it always did, so a divergence
    * surfaces as a data-quality signal instead of being silently resolved.
    */
   commercialStartMismatch: IsoDate | null

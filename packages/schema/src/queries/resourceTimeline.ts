@@ -369,7 +369,8 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
         category: classification.category,
         categoryLabel: classification.categoryLabel,
         segments,
-        gaps: deriveGaps(segments, bankHolidays),
+        // Off the transition record, never off the segments — see deriveGaps.
+        gaps: deriveGaps(transition, bankHolidays),
         joiningDate: transition?.joiningDate ?? null,
         notes: transition?.notes ?? null,
       }

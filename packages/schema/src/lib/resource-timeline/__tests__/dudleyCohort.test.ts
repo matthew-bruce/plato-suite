@@ -364,27 +364,22 @@ describe('Dudley cohort — real data against approved geometry', () => {
 })
 
 describe('Dudley cohort — coverage gaps', () => {
-  it('flags the real gap between hypercare ending and a December TCS start', () => {
-    // Poornachandran Ramakrishnan: CG hypercare to 30 Oct, TCS from 1 Dec.
-    const segments = deriveSegments({
-      transition: tx({ lastWorkingDay: '2026-11-04', commercialStart: '2026-12-01' }),
-      coarseAllocations: [cg()],
-      granularAllocations: [
-        { supplier: 'CG', code: 'NPC', monthlyDays: { '2026-10-01': 22 } },
-        {
-          supplier: 'TCS',
-          code: 'REG',
-          monthlyDays: { '2026-10-01': 0, '2026-11-01': 0, '2026-12-01': 21 },
-        },
-      ],
-      coarseWindow: Q2,
-      granularWindow: Q3,
-      bankHolidays: BANK_HOLIDAYS,
-    })
+  it('flags the real gap from the record\u2019s own dates', () => {
+    // Poornachandran Ramakrishnan: last CG day 4 Nov, TCS commercial start
+    // 1 Dec. The gap is those two dates, not the space between the bars — his
+    // booked hypercare days run out on 30 Oct, five days before he actually
+    // finished, and it is the record that says when he was uncovered.
+    const transition = tx({ lastWorkingDay: '2026-11-04', commercialStart: '2026-12-01' })
 
-    expect(deriveGaps(segments, BANK_HOLIDAYS)).toEqual([
-      { start: '2026-10-30', end: '2026-12-01' },
+    expect(deriveGaps(transition, BANK_HOLIDAYS)).toEqual([
+      { start: '2026-11-04', end: '2026-12-01' },
     ])
+  })
+
+  it('draws nothing for the cohort members with no transition record', () => {
+    // Every EPAM and Happy Team resource in the fixture above. Their bars stop
+    // where their data stops; none of them abandoned a post.
+    expect(deriveGaps(null, BANK_HOLIDAYS)).toEqual([])
   })
 })
 
