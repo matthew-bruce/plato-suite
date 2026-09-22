@@ -140,7 +140,13 @@ function passesContentFilters(
   state: Omit<FilterState, 'viewMode' | 'editMode'>,
 ): boolean {
   if (!resource.segments.some((s) => state.activeSuppliers.has(s.supplier))) return false
-  if (!resource.teams.some((t) => state.activeTeams.has(t.teamName))) return false
+  // An empty activeTeams set is reachable via toggleTeamSelection below
+  // (isolate a team, then click it off again) and is treated as "no team
+  // filter applied" rather than "nothing matches" — the same all-or-nothing
+  // convention isResourceVisible uses, so narrowing to zero never blanks
+  // the board.
+  if (state.activeTeams.size > 0 && !resource.teams.some((t) => state.activeTeams.has(t.teamName)))
+    return false
 
   if (state.groupBy === 'team' && state.secondaryFilter) {
     if (disciplineOf(resource) !== state.secondaryFilter) return false
@@ -175,6 +181,55 @@ export function filterResources(
 export function countHidden(resources: readonly TimelineResource[], state: FilterState): number {
   if (state.viewMode !== 'presentation' || state.editMode) return 0
   return resources.filter((r) => r.hiddenFromTimeline && passesContentFilters(r, state)).length
+}
+
+/**
+ * Which of the full group-name list should actually render, given the active
+ * team filter — Team mode only. A team's group renders iff the team itself is
+ * selected, full stop: a resource surviving the (resource-level) team filter
+ * because ONE of their teams is active must never cause an unselected team's
+ * group to appear just because that resource also happens to belong to it.
+ *
+ * Kept separate from `groupNames` in the caller (rather than filtering
+ * `groupNames` itself) so the "which groups start collapsed" bookkeeping,
+ * which intentionally ignores the team filter, is untouched by this.
+ *
+ * An empty activeTeams set is treated as "all teams" — see
+ * toggleTeamSelection — so a selection narrowed all the way to nothing never
+ * blanks the board.
+ */
+export function renderedGroupNames(
+  groupNames: readonly string[],
+  groupBy: GroupMode,
+  activeTeams: ReadonlySet<string>,
+): readonly string[] {
+  if (groupBy !== 'team') return groupNames
+  if (activeTeams.size === 0) return groupNames
+  return groupNames.filter((name) => activeTeams.has(name))
+}
+
+/**
+ * Team-chip click behaviour. Isolates to just the clicked team on the first
+ * click away from "all teams" selected — turning "isolate one team" from
+ * deselecting every other chip into a single click — then behaves as an
+ * ordinary additive/subtractive multi-select once the selection is no longer
+ * "all". An empty selection is treated the same as "all" here too (not just
+ * in the filters above): clicking a chip while nothing is selected isolates
+ * to that one team, the same as clicking from "all" would, rather than
+ * leaving the board in whatever state produced the empty set.
+ */
+export function toggleTeamSelection(
+  current: ReadonlySet<string>,
+  allTeams: readonly string[],
+  clicked: string,
+): ReadonlySet<string> {
+  if (current.size === 0 || current.size === allTeams.length) {
+    return new Set([clicked])
+  }
+  const next = new Set(current)
+  if (next.has(clicked)) next.delete(clicked)
+  else next.add(clicked)
+  return next
 }
 
 export function memberInGroup(

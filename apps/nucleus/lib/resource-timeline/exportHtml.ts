@@ -488,6 +488,17 @@ function groupNames(){
   if (state.groupBy === 'discipline') return DATA.disciplines;
   return DATA.categoryOrder;
 }
+// Mirrors renderedGroupNames() in presentation.ts — Team mode only, a team's
+// group renders iff the team itself is selected, never because some other
+// selected team's resource also happens to belong to it. Used only in
+// render()'s own loop below, never at the two "start every group collapsed"
+// call sites, which must keep reasoning about every group a mode could show
+// so a team-chip click never re-collapses the board.
+function renderedGroupNames(){
+  var all = groupNames();
+  if (state.groupBy !== 'team' || state.activeTeams.size === 0) return all;
+  return all.filter(function(name){ return state.activeTeams.has(name); });
+}
 function inGroup(r, name){
   if (state.groupBy === 'team') return r.teams.some(function(t){ return t.teamName === name; });
   if (state.groupBy === 'discipline') return disciplineOf(r) === name;
@@ -496,7 +507,10 @@ function inGroup(r, name){
 function filtered(){
   return DATA.resources.filter(function(r){
     if (!r.segments.some(function(s){ return state.activeSuppliers.has(s.supplier); })) return false;
-    if (!r.teams.some(function(t){ return state.activeTeams.has(t.teamName); })) return false;
+    // Empty activeTeams behaves as "all teams" — see toggleTeamSelection in
+    // presentation.ts — so a selection narrowed to nothing never blanks the
+    // board.
+    if (state.activeTeams.size > 0 && !r.teams.some(function(t){ return state.activeTeams.has(t.teamName); })) return false;
     if (state.groupBy === 'team' && state.secondaryFilter && disciplineOf(r) !== state.secondaryFilter) return false;
     if (state.groupBy === 'discipline' && state.secondaryFilter &&
         !r.teams.some(function(t){ return t.teamName === state.secondaryFilter; })) return false;
@@ -546,7 +560,7 @@ function render(){
 
   var any = false;
   var renderedNames = [];
-  groupNames().forEach(function(name){
+  renderedGroupNames().forEach(function(name){
     var members = list.filter(function(r){ return inGroup(r, name); });
     if (!members.length) return;
     any = true;
@@ -786,6 +800,18 @@ function syncChips(){
   var isFocus = state.activeSuppliers.size === 2 && state.activeSuppliers.has('CG') && state.activeSuppliers.has('TCS');
   presetBtn.classList.toggle('inactive', !isFocus);
 }
+// Mirrors toggleTeamSelection() in presentation.ts: clicking a chip while
+// every team (or, equivalently, none) is selected isolates to just that one
+// team; once the selection is narrowed, clicking behaves as an ordinary
+// additive/subtractive toggle.
+function toggleTeamSelection(clicked){
+  if (state.activeTeams.size === 0 || state.activeTeams.size === DATA.teams.length) {
+    state.activeTeams = new Set([clicked]);
+    return;
+  }
+  if (state.activeTeams.has(clicked)) state.activeTeams.delete(clicked);
+  else state.activeTeams.add(clicked);
+}
 function buildTeamChips(){
   var host = document.getElementById('teamChips');
   host.innerHTML = '';
@@ -794,8 +820,7 @@ function buildTeamChips(){
     chip.className = 'team-chip' + (state.activeTeams.has(t) ? ' active' : '');
     chip.textContent = t;
     chip.addEventListener('click', function(){
-      if (state.activeTeams.has(t)) state.activeTeams.delete(t);
-      else state.activeTeams.add(t);
+      toggleTeamSelection(t);
       syncTeamChips(); render();
     });
     host.appendChild(chip);
@@ -806,7 +831,8 @@ function syncTeamChips(){
   for (var i = 0; i < chips.length; i++) {
     chips[i].classList.toggle('active', state.activeTeams.has(DATA.teams[i]));
   }
-  document.getElementById('allTeamsBtn').classList.toggle('inactive', state.activeTeams.size !== DATA.teams.length);
+  var allActive = state.activeTeams.size === 0 || state.activeTeams.size === DATA.teams.length;
+  document.getElementById('allTeamsBtn').classList.toggle('inactive', !allActive);
 }
 function buildMonthRow(){
   document.getElementById('monthRow').innerHTML = DATA.months.map(function(m){

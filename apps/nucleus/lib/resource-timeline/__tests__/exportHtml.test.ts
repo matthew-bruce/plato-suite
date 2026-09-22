@@ -164,6 +164,27 @@ describe('buildStandaloneHtml', () => {
     expect(html).toContain('state.activeTeams')
   })
 
+  it('mirrors the team-group rendering fix: groups render off the active team filter, not the unfiltered team list', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    // render() must iterate renderedGroupNames(), never the raw groupNames()
+    // — that was the bug (a resource split across a selected and an
+    // unselected team resurrected the unselected team's group).
+    expect(html).toContain('function renderedGroupNames()')
+    expect(html).toContain('renderedGroupNames().forEach(function(name){')
+    // The two "start every group collapsed" call sites must keep reasoning
+    // about every group a mode could show, not just the currently-selected
+    // teams — otherwise a team-chip click would re-collapse the whole board.
+    expect(html.match(/state\.collapsed = new Set\(groupNames\(\)\)/g)?.length).toBe(2)
+  })
+
+  it('mirrors the team-chip isolate-on-click fix', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('function toggleTeamSelection(clicked)')
+    expect(html).toContain('toggleTeamSelection(t);')
+  })
+
   it('does NOT carry viewMode into the file’s live state — there is no edit mode offline', () => {
     const html = buildStandaloneHtml(data(), { ...OPTIONS, viewMode: 'presentation' })
 

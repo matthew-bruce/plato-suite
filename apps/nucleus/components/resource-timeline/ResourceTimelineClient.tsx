@@ -32,15 +32,19 @@ import {
   formatLongDate,
   formatMonthLabel,
   percentOf,
+  renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
   supplierStripe,
   supplierTint,
+  toggleTeamSelection,
   weekLinePositions,
 } from '@/lib/resource-timeline/presentation'
 import { buildStandaloneHtml } from '@/lib/resource-timeline/exportHtml'
 import styles from './resourceTimeline.module.css'
+
+const VIEW_MODE_STORAGE_KEY = 'plato-resource-timeline-view-mode'
 
 const GROUP_MODES: { value: GroupMode; label: string }[] = [
   { value: 'team', label: 'Team' },
@@ -84,6 +88,35 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
   const [editMode, setEditMode] = useState(false)
   const [visibilityError, setVisibilityError] = useState<string | null>(null)
 
+  // viewMode previously had zero persistence: every mount hardcoded 'full',
+  // so any remount between hiding a resource and checking the result (e.g. a
+  // manual refresh to confirm the change stuck) silently reverted the page to
+  // Full view — which shows hidden resources unconditionally — making a
+  // correctly-persisted hide look like it never took effect. Restored (not
+  // read) via an effect rather than the useState initializer, so the
+  // server-rendered markup always starts from 'full' and there is no
+  // hydration mismatch; the one-render flip to 'presentation' happens
+  // immediately after mount when sessionStorage has it.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'presentation') {
+        setViewMode('presentation')
+      }
+    } catch {
+      // sessionStorage can throw in locked-down/private-browsing contexts —
+      // falling back to Full view is a reasonable default, not an error.
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode)
+    } catch {
+      // See above — losing the remembered view across a reload here is a
+      // minor inconvenience, not worth surfacing to the user.
+    }
+  }, [viewMode])
+
   const supplierColours = useMemo(
     () => new Map(data.suppliers.map((s) => [s.abbreviation, s.colour])),
     [data.suppliers],
@@ -117,19 +150,33 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
     [localResources, filterState],
   )
 
-  const groups = useMemo(
-    () => buildGroups(visible, groupNames, groupBy),
-    [visible, groupNames, groupBy],
+  // Deliberately separate from `groupNames` above: that value also drives the
+  // collapse-reset effect, which must keep reasoning about every group a mode
+  // could show, not just the ones the team filter currently allows — clicking
+  // a team chip must never re-collapse the board. This is the one used for
+  // actually building what's on screen: a team's group renders iff the team
+  // itself is in activeTeams, never because some other selected team's
+  // resource happens to also belong to it (the Paul Williams / Cygnus+Pluto
+  // case).
+  const teamGroupNames = useMemo(
+    () => renderedGroupNames(groupNames, groupBy, activeTeams),
+    [groupNames, groupBy, activeTeams],
   )
 
-  const toggleTeam = useCallback((teamName: string) => {
-    setActiveTeams((current) => {
-      const next = new Set(current)
-      if (next.has(teamName)) next.delete(teamName)
-      else next.add(teamName)
-      return next
-    })
-  }, [])
+  const groups = useMemo(
+    () => buildGroups(visible, teamGroupNames, groupBy),
+    [visible, teamGroupNames, groupBy],
+  )
+
+  // Isolate-on-first-click from "all teams" (or from an empty selection,
+  // which behaves the same way — see toggleTeamSelection), then ordinary
+  // additive/subtractive toggling once the selection is narrowed.
+  const toggleTeam = useCallback(
+    (teamName: string) => {
+      setActiveTeams((current) => toggleTeamSelection(current, data.teams, teamName))
+    },
+    [data.teams],
+  )
 
   /**
    * Writes hidden_from_timeline immediately on click — no separate save step,
@@ -554,7 +601,9 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                 <button
                   type="button"
                   className={`${styles.presetButton} ${
-                    activeTeams.size === data.teams.length ? '' : styles.inactive
+                    activeTeams.size === 0 || activeTeams.size === data.teams.length
+                      ? ''
+                      : styles.inactive
                   }`}
                   onClick={() => setActiveTeams(new Set(data.teams))}
                 >
