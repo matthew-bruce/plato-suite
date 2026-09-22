@@ -86,36 +86,95 @@ export function disciplineOf(resource: TimelineResource): string {
   return resource.discipline ?? UNASSIGNED_DISCIPLINE
 }
 
+/** Full view shows everyone; Presentation view can hide individual resources. */
+export type ViewMode = 'full' | 'presentation'
+
 export interface FilterState {
   groupBy: GroupMode
   activeSuppliers: ReadonlySet<string>
+  /** Multi-select, unlike secondaryFilter below — applies in every GROUP BY
+   *  mode, not just Team view, matching how the supplier filter already works. */
+  activeTeams: ReadonlySet<string>
   /** Skillset name in Team view, team name in Skillset view, '' for none. */
   secondaryFilter: string
   transitionOnly: boolean
+  viewMode: ViewMode
+  /** Edit mode reveals hidden resources in Presentation view so they can be
+   *  reviewed and toggled back — see isResourceVisible. */
+  editMode: boolean
 }
 
 /**
- * A resource survives filtering only if at least one of its segments belongs
- * to an active supplier — filtering by supplier is about coverage, so someone
- * with no visible bars is not a meaningful row.
+ * Whether a resource renders at all — decided before, and independent of,
+ * every other filter below (supplier, team, skillset, transition-only).
+ *
+ * Full view ignores hidden_from_timeline entirely; that is the whole point of
+ * having a Full view. Presentation view hides a flagged resource UNLESS edit
+ * mode is on, in which case it has to stay visible — otherwise there would be
+ * no row left to show the show/hide control on, and a resource hidden by
+ * mistake could never be found again to un-hide it.
  */
+export function isResourceVisible(
+  resource: Pick<TimelineResource, 'hiddenFromTimeline'>,
+  viewMode: ViewMode,
+  editMode: boolean,
+): boolean {
+  if (viewMode === 'full') return true
+  if (editMode) return true
+  return !resource.hiddenFromTimeline
+}
+
+/**
+ * Every filter EXCEPT the visibility rule above — split out so countHidden
+ * below can ask "would this resource be showing if it weren't hidden" without
+ * duplicating the supplier/team/skillset/transition checks.
+ *
+ * A resource survives on supplier only if at least one of its segments
+ * belongs to an active supplier — filtering by supplier is about coverage, so
+ * someone with no visible bars is not a meaningful row. Team filtering
+ * follows the same shape: at least one of the resource's own teams must be
+ * active.
+ */
+function passesContentFilters(
+  resource: TimelineResource,
+  state: Omit<FilterState, 'viewMode' | 'editMode'>,
+): boolean {
+  if (!resource.segments.some((s) => state.activeSuppliers.has(s.supplier))) return false
+  if (!resource.teams.some((t) => state.activeTeams.has(t.teamName))) return false
+
+  if (state.groupBy === 'team' && state.secondaryFilter) {
+    if (disciplineOf(resource) !== state.secondaryFilter) return false
+  }
+  if (state.groupBy === 'discipline' && state.secondaryFilter) {
+    if (!resource.teams.some((t) => t.teamName === state.secondaryFilter)) return false
+  }
+  if (state.transitionOnly && !TRANSITION_STATUSES.includes(resource.status)) return false
+
+  return true
+}
+
 export function filterResources(
   resources: readonly TimelineResource[],
   state: FilterState,
 ): TimelineResource[] {
-  return resources.filter((resource) => {
-    if (!resource.segments.some((s) => state.activeSuppliers.has(s.supplier))) return false
+  return resources.filter(
+    (resource) =>
+      isResourceVisible(resource, state.viewMode, state.editMode) &&
+      passesContentFilters(resource, state),
+  )
+}
 
-    if (state.groupBy === 'team' && state.secondaryFilter) {
-      if (disciplineOf(resource) !== state.secondaryFilter) return false
-    }
-    if (state.groupBy === 'discipline' && state.secondaryFilter) {
-      if (!resource.teams.some((t) => t.teamName === state.secondaryFilter)) return false
-    }
-    if (state.transitionOnly && !TRANSITION_STATUSES.includes(resource.status)) return false
-
-    return true
-  })
+/**
+ * How many resources Presentation view is currently keeping off the screen —
+ * the "N hidden" note next to the view toggle. Zero outside Presentation view
+ * (Full view hides nothing) and zero in edit mode (nothing is actually hidden
+ * from the screen while reviewing). Counted among resources that already pass
+ * every OTHER filter, so the number matches what turning Full view on would
+ * actually add back, not the platform-wide hidden count.
+ */
+export function countHidden(resources: readonly TimelineResource[], state: FilterState): number {
+  if (state.viewMode !== 'presentation' || state.editMode) return 0
+  return resources.filter((r) => r.hiddenFromTimeline && passesContentFilters(r, state)).length
 }
 
 export function memberInGroup(

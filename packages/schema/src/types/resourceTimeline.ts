@@ -46,6 +46,14 @@ export interface TimelineResource {
   /** Transition record fields kept for the tooltip. Never used for geometry. */
   joiningDate: IsoDate | null
   notes: string | null
+  /**
+   * Presentation-view flag (resources.hidden_from_timeline). Purely a
+   * render-time signal — never an input to deriveSegments/deriveGaps, so a
+   * hidden resource's own data is exactly as complete as anyone else's. Full
+   * view always ignores it; Presentation view hides the row unless edit mode
+   * is showing it for review. See lib/resource-timeline/presentation.ts.
+   */
+  hiddenFromTimeline: boolean
 }
 
 export interface ResourceTimelineData {

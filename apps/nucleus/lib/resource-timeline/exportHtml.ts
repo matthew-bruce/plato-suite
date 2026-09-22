@@ -29,7 +29,20 @@ import {
 export interface ExportOptions {
   groupBy: string
   activeSuppliers: string[]
+  /** Live-toggleable in the exported file, same as activeSuppliers. */
+  activeTeams: string[]
   transitionOnly: boolean
+  /**
+   * Which resources get baked into the file at all. Unlike every other
+   * option here, this is NOT carried into the exported file's live state —
+   * there is no edit mode in a self-contained offline HTML file, so there is
+   * nothing for a "current view" toggle to mean once the file exists. Instead
+   * Presentation view filters data.resources down before it is embedded:
+   * the export is a one-time snapshot of what Presentation view showed at
+   * generation time, matching the whole file's "bakes in the derived
+   * dataset" philosophy (see the header comment above).
+   */
+  viewMode: 'full' | 'presentation'
   generatedAt: Date
 }
 
@@ -85,6 +98,14 @@ export function buildStandaloneHtml(
   data: ResourceTimelineData,
   options: ExportOptions,
 ): string {
+  // The one-time bake described on ExportOptions.viewMode: a hidden resource
+  // in Presentation view is simply never embedded, rather than embedded and
+  // filtered by runtime JS the file has no way to let anyone turn off again.
+  const exportedResources =
+    options.viewMode === 'presentation'
+      ? data.resources.filter((r) => !r.hiddenFromTimeline)
+      : data.resources
+
   const payload = {
     windowStart: data.windowStart,
     windowEnd: data.windowEnd,
@@ -102,8 +123,13 @@ export function buildStandaloneHtml(
     // for the real-calendar-week split (round 7), reused rather than
     // reimplemented in the vanilla-JS runtime below.
     weekLines: weekLinePositions(data.windowStart, data.windowEnd),
-    resources: data.resources,
+    resources: exportedResources,
     suppliers: data.suppliers,
+    // Team chip options: still every team in the full dataset, not just those
+    // with a surviving member after the Presentation-view bake — the same
+    // choice the supplier/discipline lists already make (they don't shrink to
+    // "only what's active" either). A team chip for an all-hidden team simply
+    // renders zero rows underneath it, same as an inactive-supplier team does.
     teams: data.teams,
     disciplines: data.disciplines,
     categoryOrder: CATEGORY_ORDER,
@@ -113,6 +139,7 @@ export function buildStandaloneHtml(
     initial: {
       groupBy: options.groupBy,
       activeSuppliers: options.activeSuppliers,
+      activeTeams: options.activeTeams,
       transitionOnly: options.transitionOnly,
     },
     meta: {
@@ -177,9 +204,17 @@ ${EXPORT_CSS}
       </div>
     </div>
     <div class="toolbar-filter">
-      <button class="preset-btn" id="allSuppliersBtn">All suppliers</button>
-      <div class="chip-filter" id="supplierChips"></div>
-      <button class="preset-btn" id="presetBtn">Focus: CG + TCS</button>
+      <div class="filter-rows">
+        <div class="filter-row-line">
+          <button class="preset-btn" id="allSuppliersBtn">All suppliers</button>
+          <div class="chip-filter" id="supplierChips"></div>
+          <button class="preset-btn" id="presetBtn">Focus: CG + TCS</button>
+        </div>
+        <div class="filter-row-line">
+          <button class="preset-btn" id="allTeamsBtn">All teams</button>
+          <div class="chip-filter" id="teamChips"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -279,6 +314,16 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .chip{border-radius:var(--rmg-radius-xl);padding:4px 12px;font-size:11px;font-weight:600;border:1.5px solid;cursor:pointer;font-family:inherit;white-space:nowrap;line-height:1.4}
 .preset-btn{display:inline-flex;align-items:center;padding:4px 12px;border-radius:var(--rmg-radius-xl);font-size:11px;font-weight:600;border:1.5px solid var(--rmg-color-black);background:var(--rmg-color-black);color:#fff;font-family:inherit;cursor:pointer;white-space:nowrap}
 .preset-btn.inactive{background:transparent;color:var(--rmg-color-dark-grey);border-color:var(--rmg-color-grey-2)}
+/* Two rows in the ONE grey-4 filter card — mirrors the live page's
+   .filterRows/.filterRowLine exactly: Suppliers on the first line, Teams on
+   the second, same card, not a second card. */
+.filter-rows{display:flex;flex-direction:column;gap:8px;width:100%}
+.filter-row-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* Team chip — same pill geometry as .chip above but a fixed red/white/grey
+   pair rather than a per-item colour: teams carry no brand colour the way
+   suppliers do. Mirrors the live page's .teamChip exactly. */
+.team-chip{border-radius:var(--rmg-radius-xl);padding:4px 12px;font-size:11px;font-weight:600;line-height:1.4;border:1.5px solid var(--rmg-color-grey-2);background:#fff;color:var(--rmg-color-dark-grey);cursor:pointer;font-family:inherit;white-space:nowrap}
+.team-chip.active{border-color:var(--rmg-color-red);background:var(--rmg-color-red);color:#fff}
 /* Secondary filter — a plain native <select> (no floating-panel JS needed in
    a file that has to just work when double-clicked from an email), styled to
    the same white-pill / red-when-active language as CustomSelect on Schedule. */
@@ -380,6 +425,7 @@ var UNASSIGNED_DISCIPLINE = 'Unassigned discipline';
 var state = {
   groupBy: DATA.initial.groupBy,
   activeSuppliers: new Set(DATA.initial.activeSuppliers),
+  activeTeams: new Set(DATA.initial.activeTeams),
   secondaryFilter: '',
   transitionOnly: DATA.initial.transitionOnly,
   collapsed: new Set()
@@ -450,6 +496,7 @@ function inGroup(r, name){
 function filtered(){
   return DATA.resources.filter(function(r){
     if (!r.segments.some(function(s){ return state.activeSuppliers.has(s.supplier); })) return false;
+    if (!r.teams.some(function(t){ return state.activeTeams.has(t.teamName); })) return false;
     if (state.groupBy === 'team' && state.secondaryFilter && disciplineOf(r) !== state.secondaryFilter) return false;
     if (state.groupBy === 'discipline' && state.secondaryFilter &&
         !r.teams.some(function(t){ return t.teamName === state.secondaryFilter; })) return false;
@@ -739,6 +786,28 @@ function syncChips(){
   var isFocus = state.activeSuppliers.size === 2 && state.activeSuppliers.has('CG') && state.activeSuppliers.has('TCS');
   presetBtn.classList.toggle('inactive', !isFocus);
 }
+function buildTeamChips(){
+  var host = document.getElementById('teamChips');
+  host.innerHTML = '';
+  DATA.teams.forEach(function(t){
+    var chip = document.createElement('button');
+    chip.className = 'team-chip' + (state.activeTeams.has(t) ? ' active' : '');
+    chip.textContent = t;
+    chip.addEventListener('click', function(){
+      if (state.activeTeams.has(t)) state.activeTeams.delete(t);
+      else state.activeTeams.add(t);
+      syncTeamChips(); render();
+    });
+    host.appendChild(chip);
+  });
+}
+function syncTeamChips(){
+  var chips = document.getElementById('teamChips').children;
+  for (var i = 0; i < chips.length; i++) {
+    chips[i].classList.toggle('active', state.activeTeams.has(DATA.teams[i]));
+  }
+  document.getElementById('allTeamsBtn').classList.toggle('inactive', state.activeTeams.size !== DATA.teams.length);
+}
 function buildMonthRow(){
   document.getElementById('monthRow').innerHTML = DATA.months.map(function(m){
     return '<div class="month-cell">' + esc(m.label) + '</div>';
@@ -805,6 +874,10 @@ document.getElementById('allSuppliersBtn').addEventListener('click', function(){
   state.activeSuppliers = new Set(DATA.suppliers.map(function(s){ return s.abbreviation; }));
   syncChips(); render();
 });
+document.getElementById('allTeamsBtn').addEventListener('click', function(){
+  state.activeTeams = new Set(DATA.teams);
+  syncTeamChips(); render();
+});
 document.getElementById('expandAllBtn').addEventListener('click', toggleAllGroups);
 window.addEventListener('resize', function(){ positionToday(); fitLabels(); });
 
@@ -813,6 +886,8 @@ buildMonthRow();
 buildQuarterRow();
 buildSupplierChips();
 syncChips();
+buildTeamChips();
+syncTeamChips();
 buildSecondary();
 syncModeButtons();
 render();

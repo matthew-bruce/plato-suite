@@ -124,6 +124,7 @@ type ResourceRow = {
   resource_id: string
   resource_name: string
   disciplines: DisciplineEmbed | DisciplineEmbed[] | null
+  hidden_from_timeline: boolean
 }
 
 type TeamAssignmentRow = {
@@ -243,7 +244,9 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const [resourcesResult, teamsResult, monthlyResult] = await Promise.all([
     supabase
       .from('resources')
-      .select('resource_id, resource_name, disciplines ( discipline_name, sort_order )')
+      .select(
+        'resource_id, resource_name, hidden_from_timeline, disciplines ( discipline_name, sort_order )',
+      )
       .in('resource_id', resourceIds)
       .is('deleted_at', null),
     supabase
@@ -373,6 +376,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
         gaps: deriveGaps(transition, bankHolidays),
         joiningDate: transition?.joiningDate ?? null,
         notes: transition?.notes ?? null,
+        hiddenFromTimeline: row.hidden_from_timeline,
       }
     })
     // Drop anyone the data is entirely silent about rather than rendering an
