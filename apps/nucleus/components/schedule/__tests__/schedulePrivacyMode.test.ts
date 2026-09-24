@@ -68,21 +68,33 @@ describe('other edit-mode money inputs found sharing the same gap', () => {
     expect(fn).toContain('isPrivate ? (')
     expect(fn).toContain('formatMoney(item.amount_pence)')
   })
+})
 
-  it("AppliedBlendedRateCard's own inline rate editor cannot be opened while Privacy Mode is on", () => {
+// A follow-up correction on this branch reverted three cells that were
+// blurred beyond what the bug report actually asked for — they were never
+// guarded before this branch touched them, and are meant to stay unguarded.
+// These pin the reverted (pre-this-branch) behaviour so it isn't quietly
+// re-added later.
+describe('cells deliberately left unguarded (scope correction)', () => {
+  it("AppliedBlendedRateCard's pencil-icon editor is blocked only by a locked period, not by Privacy Mode", () => {
     const fn = between(source, 'function AppliedBlendedRateCard(', 'function KpiCard(')
-    expect(fn).toContain('if (editState.kind === \'locked\' || isPrivate) return')
+    expect(fn).toContain("if (editState.kind === 'locked') return")
+    expect(fn).not.toContain('isPrivate) return')
+    // No effect force-closing the editor when Privacy Mode toggles on —
+    // the editor, its rate comparison and its confirmation dialog are all
+    // reachable and unblurred under Privacy Mode, exactly as before.
+    expect(fn).not.toMatch(/useEffect\(\s*\(\) => \{\s*if \(isPrivate\)/)
   })
 
-  it('the Advised Blended Rate KPI card is blurred, closing the one summary card that was never wired up', () => {
+  it('the Advised Blended Rate KPI card is not blurred', () => {
     const fn = between(source, 'function KpiStrip(', 'function AppliedBlendedRateCard(')
     const card = between(fn, 'label="Advised Blended Rate"', '/>')
-    expect(card).toContain('blur={isPrivate}')
+    expect(card).not.toContain('blur={isPrivate}')
   })
 
-  it('the team run-rate bar blurs its cost figures — it had no Privacy Mode handling at all before', () => {
+  it('the team run-rate bar has no Privacy Mode handling at all', () => {
     const fn = between(source, 'function TeamRunRateBar(', 'const HEADERS')
-    expect(fn).toContain('usePrivacyMode()')
-    expect(fn.match(/blurStyle/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
+    expect(fn).not.toContain('usePrivacyMode')
+    expect(fn).not.toContain('blurStyle')
   })
 })

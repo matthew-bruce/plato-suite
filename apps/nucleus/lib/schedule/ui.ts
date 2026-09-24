@@ -19,12 +19,11 @@ export const PLANVIEW_CODES: { value: string; label: string }[] = [
 /**
  * The one Privacy Mode treatment for a sensitive figure — blurred, and
  * unselectable/unclickable so the blur can't be defeated by select-and-copy
- * or a click passing through to whatever's underneath. Every commercially
- * sensitive cell on the Schedule page (Day Rate, Base, +VAT, the KPI cards,
- * cost-item amounts, the team run-rate bar) is meant to share this exact
- * rule; each component used to redeclare its own copy of this object, which
- * is how Edit mode ended up with several cells that forgot to apply it at
- * all — this is the single place that rule now lives.
+ * or a click passing through to whatever's underneath. Scoped to the
+ * Edit-mode table cells (Day Rate, Base, +VAT, and the ETP/Ad-hoc "Edit
+ * items" amount inputs) that used to redeclare their own copy of this object
+ * and were missing it entirely — not every money figure on the page carries
+ * a Privacy Mode rule, so this is not applied blanket-wide.
  */
 export function privacyBlurStyle(isPrivate: boolean): CSSProperties | undefined {
   return isPrivate ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' } : undefined

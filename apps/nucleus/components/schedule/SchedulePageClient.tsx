@@ -1341,7 +1341,6 @@ function KpiStrip({
         value={formatMoney(Math.round(totals.calcRateIncEtp), { decimals: 2 })}
         sub="Calculated, inc. ETP & SS"
         accent="#0892CB"
-        blur={isPrivate}
       />
       <KpiCard
         label="Recovery variance"
@@ -1416,29 +1415,10 @@ function AppliedBlendedRateCard({
     newRatePence: number
   } | null>(null)
 
-  // This card's own inline editor (opened by the pencil below) showed the
-  // current rate, the advised-rate comparison and a rate-change confirmation
-  // in plain text, none of it gated on Privacy Mode — the same "is this cell
-  // sensitive" gap Bug 1 fixed for the Schedule table's edit-mode columns,
-  // just reached through a different edit affordance. Closing any open
-  // editor state the moment Privacy Mode turns on (rather than merely
-  // blocking new opens) means a figure already on screen when the toggle
-  // flips doesn't linger.
-  useEffect(() => {
-    if (isPrivate) {
-      setEditing(false)
-      setPendingUpdate(null)
-      setWarnOpen(false)
-      setError(null)
-    }
-  }, [isPrivate])
-
   function openEditor() {
-    // Defence in depth: a locked period, or Privacy Mode being on, can never
-    // open the editor, even if a stale handler somehow fires — this editor
-    // has no blurred rendering of its own, so it must stay unreachable
-    // rather than trying to hide the figures it would otherwise show.
-    if (editState.kind === 'locked' || isPrivate) return
+    // Defence in depth: a locked period can never open the editor, even if a
+    // stale handler somehow fires.
+    if (editState.kind === 'locked') return
     setRate(String(currentRate || ''))
     setError(null)
     setPendingUpdate(null)
@@ -1572,8 +1552,6 @@ function AppliedBlendedRateCard({
         <span>Applied Blended Rate</span>
         {editState.kind === 'locked' ? (
           <span title="Period locked — rate changes blocked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
-        ) : isPrivate ? (
-          <span title="Turn off Privacy Mode to edit the blended rate" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
         ) : !editing ? (
           <button
             type="button"
@@ -2044,12 +2022,6 @@ function TeamRunRateBar({
   const sprintCost =
     periodWorkingDays > 0 ? Math.round((quarterCost / periodWorkingDays) * 10) : 0
 
-  // Found during the Bug 1 sweep: this bar had no Privacy Mode handling at
-  // all, in either mode — the same "is this cell sensitive" gap, just never
-  // wired up here rather than defeated by Edit mode specifically.
-  const { isPrivate } = usePrivacyMode()
-  const blurStyle = privacyBlurStyle(isPrivate)
-
   const labelStyle: React.CSSProperties = {
     fontSize: 10,
     textTransform: 'uppercase',
@@ -2095,7 +2067,7 @@ function TeamRunRateBar({
       <div style={dividerStyle} />
 
       <div style={statStyle}>
-        <span style={{ ...valueStyle, ...blurStyle }}>
+        <span style={valueStyle}>
           £{quarterCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </span>
         <span style={labelStyle}>full quarter</span>
@@ -2104,13 +2076,13 @@ function TeamRunRateBar({
       <div style={dividerStyle} />
 
       <div style={statStyle}>
-        <span style={{ ...valueStyle, ...blurStyle }}>
+        <span style={valueStyle}>
           £{sprintCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </span>
         <span style={labelStyle}>per sprint (10d)</span>
       </div>
 
-      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#639922', ...blurStyle }}>
+      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#639922' }}>
         @ £{blendedDayRate.toLocaleString('en-GB', { maximumFractionDigits: 0 })}/day
       </div>
     </div>
