@@ -1,6 +1,7 @@
 // Pure UI helpers for the Platform Schedule v5 page.
 // Money is stored as integer pence per ADR-029.
 
+import type { CSSProperties } from 'react'
 import { getCapacitySplit } from '../scheduleUtils'
 
 // Single source of truth for the five valid planview_code values, shared by
@@ -14,6 +15,20 @@ export const PLANVIEW_CODES: { value: string; label: string }[] = [
   { value: 'ETP', label: 'ETP' },
   { value: 'NPC', label: 'NPC' },
 ]
+
+/**
+ * The one Privacy Mode treatment for a sensitive figure — blurred, and
+ * unselectable/unclickable so the blur can't be defeated by select-and-copy
+ * or a click passing through to whatever's underneath. Every commercially
+ * sensitive cell on the Schedule page (Day Rate, Base, +VAT, the KPI cards,
+ * cost-item amounts, the team run-rate bar) is meant to share this exact
+ * rule; each component used to redeclare its own copy of this object, which
+ * is how Edit mode ended up with several cells that forgot to apply it at
+ * all — this is the single place that rule now lives.
+ */
+export function privacyBlurStyle(isPrivate: boolean): CSSProperties | undefined {
+  return isPrivate ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' } : undefined
+}
 
 export function formatMoney(pence: number, opts: { decimals?: 0 | 2 } = {}): string {
   const decimals = opts.decimals ?? 2

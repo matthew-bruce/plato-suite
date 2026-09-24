@@ -90,6 +90,7 @@ import {
   sumChargeableDays,
   formatDaysTotal,
   calculateConfirmedCount,
+  privacyBlurStyle,
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
@@ -1340,6 +1341,7 @@ function KpiStrip({
         value={formatMoney(Math.round(totals.calcRateIncEtp), { decimals: 2 })}
         sub="Calculated, inc. ETP & SS"
         accent="#0892CB"
+        blur={isPrivate}
       />
       <KpiCard
         label="Recovery variance"
@@ -1414,10 +1416,29 @@ function AppliedBlendedRateCard({
     newRatePence: number
   } | null>(null)
 
+  // This card's own inline editor (opened by the pencil below) showed the
+  // current rate, the advised-rate comparison and a rate-change confirmation
+  // in plain text, none of it gated on Privacy Mode — the same "is this cell
+  // sensitive" gap Bug 1 fixed for the Schedule table's edit-mode columns,
+  // just reached through a different edit affordance. Closing any open
+  // editor state the moment Privacy Mode turns on (rather than merely
+  // blocking new opens) means a figure already on screen when the toggle
+  // flips doesn't linger.
+  useEffect(() => {
+    if (isPrivate) {
+      setEditing(false)
+      setPendingUpdate(null)
+      setWarnOpen(false)
+      setError(null)
+    }
+  }, [isPrivate])
+
   function openEditor() {
-    // Defence in depth: a locked period can never open the editor, even if a
-    // stale handler somehow fires.
-    if (editState.kind === 'locked') return
+    // Defence in depth: a locked period, or Privacy Mode being on, can never
+    // open the editor, even if a stale handler somehow fires — this editor
+    // has no blurred rendering of its own, so it must stay unreachable
+    // rather than trying to hide the figures it would otherwise show.
+    if (editState.kind === 'locked' || isPrivate) return
     setRate(String(currentRate || ''))
     setError(null)
     setPendingUpdate(null)
@@ -1551,6 +1572,8 @@ function AppliedBlendedRateCard({
         <span>Applied Blended Rate</span>
         {editState.kind === 'locked' ? (
           <span title="Period locked — rate changes blocked" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
+        ) : isPrivate ? (
+          <span title="Turn off Privacy Mode to edit the blended rate" style={{ display: 'inline-flex', color: '#8F9495' }}>{LockIcon(12, 0.6)}</span>
         ) : !editing ? (
           <button
             type="button"
@@ -1569,7 +1592,9 @@ function AppliedBlendedRateCard({
           style={{
             fontFamily: 'var(--rmg-font-display)', fontSize: 21, fontWeight: 700, color: '#DA202A',
             letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6,
-            filter: isPrivate ? 'blur(6px)' : undefined,
+            // Full privacyBlurStyle, not filter alone: filter-only blur is
+            // still select-and-copy-able, which defeats the visual hiding.
+            ...privacyBlurStyle(isPrivate),
           }}
         >
           {displayValue}
@@ -1688,9 +1713,7 @@ function KpiCard({
   emphasised?: boolean
   blur?: boolean
 }) {
-  const blurStyle: React.CSSProperties | undefined = blur
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(blur ?? false)
 
   return (
     <div
@@ -2021,6 +2044,12 @@ function TeamRunRateBar({
   const sprintCost =
     periodWorkingDays > 0 ? Math.round((quarterCost / periodWorkingDays) * 10) : 0
 
+  // Found during the Bug 1 sweep: this bar had no Privacy Mode handling at
+  // all, in either mode — the same "is this cell sensitive" gap, just never
+  // wired up here rather than defeated by Edit mode specifically.
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle = privacyBlurStyle(isPrivate)
+
   const labelStyle: React.CSSProperties = {
     fontSize: 10,
     textTransform: 'uppercase',
@@ -2066,7 +2095,7 @@ function TeamRunRateBar({
       <div style={dividerStyle} />
 
       <div style={statStyle}>
-        <span style={valueStyle}>
+        <span style={{ ...valueStyle, ...blurStyle }}>
           £{quarterCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </span>
         <span style={labelStyle}>full quarter</span>
@@ -2075,13 +2104,13 @@ function TeamRunRateBar({
       <div style={dividerStyle} />
 
       <div style={statStyle}>
-        <span style={valueStyle}>
+        <span style={{ ...valueStyle, ...blurStyle }}>
           £{sprintCost.toLocaleString('en-GB', { maximumFractionDigits: 0 })}
         </span>
         <span style={labelStyle}>per sprint (10d)</span>
       </div>
 
-      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#639922' }}>
+      <div style={{ marginLeft: 'auto', fontSize: 11, color: '#639922', ...blurStyle }}>
         @ £{blendedDayRate.toLocaleString('en-GB', { maximumFractionDigits: 0 })}/day
       </div>
     </div>
@@ -2308,9 +2337,7 @@ function SupplierSection({
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
   const supplierConfirmed = calculateConfirmedCount(rows)
   const { isPrivate } = usePrivacyMode()
-  const blurStyle: React.CSSProperties | undefined = isPrivate
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(isPrivate)
 
   // Drag-and-drop reordering is only active in edit mode on an unlocked period.
   const dragEnabled = editingSchedule && !locked
@@ -2571,9 +2598,7 @@ function AdHocSection({
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
   const { isPrivate } = usePrivacyMode()
-  const blurStyle: React.CSSProperties | undefined = isPrivate
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(isPrivate)
 
   return (
     <div style={{ borderLeft: `3px solid ${ADHOC_COLOUR}` }}>
@@ -2753,9 +2778,7 @@ function EtpSsSection({
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
   const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
   const { isPrivate } = usePrivacyMode()
-  const blurStyle: React.CSSProperties | undefined = isPrivate
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(isPrivate)
 
   return (
     <div style={{ borderLeft: `3px solid ${ETP_SS_COLOUR}` }}>
@@ -2926,6 +2949,13 @@ function EtpSsEditRow({
   useEffect(() => setLabelValue(item.label), [item.label])
   useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
 
+  // Same gap as AllocationRow's edit-mode Day Rate/Base/+VAT: this row had no
+  // Privacy Mode handling at all, so its amount was fully visible and
+  // editable regardless. Read-only under Privacy Mode, same as outside edit
+  // mode — see the isPrivate branch below.
+  const { isPrivate } = usePrivacyMode()
+  const blurStyle = privacyBlurStyle(isPrivate)
+
   return (
     <div
       className={styles.scheduleRow}
@@ -2978,27 +3008,35 @@ function EtpSsEditRow({
         </select>
       </div>
       <div style={{ gridColumn: '10 / span 3', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
-        <input
-          type="number"
-          value={amountValue}
-          step="0.01"
-          min="0"
-          onChange={(e) => setAmountValue(e.target.value)}
-          onBlur={() => {
-            const pence = Math.round(parseFloat(amountValue) * 100)
-            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
-          }}
-          style={{
-            width: '100px',
-            border: '1px solid #D5D5D5',
-            borderRadius: 6,
-            padding: '4px 8px',
-            fontSize: 12,
-            fontFamily: 'var(--rmg-font-body)',
-            color: '#2A2A2D',
-          }}
-        />
+        {isPrivate ? (
+          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
+            {formatMoney(item.amount_pence)}
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+            <input
+              type="number"
+              value={amountValue}
+              step="0.01"
+              min="0"
+              onChange={(e) => setAmountValue(e.target.value)}
+              onBlur={() => {
+                const pence = Math.round(parseFloat(amountValue) * 100)
+                if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+              }}
+              style={{
+                width: '100px',
+                border: '1px solid #D5D5D5',
+                borderRadius: 6,
+                padding: '4px 8px',
+                fontSize: 12,
+                fontFamily: 'var(--rmg-font-body)',
+                color: '#2A2A2D',
+              }}
+            />
+          </>
+        )}
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <input
@@ -3032,9 +3070,7 @@ function AdHocRow({
 
   const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
   const { isPrivate } = usePrivacyMode()
-  const blurStyle: React.CSSProperties | undefined = isPrivate
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(isPrivate)
 
   if (!editing) {
     return (
@@ -3108,35 +3144,43 @@ function AdHocRow({
         <RedXButton onClick={() => onDelete(item.cost_item_id)} title="Remove item" ariaLabel="Remove item" />
       </div>
       <div style={{ gridColumn: '7 / span 5', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
-        <input
-          type="number"
-          value={amountValue}
-          step="0.01"
-          min="0"
-          onChange={(e) => setAmountValue(e.target.value)}
-          onBlur={() => {
-            const pence = Math.round(parseFloat(amountValue) * 100)
-            if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
-          }}
-          style={{
-            width: '80px',
-            border: '1px solid #D5D5D5',
-            borderRadius: 6,
-            padding: '4px 8px',
-            fontSize: 12,
-            fontFamily: 'var(--rmg-font-body)',
-            color: '#2A2A2D',
-          }}
-        />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#555', whiteSpace: 'nowrap', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={item.vat_applies}
-            onChange={(e) => onUpdate(item.cost_item_id, { vat_applies: e.target.checked })}
-          />
-          +VAT
-        </label>
+        {isPrivate ? (
+          <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
+            {formatMoney(item.amount_pence)}
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: 11, color: '#8F9495', flexShrink: 0 }}>£</span>
+            <input
+              type="number"
+              value={amountValue}
+              step="0.01"
+              min="0"
+              onChange={(e) => setAmountValue(e.target.value)}
+              onBlur={() => {
+                const pence = Math.round(parseFloat(amountValue) * 100)
+                if (!isNaN(pence) && pence !== item.amount_pence) onUpdate(item.cost_item_id, { amount_pence: pence })
+              }}
+              style={{
+                width: '80px',
+                border: '1px solid #D5D5D5',
+                borderRadius: 6,
+                padding: '4px 8px',
+                fontSize: 12,
+                fontFamily: 'var(--rmg-font-body)',
+                color: '#2A2A2D',
+              }}
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#555', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={item.vat_applies}
+                onChange={(e) => onUpdate(item.cost_item_id, { vat_applies: e.target.checked })}
+              />
+              +VAT
+            </label>
+          </>
+        )}
       </div>
       <div style={{ gridColumn: 14, padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <input
@@ -3151,9 +3195,7 @@ function AdHocRow({
 }
 
 function BandTotal({ label, value, blur }: { label: string; value: string; blur?: boolean }) {
-  const blurStyle: React.CSSProperties | undefined = blur
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(blur ?? false)
 
   return (
     <div
@@ -3317,9 +3359,7 @@ function AllocationRow({
   dragHandleSlot?: React.ReactNode
 }) {
   const { isPrivate } = usePrivacyMode()
-  const blurStyle: React.CSSProperties | undefined = isPrivate
-    ? { filter: 'blur(6px)', userSelect: 'none', pointerEvents: 'none' }
-    : undefined
+  const blurStyle = privacyBlurStyle(isPrivate)
 
   const [pendingDelete, setPendingDelete] = useState(false)
   const [unassignConfirm, setUnassignConfirm] = useState(false)
@@ -3745,22 +3785,32 @@ function AllocationRow({
             )}
           </div>
         </div>
-        {/* 10 Day Rate */}
+        {/* 10 Day Rate — hidden/read-only under Privacy Mode: a day rate you
+            can't see isn't one you should be able to edit either, so this
+            swaps to the same static blurred figure the non-edit view uses
+            rather than leaving the input (and the rate it exposes) live. */}
         <Cell align="right">
-          <input
-            type="number"
-            value={dayRateValue}
-            min="0"
-            step="0.01"
-            onChange={(e) => setDayRateValue(e.target.value)}
-            onBlur={() => {
-              const pence = Math.round((parseFloat(dayRateValue) || 0) * 100)
-              if (pence !== row.day_rate) onUpdate(row.allocation_id, { day_rate: pence })
-            }}
-            style={{ ...editInputStyle, width: '72px', textAlign: 'right' }}
-          />
+          {isPrivate ? (
+            <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', ...blurStyle }}>
+              {formatMoney(row.day_rate, { decimals: 2 })}
+            </span>
+          ) : (
+            <input
+              type="number"
+              value={dayRateValue}
+              min="0"
+              step="0.01"
+              onChange={(e) => setDayRateValue(e.target.value)}
+              onBlur={() => {
+                const pence = Math.round((parseFloat(dayRateValue) || 0) * 100)
+                if (pence !== row.day_rate) onUpdate(row.allocation_id, { day_rate: pence })
+              }}
+              style={{ ...editInputStyle, width: '72px', textAlign: 'right' }}
+            />
+          )}
         </Cell>
-        {/* 11 Base — computed */}
+        {/* 11 Base — computed, always read-only; just needed the blur applied
+            here too, same as outside edit mode. */}
         <Cell align="right" dataLabel="Base">
           <span
             style={{
@@ -3768,31 +3818,49 @@ function AllocationRow({
               fontVariantNumeric: 'tabular-nums',
               color: '#8F9495',
               textDecoration: costCellDecoration(plan),
+              ...blurStyle,
             }}
           >
             {formatMoney(displayBase)}
           </span>
         </Cell>
-        {/* 12 +VAT — checkbox + computed */}
+        {/* 12 +VAT — checkbox + computed. Under Privacy Mode this drops the
+            checkbox entirely and shows only the blurred figure, matching the
+            non-edit view (which never exposes the checkbox either) rather
+            than leaving vat_applies editable while its own amount is hidden. */}
         <Cell align="right" dataLabel="+VAT">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
-            <input
-              type="checkbox"
-              checked={vatApplies}
-              onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
-              style={{ flexShrink: 0, cursor: 'pointer' }}
-            />
+          {isPrivate ? (
             <span
               style={{
                 fontSize: 11,
                 fontVariantNumeric: 'tabular-nums',
                 color: vatApplies ? '#2A2A2D' : '#8F9495',
                 textDecoration: costCellDecoration(plan),
+                ...blurStyle,
               }}
             >
               {formatMoney(displayVat)}
             </span>
-          </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, width: '100%' }}>
+              <input
+                type="checkbox"
+                checked={vatApplies}
+                onChange={(e) => onUpdate(row.allocation_id, { vat_applies: e.target.checked })}
+                style={{ flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: vatApplies ? '#2A2A2D' : '#8F9495',
+                  textDecoration: costCellDecoration(plan),
+                }}
+              >
+                {formatMoney(displayVat)}
+              </span>
+            </div>
+          )}
         </Cell>
         {/* 13 Confirmed — checkbox */}
         <Cell align="right" dataLabel="Confirmed">
