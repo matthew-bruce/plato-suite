@@ -8,6 +8,7 @@ import {
   filterResources,
   formatMonthLabel,
   gapGeometry,
+  insetSegmentPosition,
   isResourceVisible,
   memberInGroup,
   percentAfter,
@@ -15,7 +16,9 @@ import {
   renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
+  SEGMENT_TOUCH_INSET_PX,
   segmentLabel,
+  segmentTouchInsets,
   sortForTeamView,
   supplierStripe,
   supplierTint,
@@ -547,6 +550,47 @@ describe('geometry', () => {
       WINDOW_END,
     )
     expect(width).toBeGreaterThan(0)
+  })
+})
+
+describe('segment touch insets', () => {
+  it('insets the touching edges of two adjacent segments, 2px each', () => {
+    const insets = segmentTouchInsets([
+      seg({ supplier: 'CG', start: '2026-07-01', end: '2026-09-30' }),
+      seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31' }),
+    ])
+    expect(SEGMENT_TOUCH_INSET_PX).toBe(2)
+    expect(insets).toEqual([
+      { left: 0, right: 2 },
+      { left: 2, right: 0 },
+    ])
+  })
+
+  it('leaves a lone segment un-inset, with its plain percentage position', () => {
+    const insets = segmentTouchInsets([seg({ start: '2026-07-01', end: '2026-09-30' })])
+    expect(insets).toEqual([{ left: 0, right: 0 }])
+    expect(insetSegmentPosition({ left: 10, width: 40 }, insets[0]!)).toEqual({
+      left: '10%',
+      width: '40%',
+    })
+  })
+
+  it('does not inset segments separated by a real gap', () => {
+    const insets = segmentTouchInsets([
+      seg({ start: '2026-07-01', end: '2026-09-29' }),
+      seg({ supplier: 'TCS', start: '2026-10-12', end: '2026-12-31' }),
+    ])
+    expect(insets).toEqual([
+      { left: 0, right: 0 },
+      { left: 0, right: 0 },
+    ])
+  })
+
+  it('applies the inset in CSS on top of the unchanged percentage geometry', () => {
+    expect(insetSegmentPosition({ left: 10, width: 40 }, { left: 2, right: 2 })).toEqual({
+      left: 'calc(10% + 2px)',
+      width: 'calc(40% - 4px)',
+    })
   })
 })
 
