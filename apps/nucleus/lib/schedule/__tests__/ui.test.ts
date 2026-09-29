@@ -23,8 +23,26 @@ import {
   roundDays,
   relativeLuminance,
   contrastRatio,
+  privacyBlurStyle,
 } from '../ui'
 import { computeScheduleTotals } from '../scheduleTotals'
+
+describe('privacyBlurStyle', () => {
+  it('returns undefined when not private — no style override at all', () => {
+    expect(privacyBlurStyle(false)).toBeUndefined()
+  })
+
+  it('blurs and locks down a sensitive figure when private', () => {
+    // pointerEvents/userSelect matter as much as the blur itself: a filter
+    // alone still lets the figure be selected and copied out, which defeats
+    // the point of hiding it.
+    expect(privacyBlurStyle(true)).toEqual({
+      filter: 'blur(6px)',
+      userSelect: 'none',
+      pointerEvents: 'none',
+    })
+  })
+})
 
 describe('formatMoney', () => {
   it('formats pence to pounds with commas and 2dp by default', () => {

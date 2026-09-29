@@ -1141,8 +1141,13 @@ export function AddResourceWizard({
   const submitDisabled = isSubmitting || rateChoicePending
 
   return (
-    <div style={overlay} onClick={onClose} role="dialog" aria-modal>
-      <div style={card} onClick={(e) => e.stopPropagation()}>
+    // No onClick here: an accidental outside click used to close this modal
+    // and silently discard everything entered across Search/Details/Confirm.
+    // The X button (and Cancel, further down) remain the only deliberate
+    // ways out — Escape has no handler in this file either, so it was
+    // already a no-op and stays that way, consistent with outside-click.
+    <div style={overlay} role="dialog" aria-modal>
+      <div style={card}>
         {/* Header */}
         <div style={headerStyle}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>{isAssignMode ? 'Assign resource' : 'Add role / resource'}</span>
