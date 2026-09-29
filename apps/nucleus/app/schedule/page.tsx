@@ -1,5 +1,9 @@
 import { getSchedulePageData } from '@plato/schema/server'
 import { SchedulePageClient } from '@/components/schedule/SchedulePageClient'
+import type { Metadata } from 'next'
+import { NAV_LABELS } from '@/app/_components/navLabels'
+
+export const metadata: Metadata = { title: NAV_LABELS.platformSchedule }
 
 export const dynamic = 'force-dynamic'
 

@@ -5,7 +5,7 @@ import { NucleusAppShell } from './_components/NucleusAppShell'
 import { PrivacyModeProvider } from '@/context/PrivacyModeContext'
 
 export const metadata: Metadata = {
-  title: 'Nucleus — Plato Suite',
+  title: { template: '%s — Nucleus — Plato Suite', default: 'Nucleus — Plato Suite' },
   description: 'Royal Mail Group organisation and resource management',
 }
 
