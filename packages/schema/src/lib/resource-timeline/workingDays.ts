@@ -95,9 +95,9 @@ export function firstWorkingDayOfMonth(
 }
 
 /**
- * Last working day of the month. This — not the calendar 31st — is what a
- * contractual "to end of October" actually means, and it is the value the
- * CG hard cap in deriveSegments.ts clips to.
+ * Last working day of the month: the latest date in it that is neither a
+ * weekend nor a bank holiday. This — not the calendar last day — is where a
+ * bar covering a whole month ends. Throws if the month has no working days.
  */
 export function lastWorkingDayOfMonth(
   monthStart: MonthStart,

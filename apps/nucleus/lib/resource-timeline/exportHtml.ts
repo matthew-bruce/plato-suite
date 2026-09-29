@@ -17,6 +17,7 @@
 
 import { CATEGORY_ORDER, type ResourceTimelineData } from '@plato/schema'
 import {
+  SEGMENT_TOUCH_INSET_PX,
   STATUS_LABELS,
   buildQuarterSpans,
   disciplineRank,
@@ -136,6 +137,9 @@ export function buildStandaloneHtml(
     statusLabels: STATUS_LABELS,
     rankTable: buildRankTable(data),
     palette: buildSupplierPalette(data),
+    // Injected rather than retyped, like the tables above: the touch inset
+    // between adjacent bars matches the live page's exactly.
+    touchInsetPx: SEGMENT_TOUCH_INSET_PX,
     initial: {
       groupBy: options.groupBy,
       activeSuppliers: options.activeSuppliers,
@@ -414,9 +418,11 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 // duplicated, never the policy.
 
 const EXPORT_SCRIPT = String.raw`
-var WIN_START = Date.parse(DATA.windowStart + 'T00:00:00Z');
-var WIN_END = Date.parse(DATA.windowEnd + 'T00:00:00Z');
 var DAY = 86400000;
+var WIN_START = Date.parse(DATA.windowStart + 'T00:00:00Z');
+// Inclusive of windowEnd: the window closes at 00:00 the day after, matching
+// percentOf() in presentation.ts.
+var WIN_END = Date.parse(DATA.windowEnd + 'T00:00:00Z') + DAY;
 var SPAN = (WIN_END - WIN_START) / DAY;
 
 var TRANSITION_STATUSES = ['mover','mover_doj_tbc','joiner','rolledoff','rolledoff_hypercare','overlap_risk'];
@@ -439,10 +445,26 @@ var lastRenderedGroupNames = [];
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
   return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
 }); }
-function pct(iso){
-  var v = Date.parse(iso.slice(0,10) + 'T00:00:00Z');
+function pctMs(v){
   var c = Math.max(WIN_START, Math.min(WIN_END, v));
   return (c - WIN_START) / DAY / SPAN * 100;
+}
+// Start of a date (00:00) — mirrors percentOf().
+function pct(iso){ return pctMs(Date.parse(iso.slice(0,10) + 'T00:00:00Z')); }
+// End of a date (00:00 the next day) — mirrors percentAfter(), for inclusive ends.
+function pctAfter(iso){ return pctMs(Date.parse(iso.slice(0,10) + 'T00:00:00Z') + DAY); }
+// Mirrors segmentTouchInsets() in presentation.ts. Computed at render time
+// because it depends on which suppliers are toggled on.
+function nextDay(iso){ return new Date(Date.parse(iso.slice(0,10) + 'T00:00:00Z') + DAY).toISOString().slice(0,10); }
+function touchInsets(segs){
+  var starts = {}, afterEnds = {};
+  segs.forEach(function(s){ starts[s.start.slice(0,10)] = true; afterEnds[nextDay(s.end)] = true; });
+  return segs.map(function(s){
+    return {
+      left: afterEnds[s.start.slice(0,10)] ? DATA.touchInsetPx : 0,
+      right: starts[nextDay(s.end)] ? DATA.touchInsetPx : 0
+    };
+  });
 }
 function fmtShort(iso){
   return new Date(iso.slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
@@ -612,19 +634,24 @@ function render(){
       var bars = weekLines() + colLines() + '<div class="track"></div>';
 
       (r.gaps || []).forEach(function(g){
-        var a = pct(g.start), b = pct(g.end);
-        bars += '<div class="gap-marker" style="left:' + a + '%;width:' + (b - a) + '%"' +
+        var a = pctAfter(g.start), b = pct(g.end);
+        bars += '<div class="gap-marker" style="left:' + a + '%;width:' + Math.max(b - a, 0) + '%"' +
           ' data-tip-name="' + esc(r.name) + '" data-tip-gap="' + esc(fmtLong(g.start) + ' → ' + fmtLong(g.end)) + '"></div>';
       });
 
-      segs.forEach(function(s){
+      var insets = touchInsets(segs);
+      segs.forEach(function(s, i){
         var p = palette(s.supplier);
-        var a = pct(s.start), w = Math.max(pct(s.end) - a, 0.6);
+        var a = pct(s.start), w = Math.max(pctAfter(s.end) - a, 0.6);
+        var ins = insets[i];
+        var pos = (ins.left || ins.right)
+          ? 'left:calc(' + a + '% + ' + ins.left + 'px);width:calc(' + w + '% - ' + (ins.left + ins.right) + 'px)'
+          : 'left:' + a + '%;width:' + w + '%';
         var lab = segLabel(s);
         var cls = 'seg' + (s.code === 'NPC' ? ' hyper' : '') + (s.tentative ? ' tentative' : '');
         var flag = s.flag || (s.commercialStartMismatch ? 'Recorded commercial start differs from booked days'
                   : (s.tentative ? 'Tentative — subject to confirmation' : ''));
-        bars += '<div class="' + cls + '" style="left:' + a + '%;width:' + w + '%;--sc:' + p.colour +
+        bars += '<div class="' + cls + '" style="' + pos + ';--sc:' + p.colour +
           ';--sct:' + p.tint + ';--sc2:' + p.stripe + '"' +
           ' data-tip-name="' + esc(r.name) + '"' +
           ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"' +

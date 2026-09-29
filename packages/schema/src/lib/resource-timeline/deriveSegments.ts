@@ -36,8 +36,8 @@
 //     its last_working_day ends the outgoing bar and its commercial_start
 //     begins the incoming one — whether or not monthly rows exist. The day
 //     count only decides geometry the record is silent about.
-//  6. Hard cap: no CG segment may run past the last working day of October
-//     2026. Contractual fact, applied even when the data says otherwise.
+//  6. End dates come from data only — monthly days, last_working_day, or the
+//     window. There is no supplier-specific cap (ADR-035).
 //  7. joining_date NEVER sets geometry. Not as a start, not as an end, not as
 //     a marker. Commercial presence is the only thing that moves a bar. It is
 //     allowed to close a GAP (see deriveGaps) where commercial_start is null,
@@ -55,7 +55,6 @@ import {
   fullMonthWorkingDays,
   lastWorkingDayOfMonth,
   maxIso,
-  minIso,
   monthStartOf,
   monthStartsBetween,
   nthWorkingDay,
@@ -76,15 +75,6 @@ import type {
  * exactly 2 is a real partial month.
  */
 export const NOISE_THRESHOLD_DAYS = 2
-
-/**
- * No Capgemini segment may extend beyond this date. October 2026's last
- * working day — 31 October is a Saturday, so several records carrying
- * "2026-10-31" as a last working day mean this in practice.
- */
-export const CG_HARD_CAP = '2026-10-30'
-
-export const CG_SUPPLIER = 'CG'
 
 /** Sort key for a YYYY-MM-01 month string. Lexicographic order is chronological. */
 function sortedMonths(monthlyDays: Record<MonthStart, number>): MonthStart[] {
@@ -152,12 +142,6 @@ function missingDays(
   const full = fullMonthWorkingDays(month, bankHolidays)
   const missing = full - actualDays
   return missing < NOISE_THRESHOLD_DAYS ? 0 : missing
-}
-
-/** Apply the CG October cap. Clips; never extends. */
-function applyCgCap(supplier: string, end: IsoDate): IsoDate {
-  if (supplier !== CG_SUPPLIER) return end
-  return minIso(end, CG_HARD_CAP)
 }
 
 /* ── Prior presence ────────────────────────────────────────────────── */
@@ -281,7 +265,7 @@ function deriveCoarseSegments(
     // window — a later LWD belongs to a subsequent period's segment, and an
     // earlier one predates the view entirely.
     const clipsHere = lwd !== null && lwd >= window.start && lwd <= window.end
-    const end = applyCgCap(alloc.supplier, clipsHere ? lwd : window.end)
+    const end = clipsHere ? lwd : window.end
 
     return {
       supplier: alloc.supplier,
@@ -340,7 +324,7 @@ function deriveGranularSegments(
         supplier: alloc.supplier,
         code: alloc.code,
         start: recordStart ?? window.start,
-        end: applyCgCap(alloc.supplier, recordEnd ?? window.end),
+        end: recordEnd ?? window.end,
         // Same as Q2's coarse block: the window's own edges aren't real
         // boundaries for anybody, only a record date is.
         realStart: recordStart !== null,
@@ -425,17 +409,13 @@ function deriveGranularSegments(
         realEnd = true
       }
 
-      const cappedEnd = applyCgCap(alloc.supplier, end)
-      // A cap that actually bit turns the window edge into a real boundary.
-      const cappedRealEnd = realEnd || cappedEnd !== end
-
       segments.push({
         supplier: alloc.supplier,
         code: alloc.code,
         start: clampIso(start, window.start, window.end),
-        end: clampIso(maxIso(cappedEnd, start), window.start, window.end),
+        end: clampIso(maxIso(end, start), window.start, window.end),
         realStart: true,
-        realEnd: cappedRealEnd,
+        realEnd,
         tentative,
         flag,
         commercialStartMismatch:

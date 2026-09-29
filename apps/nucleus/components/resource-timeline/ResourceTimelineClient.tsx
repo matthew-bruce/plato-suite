@@ -31,11 +31,14 @@ import {
   filterResources,
   formatLongDate,
   formatMonthLabel,
+  gapGeometry,
+  insetSegmentPosition,
   percentOf,
   renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
+  segmentTouchInsets,
   supplierStripe,
   supplierTint,
   toggleTeamSelection,
@@ -779,6 +782,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                         const segments = resource.segments.filter((s) =>
                           activeSuppliers.has(s.supplier),
                         )
+                        const touchInsets = segmentTouchInsets(segments)
                         return (
                           <div key={resource.resourceId} className={styles.resRightRow}>
                             <WeekLines positions={weekLines} />
@@ -786,13 +790,12 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                             <div className={styles.track} />
 
                             {resource.gaps.map((gap) => {
-                              const left = percentOf(gap.start, data.windowStart, data.windowEnd)
-                              const right = percentOf(gap.end, data.windowStart, data.windowEnd)
+                              const { left, width } = gapGeometry(gap, data.windowStart, data.windowEnd)
                               return (
                                 <div
                                   key={`${gap.start}-${gap.end}`}
                                   className={styles.gapMarker}
-                                  style={{ left: `${left}%`, width: `${right - left}%` }}
+                                  style={{ left: `${left}%`, width: `${width}%` }}
                                   onMouseEnter={(e) =>
                                     setTooltip({
                                       x: e.clientX,
@@ -814,11 +817,10 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                               )
                             })}
 
-                            {segments.map((segment) => {
-                              const { left, width } = segmentGeometry(
-                                segment,
-                                data.windowStart,
-                                data.windowEnd,
+                            {segments.map((segment, index) => {
+                              const { left, width } = insetSegmentPosition(
+                                segmentGeometry(segment, data.windowStart, data.windowEnd),
+                                touchInsets[index]!,
                               )
                               const colour = supplierColours.get(segment.supplier) ?? '#8F9495'
                               const { text, dates } = segmentLabel(segment)
@@ -831,8 +833,8 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                                   }`}
                                   style={
                                     {
-                                      left: `${left}%`,
-                                      width: `${width}%`,
+                                      left,
+                                      width,
                                       '--sc': colour,
                                       '--sct': supplierTint(colour),
                                       '--sc2': supplierStripe(colour),

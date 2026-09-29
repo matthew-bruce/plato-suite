@@ -13,13 +13,14 @@ import {
   deriveGaps,
   deriveSegments,
 } from '../lib/resource-timeline/deriveSegments'
+import { engagementsToTransitionRecords } from '../lib/resource-timeline/engagementsToTransitionRecords'
 import { resolveTeamsByResource } from '../lib/resource-timeline/resolveTeams'
 import { monthStartOf } from '../lib/resource-timeline/workingDays'
 import type {
   AllocationInput,
+  EngagementRecord,
   SegmentCode,
   TeamAssignmentInput,
-  TransitionRecord,
 } from '../lib/resource-timeline/types'
 import type {
   ResourceTimelineData,
@@ -134,15 +135,14 @@ type TeamAssignmentRow = {
   teams: { team_name: string } | { team_name: string }[] | null
 }
 
-type TransitionRow = {
+type EngagementRow = {
+  engagement_id: string
   resource_id: string
-  from_supplier_id: string | null
-  to_supplier_id: string | null
-  last_working_day: string | null
-  joining_date: string | null
-  commercial_start: string | null
-  status: string
-  notes: string | null
+  supplier_id: string
+  roll_on_date: string | null
+  roll_off_date: string | null
+  roll_on_estimated: boolean
+  roll_on_tentative: boolean
 }
 
 function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
@@ -191,7 +191,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const granular = periods.find((p) => p.period_name === GRANULAR_PERIOD_NAME)
   if (!coarse || !granular) return null
 
-  const [suppliersResult, allocsResult, transitionsResult, bankHolidaysResult] = await Promise.all([
+  const [suppliersResult, allocsResult, bankHolidaysResult] = await Promise.all([
     supabase
       .from('suppliers')
       .select('supplier_id, supplier_name, supplier_abbreviation, supplier_colour, sort_order')
@@ -201,12 +201,6 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
       .select('allocation_id, period_id, resource_id, supplier_id, planview_code')
       .in('period_id', [coarse.period_id, granular.period_id])
       .not('resource_id', 'is', null)
-      .is('deleted_at', null),
-    supabase
-      .from('resource_supplier_transitions')
-      .select(
-        'resource_id, from_supplier_id, to_supplier_id, last_working_day, joining_date, commercial_start, status, notes',
-      )
       .is('deleted_at', null),
     // Bank holidays make December 21 working days rather than 23. Bounded to
     // the calendar years the window touches.
@@ -223,13 +217,9 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   if (allocsResult.error) {
     throw new Error(`Failed to load allocations: ${allocsResult.error.message}`)
   }
-  if (transitionsResult.error) {
-    throw new Error(`Failed to load transitions: ${transitionsResult.error.message}`)
-  }
 
   const supplierRows = (suppliersResult.data ?? []) as unknown as SupplierRow[]
   const allocRows = (allocsResult.data ?? []) as unknown as AllocationRow[]
-  const transitionRows = (transitionsResult.data ?? []) as unknown as TransitionRow[]
   const bankHolidays = ((bankHolidaysResult.data ?? []) as unknown as { holiday_date: string }[]).map(
     (h) => h.holiday_date.slice(0, 10),
   )
@@ -241,7 +231,7 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const resourceIds = [...new Set(allocRows.map((a) => a.resource_id).filter((id): id is string => id !== null))]
   if (resourceIds.length === 0) return null
 
-  const [resourcesResult, teamsResult, monthlyResult] = await Promise.all([
+  const [resourcesResult, teamsResult, monthlyResult, engagementsResult] = await Promise.all([
     supabase
       .from('resources')
       .select(
@@ -262,6 +252,13 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
         'allocation_id',
         allocRows.map((a) => a.allocation_id),
       ),
+    supabase
+      .from('resource_engagements')
+      .select(
+        'engagement_id, resource_id, supplier_id, roll_on_date, roll_off_date, roll_on_estimated, roll_on_tentative',
+      )
+      .in('resource_id', resourceIds)
+      .is('deleted_at', null),
   ])
 
   if (resourcesResult.error) {
@@ -272,6 +269,9 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   }
   if (monthlyResult.error) {
     throw new Error(`Failed to load monthly days: ${monthlyResult.error.message}`)
+  }
+  if (engagementsResult.error) {
+    throw new Error(`Failed to load engagements: ${engagementsResult.error.message}`)
   }
 
   const resourceRows = ((resourcesResult.data ?? []) as unknown as ResourceRow[]).filter(
@@ -307,19 +307,25 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
     .filter((row): row is TeamAssignmentInput => row !== null)
   const teamsByResource = resolveTeamsByResource(teamAssignmentInputs, granular.period_id)
 
-  const transitionByResource = new Map<string, TransitionRecord>()
-  for (const row of transitionRows) {
+  // Phase 1 (ADR-035): engagements are translated into the TransitionRecord
+  // shape the derivation already consumes, so deriveSegments/deriveGaps and
+  // classification run unchanged.
+  const engagementInputs: EngagementRecord[] = []
+  for (const row of (engagementsResult.data ?? []) as unknown as EngagementRow[]) {
     if (!includedIds.has(row.resource_id)) continue
-    transitionByResource.set(row.resource_id, {
-      fromSupplier: abbrevOf(row.from_supplier_id),
-      toSupplier: abbrevOf(row.to_supplier_id),
-      lastWorkingDay: row.last_working_day,
-      joiningDate: row.joining_date,
-      commercialStart: row.commercial_start,
-      status: row.status,
-      notes: row.notes,
+    const supplier = abbrevOf(row.supplier_id)
+    if (!supplier) continue
+    engagementInputs.push({
+      engagementId: row.engagement_id,
+      resourceId: row.resource_id,
+      supplier,
+      rollOnDate: row.roll_on_date,
+      rollOffDate: row.roll_off_date,
+      rollOnEstimated: row.roll_on_estimated,
+      rollOnTentative: row.roll_on_tentative,
     })
   }
+  const transitionByResource = engagementsToTransitionRecords(engagementInputs)
 
   // resource_id → period_id → allocation inputs
   const allocsByResource = new Map<string, Map<string, AllocationInput[]>>()

@@ -30,6 +30,22 @@ export interface TransitionRecord {
   notes: string | null
 }
 
+/**
+ * One resource_engagements row, with supplier_id already mapped to its
+ * abbreviation. Input to engagementsToTransitionRecords().
+ */
+export interface EngagementRecord {
+  engagementId: string
+  resourceId: string
+  supplier: string
+  rollOnDate: IsoDate | null
+  rollOffDate: IsoDate | null
+  /** True when roll_on_date was taken from the earliest schedule, not verified. */
+  rollOnEstimated: boolean
+  /** True when signed but the date is TBC. */
+  rollOnTentative: boolean
+}
+
 /** One (supplier, code) allocation within one period. */
 export interface AllocationInput {
   supplier: string
