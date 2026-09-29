@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CG_HARD_CAP,
   NOISE_THRESHOLD_DAYS,
   classifyTransition,
   deriveGaps,
@@ -486,39 +485,9 @@ describe('noise threshold', () => {
   })
 })
 
-/* ── CG hard cap ───────────────────────────────────────────────────── */
+/* ── No supplier cap ───────────────────────────────────────────────── */
 
-describe('CG October hard cap', () => {
-  it('caps at the last working day of October 2026', () => {
-    expect(CG_HARD_CAP).toBe('2026-10-30')
-  })
-
-  it('clips a CG segment that the data would otherwise run past October', () => {
-    const segs = deriveSegments(
-      build({
-        granularAllocations: [
-          alloc('CG', 'REG', { '2026-10-01': 22, '2026-11-01': 21, '2026-12-01': 21 }),
-        ],
-      }),
-    )
-
-    expect(segs[0]?.end).toBe('2026-10-30')
-    // A cap that bit is a real boundary, not the window edge.
-    expect(segs[0]?.realEnd).toBe(true)
-  })
-
-  it('overrides a later last_working_day rather than extending to it', () => {
-    // Records carrying 2026-10-31 (a Saturday) still cap at the 30th.
-    const segs = deriveSegments(
-      build({
-        granularAllocations: [alloc('CG', 'NPC', { '2026-10-01': 22, '2026-11-01': 21 })],
-        transition: transition({ toSupplier: null, lastWorkingDay: '2026-10-31' }),
-      }),
-    )
-
-    expect(segs[0]?.end).toBe('2026-10-30')
-  })
-
+describe('end dates come from data only (no supplier cap)', () => {
   it('leaves non-CG suppliers uncapped', () => {
     const segs = deriveSegments(
       build({
@@ -735,12 +704,6 @@ describe('Q3 allocation with no monthly rows falls back to a flat quarter block'
     )
 
     expect(segs[0]?.end).toBe('2026-11-13')
-  })
-
-  it('still applies the CG October hard cap', () => {
-    const segs = deriveSegments(build({ granularAllocations: [alloc('CG', 'REG')] }))
-
-    expect(segs[0]?.end).toBe(CG_HARD_CAP)
   })
 
   it('still marks a tentative signed_doj_tbc segment as tentative', () => {

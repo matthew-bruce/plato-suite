@@ -31,6 +31,7 @@ import {
   filterResources,
   formatLongDate,
   formatMonthLabel,
+  gapGeometry,
   percentOf,
   renderedGroupNames,
   resolveAvatarColours,
@@ -786,13 +787,12 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                             <div className={styles.track} />
 
                             {resource.gaps.map((gap) => {
-                              const left = percentOf(gap.start, data.windowStart, data.windowEnd)
-                              const right = percentOf(gap.end, data.windowStart, data.windowEnd)
+                              const { left, width } = gapGeometry(gap, data.windowStart, data.windowEnd)
                               return (
                                 <div
                                   key={`${gap.start}-${gap.end}`}
                                   className={styles.gapMarker}
-                                  style={{ left: `${left}%`, width: `${right - left}%` }}
+                                  style={{ left: `${left}%`, width: `${width}%` }}
                                   onMouseEnter={(e) =>
                                     setTooltip({
                                       x: e.clientX,

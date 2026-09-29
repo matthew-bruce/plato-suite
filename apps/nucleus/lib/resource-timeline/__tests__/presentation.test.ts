@@ -7,8 +7,10 @@ import {
   disciplineRank,
   filterResources,
   formatMonthLabel,
+  gapGeometry,
   isResourceVisible,
   memberInGroup,
+  percentAfter,
   percentOf,
   renderedGroupNames,
   resolveAvatarColours,
@@ -484,9 +486,53 @@ describe('toggleTeamSelection', () => {
 })
 
 describe('geometry', () => {
-  it('maps the window edges to 0 and 100', () => {
+  // 1 Jul – 31 Dec inclusive is 184 days.
+  const WINDOW_DAYS = 184
+
+  it('maps the window edges to 0 and 100, treating windowEnd as inclusive', () => {
     expect(percentOf(WINDOW_START, WINDOW_START, WINDOW_END)).toBe(0)
-    expect(percentOf(WINDOW_END, WINDOW_START, WINDOW_END)).toBe(100)
+    // 00:00 on the last day is one day short of the right edge…
+    expect(percentOf(WINDOW_END, WINDOW_START, WINDOW_END)).toBeCloseTo(
+      ((WINDOW_DAYS - 1) / WINDOW_DAYS) * 100,
+      10,
+    )
+    // …and the end of the last day is the right edge.
+    expect(percentAfter(WINDOW_END, WINDOW_START, WINDOW_END)).toBe(100)
+  })
+
+  it('draws an ongoing bar ending on the window end exactly to the right edge', () => {
+    const { left, width } = segmentGeometry(
+      seg({ start: '2026-10-01', end: WINDOW_END }),
+      WINDOW_START,
+      WINDOW_END,
+    )
+    expect(left + width).toBeCloseTo(100, 10)
+  })
+
+  it('draws a segment end inclusively — 1–7 Oct is seven days wide', () => {
+    const { width } = segmentGeometry(
+      seg({ start: '2026-10-01', end: '2026-10-07' }),
+      WINDOW_START,
+      WINDOW_END,
+    )
+    expect(width).toBeCloseTo((7 / WINDOW_DAYS) * 100, 10)
+  })
+
+  it('meets a gap flush with the bars either side of it', () => {
+    const outgoing = segmentGeometry(
+      seg({ start: '2026-07-01', end: '2026-10-16' }),
+      WINDOW_START,
+      WINDOW_END,
+    )
+    const incoming = segmentGeometry(
+      seg({ supplier: 'TCS', start: '2026-10-26', end: WINDOW_END }),
+      WINDOW_START,
+      WINDOW_END,
+    )
+    const gap = gapGeometry({ start: '2026-10-16', end: '2026-10-26' }, WINDOW_START, WINDOW_END)
+
+    expect(gap.left).toBeCloseTo(outgoing.left + outgoing.width, 10)
+    expect(gap.left + gap.width).toBeCloseTo(incoming.left, 10)
   })
 
   it('clamps dates outside the window', () => {

@@ -275,28 +275,67 @@ export function buildGroups(
 
 const MS_PER_DAY = 86_400_000
 
-/** Position of a date within the window, as a 0–100 percentage. Clamped. */
-export function percentOf(iso: string, windowStart: string, windowEnd: string): number {
+/**
+ * Position of an instant within the window, as a 0–100 percentage. Clamped.
+ *
+ * The window is inclusive of its last day: it runs from 00:00 on windowStart
+ * to 00:00 the day AFTER windowEnd, so a bar ending on windowEnd reaches the
+ * right edge exactly.
+ */
+function percentOfMs(ms: number, windowStart: string, windowEnd: string): number {
   const start = Date.parse(`${windowStart}T00:00:00Z`)
-  const end = Date.parse(`${windowEnd}T00:00:00Z`)
-  const value = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`)
+  const end = Date.parse(`${windowEnd}T00:00:00Z`) + MS_PER_DAY
   const span = (end - start) / MS_PER_DAY
   if (span <= 0) return 0
-  const clamped = Math.max(start, Math.min(end, value))
+  const clamped = Math.max(start, Math.min(end, ms))
   return ((clamped - start) / MS_PER_DAY / span) * 100
+}
+
+/** Position of the START of a date (00:00) within the window, as a 0–100 percentage. */
+export function percentOf(iso: string, windowStart: string, windowEnd: string): number {
+  return percentOfMs(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`), windowStart, windowEnd)
+}
+
+/**
+ * Position of the END of a date (00:00 the following day) within the window.
+ * Used for inclusive end dates: a segment's end and a gap's last working day
+ * are both the last day covered, so they are drawn through to that day's end.
+ */
+export function percentAfter(iso: string, windowStart: string, windowEnd: string): number {
+  return percentOfMs(
+    Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + MS_PER_DAY,
+    windowStart,
+    windowEnd,
+  )
 }
 
 /** Minimum bar width so a single-day segment stays visible and hoverable. */
 export const MIN_SEGMENT_WIDTH_PCT = 0.6
 
+/** segment.end is inclusive, so the right edge sits at the end of that day. */
 export function segmentGeometry(
   segment: TimelineSegment,
   windowStart: string,
   windowEnd: string,
 ): { left: number; width: number } {
   const left = percentOf(segment.start, windowStart, windowEnd)
-  const right = percentOf(segment.end, windowStart, windowEnd)
+  const right = percentAfter(segment.end, windowStart, windowEnd)
   return { left, width: Math.max(right - left, MIN_SEGMENT_WIDTH_PCT) }
+}
+
+/**
+ * A coverage gap runs from the END of the last working day (where the
+ * outgoing bar stops) to 00:00 on the date cover resumes (where the incoming
+ * bar starts), so bar and gap meet with no dead space either side.
+ */
+export function gapGeometry(
+  gap: { start: string; end: string },
+  windowStart: string,
+  windowEnd: string,
+): { left: number; width: number } {
+  const left = percentAfter(gap.start, windowStart, windowEnd)
+  const right = percentOf(gap.end, windowStart, windowEnd)
+  return { left, width: Math.max(right - left, 0) }
 }
 
 /**
