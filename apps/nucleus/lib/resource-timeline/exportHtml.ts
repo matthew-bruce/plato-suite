@@ -17,6 +17,7 @@
 
 import { CATEGORY_ORDER, type ResourceTimelineData } from '@plato/schema'
 import {
+  SEGMENT_TOUCH_INSET_PX,
   STATUS_LABELS,
   buildQuarterSpans,
   disciplineRank,
@@ -136,6 +137,9 @@ export function buildStandaloneHtml(
     statusLabels: STATUS_LABELS,
     rankTable: buildRankTable(data),
     palette: buildSupplierPalette(data),
+    // Injected rather than retyped, like the tables above: the touch inset
+    // between adjacent bars matches the live page's exactly.
+    touchInsetPx: SEGMENT_TOUCH_INSET_PX,
     initial: {
       groupBy: options.groupBy,
       activeSuppliers: options.activeSuppliers,
@@ -444,6 +448,19 @@ function pct(iso){
   var c = Math.max(WIN_START, Math.min(WIN_END, v));
   return (c - WIN_START) / DAY / SPAN * 100;
 }
+// Mirrors segmentTouchInsets() in presentation.ts. Computed at render time
+// because it depends on which suppliers are toggled on.
+function nextDay(iso){ return new Date(Date.parse(iso.slice(0,10) + 'T00:00:00Z') + DAY).toISOString().slice(0,10); }
+function touchInsets(segs){
+  var starts = {}, afterEnds = {};
+  segs.forEach(function(s){ starts[s.start.slice(0,10)] = true; afterEnds[nextDay(s.end)] = true; });
+  return segs.map(function(s){
+    return {
+      left: afterEnds[s.start.slice(0,10)] ? DATA.touchInsetPx : 0,
+      right: starts[nextDay(s.end)] ? DATA.touchInsetPx : 0
+    };
+  });
+}
 function fmtShort(iso){
   return new Date(iso.slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
 }
@@ -617,14 +634,19 @@ function render(){
           ' data-tip-name="' + esc(r.name) + '" data-tip-gap="' + esc(fmtLong(g.start) + ' → ' + fmtLong(g.end)) + '"></div>';
       });
 
-      segs.forEach(function(s){
+      var insets = touchInsets(segs);
+      segs.forEach(function(s, i){
         var p = palette(s.supplier);
         var a = pct(s.start), w = Math.max(pct(s.end) - a, 0.6);
+        var ins = insets[i];
+        var pos = (ins.left || ins.right)
+          ? 'left:calc(' + a + '% + ' + ins.left + 'px);width:calc(' + w + '% - ' + (ins.left + ins.right) + 'px)'
+          : 'left:' + a + '%;width:' + w + '%';
         var lab = segLabel(s);
         var cls = 'seg' + (s.code === 'NPC' ? ' hyper' : '') + (s.tentative ? ' tentative' : '');
         var flag = s.flag || (s.commercialStartMismatch ? 'Recorded commercial start differs from booked days'
                   : (s.tentative ? 'Tentative — subject to confirmation' : ''));
-        bars += '<div class="' + cls + '" style="left:' + a + '%;width:' + w + '%;--sc:' + p.colour +
+        bars += '<div class="' + cls + '" style="' + pos + ';--sc:' + p.colour +
           ';--sct:' + p.tint + ';--sc2:' + p.stripe + '"' +
           ' data-tip-name="' + esc(r.name) + '"' +
           ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"' +

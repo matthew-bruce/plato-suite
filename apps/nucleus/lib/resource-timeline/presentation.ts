@@ -300,6 +300,55 @@ export function segmentGeometry(
 }
 
 /**
+ * Visual gap between two bars on the same row that meet end-to-start (one
+ * ends on a date, the next starts the following day). Each touching edge is
+ * inset by this many pixels, so the pair reads as two bars rather than one.
+ * Purely presentational: segment dates and geometry are untouched.
+ */
+export const SEGMENT_TOUCH_INSET_PX = 2
+
+function nextDayIso(iso: string): string {
+  return new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + MS_PER_DAY)
+    .toISOString()
+    .slice(0, 10)
+}
+
+/**
+ * Per-segment pixel insets for the segments actually rendered on one row. A
+ * segment's right edge is inset where another segment starts the day after it
+ * ends; its left edge is inset where another segment ends the day before it
+ * starts. Segments touching nothing get { left: 0, right: 0 }.
+ */
+export function segmentTouchInsets(
+  segments: readonly Pick<TimelineSegment, 'start' | 'end'>[],
+): { left: number; right: number }[] {
+  const starts = new Set(segments.map((s) => s.start.slice(0, 10)))
+  const dayAfterEnds = new Set(segments.map((s) => nextDayIso(s.end)))
+  return segments.map((s) => ({
+    left: dayAfterEnds.has(s.start.slice(0, 10)) ? SEGMENT_TOUCH_INSET_PX : 0,
+    right: starts.has(nextDayIso(s.end)) ? SEGMENT_TOUCH_INSET_PX : 0,
+  }))
+}
+
+/**
+ * CSS left/width for a segment, applying its touch insets on top of the
+ * percentage geometry. With no inset the plain percentages come back
+ * unchanged, so a lone segment renders exactly as before.
+ */
+export function insetSegmentPosition(
+  geometry: { left: number; width: number },
+  inset: { left: number; right: number },
+): { left: string; width: string } {
+  if (inset.left === 0 && inset.right === 0) {
+    return { left: `${geometry.left}%`, width: `${geometry.width}%` }
+  }
+  return {
+    left: `calc(${geometry.left}% + ${inset.left}px)`,
+    width: `calc(${geometry.width}% - ${inset.left + inset.right}px)`,
+  }
+}
+
+/**
  * Percent positions of real calendar week boundaries (Mondays) within the
  * window — a finer scale reference sitting behind the month gridlines, round
  * 7. Deliberately snapped to actual Mondays rather than 7-day slices from

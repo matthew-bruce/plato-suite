@@ -225,6 +225,29 @@ describe('buildStandaloneHtml', () => {
     })
   })
 
+  it('insets adjacent segments in the export the same way as the live page, and leaves a lone one alone', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    expect(html).toContain('"touchInsetPx":2')
+
+    // Run the export's own inlined touchInsets() rather than re-implementing it.
+    const source = html.slice(html.indexOf('function nextDay('), html.indexOf('function fmtShort('))
+    const touchInsets = new Function('DATA', 'DAY', `${source}; return touchInsets;`)(
+      { touchInsetPx: 2 },
+      86_400_000,
+    ) as (segs: { start: string; end: string }[]) => { left: number; right: number }[]
+
+    expect(
+      touchInsets([
+        { start: '2026-07-01', end: '2026-09-30' },
+        { start: '2026-10-01', end: '2026-12-31' },
+      ]),
+    ).toEqual([
+      { left: 0, right: 2 },
+      { left: 2, right: 0 },
+    ])
+    expect(touchInsets([{ start: '2026-07-01', end: '2026-09-30' }])).toEqual([{ left: 0, right: 0 }])
+  })
+
   it('records when the snapshot was taken so it cannot be mistaken for live', () => {
     const html = buildStandaloneHtml(data(), OPTIONS)
 
