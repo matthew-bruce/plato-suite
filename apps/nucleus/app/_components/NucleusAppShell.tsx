@@ -21,12 +21,13 @@ import { PlatoShell } from '@plato/ui'
 import type { NavSection, ConfigItem } from '@plato/ui'
 import { isPublicPath } from '@plato/auth'
 import { usePrivacyMode } from '@/context/PrivacyModeContext'
+import { NAV_LABELS } from './navLabels'
 
 const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Overview',
     items: [
-      { label: 'Dashboard', icon: <LayoutGrid size={16} />, href: '/', exactMatch: true },
+      { label: NAV_LABELS.dashboard, icon: <LayoutGrid size={16} />, href: '/', exactMatch: true },
     ],
   },
   {
@@ -34,16 +35,16 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Org Structure', icon: <Building2 size={16} />,  href: '#', disabled: true },
       { label: 'Teams',         icon: <Users size={16} />,      href: '#', disabled: true },
-      { label: 'Resources',     icon: <UserCircle size={16} />, href: '/people' },
+      { label: NAV_LABELS.resources, icon: <UserCircle size={16} />, href: '/people' },
       { label: 'Suppliers',     icon: <Truck size={16} />,      href: '#', disabled: true },
     ],
   },
   {
     heading: 'Finance',
     items: [
-      { label: 'Platform Schedule', icon: <CalendarRange size={16} />, href: '/schedule' },
-      { label: 'Resource Timeline', icon: <GanttChartSquare size={16} />, href: '/resource-timeline' },
-      { label: 'Blended Rates',      icon: <LineChart size={16} />,     href: '/rates'    },
+      { label: NAV_LABELS.platformSchedule, icon: <CalendarRange size={16} />, href: '/schedule' },
+      { label: NAV_LABELS.resourceTimeline, icon: <GanttChartSquare size={16} />, href: '/resource-timeline' },
+      { label: NAV_LABELS.blendedRates, icon: <LineChart size={16} />,     href: '/rates'    },
       { label: 'Rate Cards',         icon: <ReceiptText size={16} />,   href: '#', disabled: true },
       { label: 'Periods',            icon: <Layers size={16} />,        href: '#', disabled: true },
     ],
@@ -51,7 +52,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Design System',
     items: [
-      { label: 'Components', icon: <Palette size={16} />, href: '/design-system' },
+      { label: NAV_LABELS.components, icon: <Palette size={16} />, href: '/design-system' },
     ],
   },
 ]
