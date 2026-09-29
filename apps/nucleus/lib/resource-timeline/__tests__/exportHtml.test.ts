@@ -42,6 +42,7 @@ function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
     gaps: [{ start: '2026-09-29', end: '2026-10-12' }],
     joiningDate: '2026-10-05',
     notes: null,
+    hiddenFromTimeline: false,
     ...overrides,
   }
 }
@@ -75,7 +76,9 @@ function data(overrides: Partial<ResourceTimelineData> = {}): ResourceTimelineDa
 const OPTIONS = {
   groupBy: 'team',
   activeSuppliers: ['CG', 'TCS'],
+  activeTeams: ['Orion'],
   transitionOnly: false,
+  viewMode: 'full' as const,
   generatedAt: new Date('2026-08-16T09:00:00Z'),
 }
 
@@ -147,6 +150,79 @@ describe('buildStandaloneHtml', () => {
     expect(html).toContain('"groupBy":"category"')
     expect(html).toContain('"activeSuppliers":["CG"]')
     expect(html).toContain('"transitionOnly":true')
+  })
+
+  it('carries the active team selection into the file, live-toggleable there too', () => {
+    const html = buildStandaloneHtml(data(), { ...OPTIONS, activeTeams: ['Orion'] })
+
+    expect(html).toContain('"activeTeams":["Orion"]')
+    // The team chip row and its reset button, mirroring the supplier row.
+    expect(html).toContain('id="teamChips"')
+    expect(html).toContain('id="allTeamsBtn"')
+    expect(html).toContain('All teams')
+    expect(html).toContain('function buildTeamChips()')
+    expect(html).toContain('state.activeTeams')
+  })
+
+  it('mirrors the team-group rendering fix: groups render off the active team filter, not the unfiltered team list', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    // render() must iterate renderedGroupNames(), never the raw groupNames()
+    // — that was the bug (a resource split across a selected and an
+    // unselected team resurrected the unselected team's group).
+    expect(html).toContain('function renderedGroupNames()')
+    expect(html).toContain('renderedGroupNames().forEach(function(name){')
+    // The two "start every group collapsed" call sites must keep reasoning
+    // about every group a mode could show, not just the currently-selected
+    // teams — otherwise a team-chip click would re-collapse the whole board.
+    expect(html.match(/state\.collapsed = new Set\(groupNames\(\)\)/g)?.length).toBe(2)
+  })
+
+  it('mirrors the team-chip isolate-on-click fix', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+
+    expect(html).toContain('function toggleTeamSelection(clicked)')
+    expect(html).toContain('toggleTeamSelection(t);')
+  })
+
+  it('does NOT carry viewMode into the file’s live state — there is no edit mode offline', () => {
+    const html = buildStandaloneHtml(data(), { ...OPTIONS, viewMode: 'presentation' })
+
+    // viewMode decides what gets baked in (covered below); it is not part of
+    // the `initial` state block the runtime reads back out.
+    expect(html).not.toContain('"viewMode"')
+  })
+
+  describe('Presentation view is baked in at export time', () => {
+    function two(hiddenSecond: boolean) {
+      return data({
+        resources: [
+          resource({ resourceId: 'r1', name: 'Visible Vera', hiddenFromTimeline: false }),
+          resource({ resourceId: 'r2', name: 'Hidden Hank', hiddenFromTimeline: hiddenSecond }),
+        ],
+      })
+    }
+
+    it('embeds every resource when Full view was active', () => {
+      const html = buildStandaloneHtml(two(true), { ...OPTIONS, viewMode: 'full' })
+
+      expect(html).toContain('Visible Vera')
+      expect(html).toContain('Hidden Hank')
+    })
+
+    it('drops a hidden resource entirely when Presentation view was active', () => {
+      const html = buildStandaloneHtml(two(true), { ...OPTIONS, viewMode: 'presentation' })
+
+      expect(html).toContain('Visible Vera')
+      expect(html).not.toContain('Hidden Hank')
+    })
+
+    it('keeps an un-hidden resource in Presentation view', () => {
+      const html = buildStandaloneHtml(two(false), { ...OPTIONS, viewMode: 'presentation' })
+
+      expect(html).toContain('Visible Vera')
+      expect(html).toContain('Hidden Hank')
+    })
   })
 
   it('records when the snapshot was taken so it cannot be mistaken for live', () => {

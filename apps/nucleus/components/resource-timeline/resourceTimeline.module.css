@@ -187,6 +187,116 @@
   border-color: var(--rmg-color-grey-2);
 }
 
+/* Stacks the Suppliers row and the Team row inside the ONE grey-4 filterRow
+   card PageToolbar renders — "a third chip row below the existing Suppliers
+   row, same light card" means one card with two lines, not a second card. */
+.filterRows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rmg-spacing-02, 8px);
+  width: 100%;
+}
+
+.filterRowLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Team chip — same pill geometry as the supplier chips beside it (radius-xl,
+   4px/12px padding, 11px/600 type — metrics copied from getFilterPillStyle),
+   but a fixed red/white/grey pair rather than a per-item colour: teams carry
+   no brand colour the way suppliers do, and the spec calls for these exact
+   two states rather than the supplier pill's tinted-by-colour treatment. */
+.teamChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--rmg-radius-xl);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1.5px solid var(--rmg-color-grey-2);
+  background: var(--rmg-color-surface-white);
+  color: var(--rmg-color-dark-grey);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 120ms ease;
+}
+
+.teamChip:hover {
+  filter: brightness(0.97);
+}
+
+.teamChip.active {
+  border-color: var(--rmg-color-red);
+  background: var(--rmg-color-red);
+  color: #fff;
+}
+
+/* ── Presentation view / edit mode ───────────────────────────────────
+   The view toggle reuses .modePill/.modeButtons verbatim (see above) — it is
+   the same two-state segmented control as "Show: Everyone / Transitioning
+   only", so it gets the same markup rather than a new component. Only the
+   edit-mode button and the row-level show/hide control are new: the edit
+   button below is Schedule's own "Edit schedule" / "Done editing" button,
+   copied property-for-property (same border/background/color/weight swap on
+   activation) rather than approximated, per the brief's "same visual weight,
+   match that pattern". */
+.editModeButton {
+  border: 1.5px solid var(--rmg-color-grey-2);
+  border-radius: var(--rmg-radius-s);
+  background: var(--rmg-color-surface-white);
+  color: var(--rmg-color-text-body);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editModeButton.active {
+  border-color: var(--rmg-color-red);
+  background: #fff5f5;
+  color: var(--rmg-color-red);
+  font-weight: 600;
+}
+
+.hiddenNote {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+
+/* Row-level show/hide control, edit mode only. A small text+icon pill rather
+   than a bare icon button — "eye / eye-off icon + label" per the brief — sized
+   to sit comfortably inside the 48px row without competing with the avatar
+   and name it sits beside. */
+.visibilityToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 6px;
+  border-radius: var(--rmg-radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.visibilityToggle:hover {
+  background: var(--rmg-color-grey-4);
+}
+
 /* ── Timeline header ──────────────────────────────────────────────── */
 /* Sticky: pinned just below PlatoShell's fixed 40px global header (the same
    offset Schedule's own sticky toolbar uses) so the quarter/month axis stays

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Download } from 'lucide-react'
+import { Download, Eye, EyeOff } from 'lucide-react'
 import {
+  Notification,
   PageToolbar,
   PageToolbarExpandButton,
   PageToolbarFilterPill,
@@ -12,6 +13,7 @@ import {
 } from '@plato/ui'
 import {
   CATEGORY_ORDER,
+  getSupabaseBrowserClient,
   type ResourceTimelineData,
   type TimelineResource,
   type TimelineSegment,
@@ -20,23 +22,29 @@ import { CustomSelect } from '@/components/ui/CustomSelect'
 import {
   CG_TCS_FOCUS,
   type GroupMode,
+  type ViewMode,
   STATUS_LABELS,
   buildGroups,
   buildQuarterSpans,
+  countHidden,
   disciplineOf,
   filterResources,
   formatLongDate,
   formatMonthLabel,
   percentOf,
+  renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
   supplierStripe,
   supplierTint,
+  toggleTeamSelection,
   weekLinePositions,
 } from '@/lib/resource-timeline/presentation'
 import { buildStandaloneHtml } from '@/lib/resource-timeline/exportHtml'
 import styles from './resourceTimeline.module.css'
+
+const VIEW_MODE_STORAGE_KEY = 'plato-resource-timeline-view-mode'
 
 const GROUP_MODES: { value: GroupMode; label: string }[] = [
   { value: 'team', label: 'Team' },
@@ -64,10 +72,50 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
   const [activeSuppliers, setActiveSuppliers] = useState<ReadonlySet<string>>(
     () => new Set(CG_TCS_FOCUS),
   )
+  // Every team active by default — unlike the supplier filter's CG+TCS focus
+  // preset, there is no equivalent narrower default anyone asked for here.
+  const [activeTeams, setActiveTeams] = useState<ReadonlySet<string>>(() => new Set(data.teams))
   const [secondaryFilter, setSecondaryFilter] = useState('')
   const [transitionOnly, setTransitionOnly] = useState(false)
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
   const [exporting, setExporting] = useState(false)
+
+  // Presentation view / edit mode. A local mirror of data.resources is what
+  // makes an edit-mode toggle show up immediately without a refetch — the
+  // same optimistic-write shape Schedule's own inline edits use.
+  const [localResources, setLocalResources] = useState<TimelineResource[]>(data.resources)
+  const [viewMode, setViewMode] = useState<ViewMode>('full')
+  const [editMode, setEditMode] = useState(false)
+  const [visibilityError, setVisibilityError] = useState<string | null>(null)
+
+  // viewMode previously had zero persistence: every mount hardcoded 'full',
+  // so any remount between hiding a resource and checking the result (e.g. a
+  // manual refresh to confirm the change stuck) silently reverted the page to
+  // Full view — which shows hidden resources unconditionally — making a
+  // correctly-persisted hide look like it never took effect. Restored (not
+  // read) via an effect rather than the useState initializer, so the
+  // server-rendered markup always starts from 'full' and there is no
+  // hydration mismatch; the one-render flip to 'presentation' happens
+  // immediately after mount when sessionStorage has it.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'presentation') {
+        setViewMode('presentation')
+      }
+    } catch {
+      // sessionStorage can throw in locked-down/private-browsing contexts —
+      // falling back to Full view is a reasonable default, not an error.
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode)
+    } catch {
+      // See above — losing the remembered view across a reload here is a
+      // minor inconvenience, not worth surfacing to the user.
+    }
+  }, [viewMode])
 
   const supplierColours = useMemo(
     () => new Map(data.suppliers.map((s) => [s.abbreviation, s.colour])),
@@ -87,15 +135,70 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
     setCollapsed(new Set(groupNames))
   }, [groupNames])
 
+  const filterState = useMemo(
+    () => ({ groupBy, activeSuppliers, activeTeams, secondaryFilter, transitionOnly, viewMode, editMode }),
+    [groupBy, activeSuppliers, activeTeams, secondaryFilter, transitionOnly, viewMode, editMode],
+  )
+
   const visible = useMemo(
-    () => filterResources(data.resources, { groupBy, activeSuppliers, secondaryFilter, transitionOnly }),
-    [data.resources, groupBy, activeSuppliers, secondaryFilter, transitionOnly],
+    () => filterResources(localResources, filterState),
+    [localResources, filterState],
+  )
+
+  const hiddenCount = useMemo(
+    () => countHidden(localResources, filterState),
+    [localResources, filterState],
+  )
+
+  // Deliberately separate from `groupNames` above: that value also drives the
+  // collapse-reset effect, which must keep reasoning about every group a mode
+  // could show, not just the ones the team filter currently allows — clicking
+  // a team chip must never re-collapse the board. This is the one used for
+  // actually building what's on screen: a team's group renders iff the team
+  // itself is in activeTeams, never because some other selected team's
+  // resource happens to also belong to it (the Paul Williams / Cygnus+Pluto
+  // case).
+  const teamGroupNames = useMemo(
+    () => renderedGroupNames(groupNames, groupBy, activeTeams),
+    [groupNames, groupBy, activeTeams],
   )
 
   const groups = useMemo(
-    () => buildGroups(visible, groupNames, groupBy),
-    [visible, groupNames, groupBy],
+    () => buildGroups(visible, teamGroupNames, groupBy),
+    [visible, teamGroupNames, groupBy],
   )
+
+  // Isolate-on-first-click from "all teams" (or from an empty selection,
+  // which behaves the same way — see toggleTeamSelection), then ordinary
+  // additive/subtractive toggling once the selection is narrowed.
+  const toggleTeam = useCallback(
+    (teamName: string) => {
+      setActiveTeams((current) => toggleTeamSelection(current, data.teams, teamName))
+    },
+    [data.teams],
+  )
+
+  /**
+   * Writes hidden_from_timeline immediately on click — no separate save step,
+   * matching how every inline edit on Schedule works. Optimistic: the row
+   * flips state right away and reverts with an error banner if the write
+   * fails, the same recovery shape handleUpdateAllocation uses there.
+   */
+  const handleToggleHidden = useCallback(async (resourceId: string, nextHidden: boolean) => {
+    const previous = localResources
+    setLocalResources((current) =>
+      current.map((r) => (r.resourceId === resourceId ? { ...r, hiddenFromTimeline: nextHidden } : r)),
+    )
+    const supabase = getSupabaseBrowserClient()
+    const { error } = await supabase
+      .from('resources')
+      .update({ hidden_from_timeline: nextHidden })
+      .eq('resource_id', resourceId)
+    if (error) {
+      setLocalResources(previous)
+      setVisibilityError(error.message || 'Could not save the change. Please try again.')
+    }
+  }, [localResources])
 
   const changeGroupBy = useCallback((mode: GroupMode) => {
     setGroupBy(mode)
@@ -139,12 +242,22 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
   const handleExport = useCallback(() => {
     setExporting(true)
     try {
-      const html = buildStandaloneHtml(data, {
-        groupBy,
-        activeSuppliers: [...activeSuppliers],
-        transitionOnly,
-        generatedAt: new Date(),
-      })
+      // localResources rather than data.resources: an export taken mid-session
+      // has to reflect any show/hide edits made since the page loaded, not the
+      // stale initial fetch. viewMode decides what gets baked into the file —
+      // see buildStandaloneHtml's own comment on why that's a one-time bake
+      // rather than a live toggle in the exported file.
+      const html = buildStandaloneHtml(
+        { ...data, resources: localResources },
+        {
+          groupBy,
+          activeSuppliers: [...activeSuppliers],
+          activeTeams: [...activeTeams],
+          transitionOnly,
+          viewMode,
+          generatedAt: new Date(),
+        },
+      )
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -157,7 +270,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
     } finally {
       setExporting(false)
     }
-  }, [data, groupBy, activeSuppliers, transitionOnly])
+  }, [data, localResources, groupBy, activeSuppliers, activeTeams, transitionOnly, viewMode])
 
   /* ── Today marker ─────────────────────────────────────────────── */
   // Live date, not the mockup's frozen one. Null when today falls outside the
@@ -306,6 +419,18 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
         </p>
       </div>
 
+      {visibilityError && (
+        <div style={{ padding: '0 24px', marginBottom: 8 }}>
+          <Notification
+            variant="banner"
+            status="error"
+            message={visibilityError}
+            paddingX={16}
+            onDismiss={() => setVisibilityError(null)}
+          />
+        </div>
+      )}
+
       <div className={styles.toolbarWrap}>
         <PageToolbar
           primaryRow={
@@ -368,6 +493,38 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                 </div>
               )}
 
+              {/* View mode: same two-state segmented control as the Show
+                  pill above, not gated by groupBy — which resources are on
+                  screen at all is a different question from how they're
+                  grouped, and applies identically in every mode. */}
+              <div className={styles.modePill}>
+                <span className={styles.modePillLabel}>View</span>
+                <div className={styles.modeButtons}>
+                  <button
+                    type="button"
+                    className={viewMode === 'full' ? styles.active : undefined}
+                    aria-pressed={viewMode === 'full'}
+                    onClick={() => setViewMode('full')}
+                  >
+                    Full view
+                  </button>
+                  <button
+                    type="button"
+                    className={viewMode === 'presentation' ? styles.active : undefined}
+                    aria-pressed={viewMode === 'presentation'}
+                    onClick={() => setViewMode('presentation')}
+                  >
+                    Presentation view
+                  </button>
+                </div>
+              </div>
+
+              {hiddenCount > 0 && (
+                <span className={styles.hiddenNote}>
+                  {hiddenCount} hidden — Edit mode to review
+                </span>
+              )}
+
               {/* This toolbar carries more primaryRow content than Schedule's
                   (a grouping toggle and a secondary filter on top of the
                   usual actions cluster), so at narrow widths the actions
@@ -386,6 +543,13 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                 <PageToolbarExpandButton expanded={allExpanded} onToggle={toggleAll} />
                 <button
                   type="button"
+                  className={`${styles.editModeButton} ${editMode ? styles.active : ''}`}
+                  onClick={() => setEditMode((v) => !v)}
+                >
+                  {editMode ? 'Done editing' : 'Edit mode'}
+                </button>
+                <button
+                  type="button"
                   className={styles.exportButton}
                   onClick={handleExport}
                   disabled={exporting}
@@ -397,35 +561,67 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
             </>
           }
           filterRow={
-            <>
-              <PageToolbarFilterPill
-                label="All suppliers"
-                active={activeSuppliers.size === data.suppliers.length}
-                colour="--all"
-                onClick={() => setActiveSuppliers(new Set(data.suppliers.map((s) => s.abbreviation)))}
-              />
-              {data.suppliers.map((supplier) => (
+            <div className={styles.filterRows}>
+              <div className={styles.filterRowLine}>
                 <PageToolbarFilterPill
-                  key={supplier.abbreviation}
-                  label={supplier.name}
-                  active={activeSuppliers.has(supplier.abbreviation)}
-                  colour={supplier.colour}
-                  onClick={() => toggleSupplier(supplier.abbreviation)}
+                  label="All suppliers"
+                  active={activeSuppliers.size === data.suppliers.length}
+                  colour="--all"
+                  onClick={() => setActiveSuppliers(new Set(data.suppliers.map((s) => s.abbreviation)))}
                 />
-              ))}
-              <button
-                type="button"
-                className={`${styles.presetButton} ${
-                  activeSuppliers.size === CG_TCS_FOCUS.length &&
-                  CG_TCS_FOCUS.every((s) => activeSuppliers.has(s))
-                    ? ''
-                    : styles.inactive
-                }`}
-                onClick={() => setActiveSuppliers(new Set(CG_TCS_FOCUS))}
-              >
-                Focus: CG + TCS
-              </button>
-            </>
+                {data.suppliers.map((supplier) => (
+                  <PageToolbarFilterPill
+                    key={supplier.abbreviation}
+                    label={supplier.name}
+                    active={activeSuppliers.has(supplier.abbreviation)}
+                    colour={supplier.colour}
+                    onClick={() => toggleSupplier(supplier.abbreviation)}
+                  />
+                ))}
+                <button
+                  type="button"
+                  className={`${styles.presetButton} ${
+                    activeSuppliers.size === CG_TCS_FOCUS.length &&
+                    CG_TCS_FOCUS.every((s) => activeSuppliers.has(s))
+                      ? ''
+                      : styles.inactive
+                  }`}
+                  onClick={() => setActiveSuppliers(new Set(CG_TCS_FOCUS))}
+                >
+                  Focus: CG + TCS
+                </button>
+              </div>
+
+              {/* Team filter — multi-select, applies in every GROUP BY mode
+                  (not just Team view), matching the supplier row's own reach.
+                  Plain fixed-colour chips rather than PageToolbarFilterPill's
+                  per-item colour: teams have no brand colour the way
+                  suppliers do. */}
+              <div className={styles.filterRowLine}>
+                <button
+                  type="button"
+                  className={`${styles.presetButton} ${
+                    activeTeams.size === 0 || activeTeams.size === data.teams.length
+                      ? ''
+                      : styles.inactive
+                  }`}
+                  onClick={() => setActiveTeams(new Set(data.teams))}
+                >
+                  All teams
+                </button>
+                {data.teams.map((team) => (
+                  <button
+                    key={team}
+                    type="button"
+                    className={`${styles.teamChip} ${activeTeams.has(team) ? styles.active : ''}`}
+                    aria-pressed={activeTeams.has(team)}
+                    onClick={() => toggleTeam(team)}
+                  >
+                    {team}
+                  </button>
+                ))}
+              </div>
+            </div>
           }
         />
       </div>
@@ -547,6 +743,12 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                               <span className={styles.statusTag} style={{ color: status.colour }}>
                                 {status.text}
                               </span>
+                            )}
+                            {editMode && (
+                              <ResourceVisibilityToggle
+                                resource={resource}
+                                onToggle={handleToggleHidden}
+                              />
                             )}
                           </div>
                         )
@@ -744,6 +946,39 @@ function Tooltip({ state }: { state: TooltipState }) {
       ))}
       {state.flag && <div className={styles.ttFlag}>{state.flag}</div>}
     </div>
+  )
+}
+
+/**
+ * Edit-mode-only row control. Writes immediately on click — see
+ * handleToggleHidden — there is no separate save step, matching every other
+ * inline edit on Schedule. stopPropagation because this sits inside a row
+ * that itself has no click handler today but might grow one; cheap insurance
+ * against a future row-click action firing this by accident.
+ */
+function ResourceVisibilityToggle({
+  resource,
+  onToggle,
+}: {
+  resource: TimelineResource
+  onToggle: (resourceId: string, nextHidden: boolean) => void
+}) {
+  const hidden = resource.hiddenFromTimeline
+  return (
+    <button
+      type="button"
+      className={styles.visibilityToggle}
+      style={{ color: hidden ? 'var(--rmg-color-red)' : 'var(--rmg-color-green-contrast)' }}
+      aria-pressed={!hidden}
+      aria-label={`${resource.name} is ${hidden ? 'hidden from' : 'visible on'} the Presentation view — click to ${hidden ? 'show' : 'hide'}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle(resource.resourceId, !hidden)
+      }}
+    >
+      {hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+      {hidden ? 'Hidden' : 'Visible'}
+    </button>
   )
 }
 

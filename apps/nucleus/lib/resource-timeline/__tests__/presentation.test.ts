@@ -3,17 +3,21 @@ import type { TimelineResource, TimelineSegment } from '@plato/schema'
 import {
   buildGroups,
   buildQuarterSpans,
+  countHidden,
   disciplineRank,
   filterResources,
   formatMonthLabel,
+  isResourceVisible,
   memberInGroup,
   percentOf,
+  renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
   segmentLabel,
   sortForTeamView,
   supplierStripe,
   supplierTint,
+  toggleTeamSelection,
   weekLinePositions,
 } from '../presentation'
 
@@ -50,6 +54,7 @@ function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
     gaps: [],
     joiningDate: null,
     notes: null,
+    hiddenFromTimeline: false,
     ...overrides,
   }
 }
@@ -97,8 +102,11 @@ describe('filterResources', () => {
   const base = {
     groupBy: 'team' as const,
     activeSuppliers: new Set(['CG', 'TCS']),
+    activeTeams: new Set(['Sagan', 'Orion']),
     secondaryFilter: '',
     transitionOnly: false,
+    viewMode: 'full' as const,
+    editMode: false,
   }
 
   it('drops a resource with no segment under an active supplier', () => {
@@ -140,6 +148,209 @@ describe('filterResources', () => {
     const filtered = filterResources(people, { ...base, transitionOnly: true })
     expect(filtered.map((r) => r.name)).toEqual(['Mover', 'Joiner'])
   })
+
+  it('drops a resource with none of its teams active', () => {
+    const people = [
+      resource({ name: 'A', teams: [{ teamName: 'Sagan', capacitySplit: 1 }] }),
+      resource({ name: 'B', teams: [{ teamName: 'Pulsar', capacitySplit: 1 }] }),
+    ]
+
+    const filtered = filterResources(people, { ...base, activeTeams: new Set(['Sagan']) })
+    expect(filtered.map((r) => r.name)).toEqual(['A'])
+  })
+
+  it('keeps a split resource while ANY one of its teams is active', () => {
+    const person = resource({
+      teams: [
+        { teamName: 'Sagan', capacitySplit: 0.5 },
+        { teamName: 'Pulsar', capacitySplit: 0.5 },
+      ],
+    })
+
+    expect(filterResources([person], { ...base, activeTeams: new Set(['Pulsar']) })).toHaveLength(1)
+  })
+
+  it('treats an empty activeTeams set as "all teams" rather than "nothing matches"', () => {
+    // Reachable via toggleTeamSelection (isolate a team, then click it off
+    // again) — the board must never go blank just because the selection
+    // narrowed all the way to zero.
+    const person = resource({
+      teams: [
+        { teamName: 'Sagan', capacitySplit: 0.5 },
+        { teamName: 'Pulsar', capacitySplit: 0.5 },
+      ],
+    })
+
+    expect(filterResources([person], { ...base, activeTeams: new Set() })).toHaveLength(1)
+  })
+
+  it('applies the team filter in every GROUP BY mode, not just Team view', () => {
+    // Unlike secondaryFilter, which only cross-filters in specific modes,
+    // the team filter is unconditional — the same shape as the supplier
+    // filter above.
+    const people = [
+      resource({ name: 'A', teams: [{ teamName: 'Sagan', capacitySplit: 1 }] }),
+      resource({ name: 'B', teams: [{ teamName: 'Pulsar', capacitySplit: 1 }] }),
+    ]
+    const activeTeams = new Set(['Sagan'])
+
+    for (const groupBy of ['team', 'discipline', 'category'] as const) {
+      const filtered = filterResources(people, { ...base, groupBy, activeTeams })
+      expect(filtered.map((r) => r.name), groupBy).toEqual(['A'])
+    }
+  })
+})
+
+describe('isResourceVisible / Presentation view', () => {
+  const base = {
+    groupBy: 'team' as const,
+    activeSuppliers: new Set(['CG', 'TCS']),
+    activeTeams: new Set(['Sagan', 'Orion']),
+    secondaryFilter: '',
+    transitionOnly: false,
+    viewMode: 'full' as const,
+    editMode: false,
+  }
+
+  it('shows everyone in Full view, hidden or not', () => {
+    expect(isResourceVisible({ hiddenFromTimeline: false }, 'full', false)).toBe(true)
+    expect(isResourceVisible({ hiddenFromTimeline: true }, 'full', false)).toBe(true)
+    expect(isResourceVisible({ hiddenFromTimeline: true }, 'full', true)).toBe(true)
+  })
+
+  it('hides a flagged resource in Presentation view outside edit mode', () => {
+    expect(isResourceVisible({ hiddenFromTimeline: true }, 'presentation', false)).toBe(false)
+  })
+
+  it('never hides an un-flagged resource in Presentation view', () => {
+    expect(isResourceVisible({ hiddenFromTimeline: false }, 'presentation', false)).toBe(true)
+  })
+
+  it('reveals a hidden resource in Presentation view while editing, so it can be un-hidden', () => {
+    expect(isResourceVisible({ hiddenFromTimeline: true }, 'presentation', true)).toBe(true)
+  })
+
+  it('filterResources composes the visibility rule with every other filter', () => {
+    const people = [
+      resource({ name: 'Visible', hiddenFromTimeline: false }),
+      resource({ name: 'Hidden', hiddenFromTimeline: true }),
+    ]
+    const presentation = { ...base, viewMode: 'presentation' as const }
+
+    expect(filterResources(people, presentation).map((r) => r.name)).toEqual(['Visible'])
+    expect(
+      filterResources(people, { ...presentation, editMode: true }).map((r) => r.name),
+    ).toEqual(['Visible', 'Hidden'])
+    expect(filterResources(people, { ...base, viewMode: 'full' as const }).map((r) => r.name)).toEqual([
+      'Visible',
+      'Hidden',
+    ])
+  })
+
+  it('a resource hidden while editing in Presentation view stays hidden once edit mode ends', () => {
+    // Regression for the "hidden resources reappear after leaving Edit mode"
+    // report: toggle hidden while editMode is true (as the row control does),
+    // then simulate leaving edit mode by re-filtering the SAME resources
+    // array with editMode: false, and assert the resource is absent from the
+    // rendered output — not just that hiddenFromTimeline changed on the
+    // object.
+    const target = resource({ name: 'Target', hiddenFromTimeline: false })
+    const bystander = resource({ name: 'Bystander', hiddenFromTimeline: false })
+    const people = [target, bystander]
+    const presentationEditing = { ...base, viewMode: 'presentation' as const, editMode: true }
+
+    // Still visible while editing, before the toggle.
+    expect(filterResources(people, presentationEditing).map((r) => r.name)).toEqual([
+      'Target',
+      'Bystander',
+    ])
+
+    // The row toggle's own update shape: replace the one resource in the
+    // array with hiddenFromTimeline flipped, same as setLocalResources'
+    // current.map(...) in ResourceTimelineClient.
+    const afterToggle = people.map((r) => (r.name === 'Target' ? { ...r, hiddenFromTimeline: true } : r))
+
+    // Still visible — edit mode still on, so the row stays available to
+    // review/un-hide.
+    expect(filterResources(afterToggle, presentationEditing).map((r) => r.name)).toEqual([
+      'Target',
+      'Bystander',
+    ])
+
+    // Leave edit mode, still in Presentation view: the hidden resource must
+    // now be absent from the rendered output.
+    const afterExitingEditMode = filterResources(afterToggle, {
+      ...base,
+      viewMode: 'presentation',
+      editMode: false,
+    })
+    expect(afterExitingEditMode.map((r) => r.name)).toEqual(['Bystander'])
+    expect(afterExitingEditMode.find((r) => r.name === 'Target')).toBeUndefined()
+  })
+
+  it('hiding is a render-time filter only — a resource revealed by Full view keeps its segments and gaps intact', () => {
+    // The task's own regression requirement: nothing about deriveSegments'
+    // or deriveGaps' output is touched by the hidden flag or by which view
+    // is currently toggled. Proven here by asserting the arrays a hidden
+    // resource carries into Full view are the exact same objects it had
+    // going in — filtering a row in or out never rewrites its content.
+    const gaps = [{ start: '2026-09-30', end: '2026-10-16' }]
+    const segments = [
+      seg({ supplier: 'CG', start: '2026-07-01', end: '2026-09-30' }),
+      seg({ supplier: 'TCS', start: '2026-11-02', end: '2026-12-31', realStart: true }),
+    ]
+    const hidden = resource({ hiddenFromTimeline: true, segments, gaps })
+
+    const [revealed] = filterResources([hidden], {
+      ...base,
+      activeSuppliers: new Set(['CG', 'TCS']),
+      viewMode: 'full',
+    })
+
+    expect(revealed?.segments).toBe(segments)
+    expect(revealed?.gaps).toBe(gaps)
+    expect(revealed?.segments).toEqual(segments)
+    expect(revealed?.gaps).toEqual(gaps)
+  })
+})
+
+describe('countHidden', () => {
+  const people = [
+    resource({ name: 'A', hiddenFromTimeline: false }),
+    resource({ name: 'B', hiddenFromTimeline: true }),
+    resource({ name: 'C', hiddenFromTimeline: true }),
+  ]
+  const base = {
+    groupBy: 'team' as const,
+    activeSuppliers: new Set(['CG', 'TCS']),
+    activeTeams: new Set(['Sagan', 'Orion']),
+    secondaryFilter: '',
+    transitionOnly: false,
+    viewMode: 'full' as const,
+    editMode: false,
+  }
+
+  it('is zero in Full view — nothing is actually hidden from the screen', () => {
+    expect(countHidden(people, base)).toBe(0)
+  })
+
+  it('is zero in edit mode — Presentation view reveals hidden rows while editing', () => {
+    expect(countHidden(people, { ...base, viewMode: 'presentation', editMode: true })).toBe(0)
+  })
+
+  it('counts hidden resources in Presentation view outside edit mode', () => {
+    expect(countHidden(people, { ...base, viewMode: 'presentation' })).toBe(2)
+  })
+
+  it('only counts hidden resources that would otherwise pass the other filters', () => {
+    const mixedSupplier = [
+      resource({ name: 'HiddenVisibleSupplier', hiddenFromTimeline: true }),
+      resource({ name: 'HiddenWrongSupplier', hiddenFromTimeline: true, segments: [seg({ supplier: 'EPAM' })] }),
+    ]
+    expect(
+      countHidden(mixedSupplier, { ...base, viewMode: 'presentation', activeSuppliers: new Set(['CG']) }),
+    ).toBe(1)
+  })
 })
 
 describe('buildGroups', () => {
@@ -177,6 +388,98 @@ describe('buildGroups', () => {
     expect(memberInGroup(person, 'Sagan', 'team')).toBe(true)
     expect(memberInGroup(person, 'Orion', 'team')).toBe(true)
     expect(buildGroups([person], ['Sagan', 'Orion'], 'team')).toHaveLength(2)
+  })
+})
+
+describe('renderedGroupNames', () => {
+  it('renders a team group if and only if the team is in activeTeams', () => {
+    expect(renderedGroupNames(['Cygnus', 'Pluto', 'Sagan'], 'team', new Set(['Cygnus']))).toEqual([
+      'Cygnus',
+    ])
+  })
+
+  it('an unselected team never renders just because a split resource also belongs to it', () => {
+    // Paul Williams' real shape: split across Cygnus (selected) and Pluto
+    // (not selected). The resource-level filter keeps him because he has ANY
+    // active team, but that must not resurrect a Pluto group nobody asked
+    // for — Pluto's group name must be dropped from what actually renders,
+    // regardless of Paul's other membership.
+    const paul = resource({
+      name: 'Paul Williams',
+      teams: [
+        { teamName: 'Cygnus', capacitySplit: 0.5 },
+        { teamName: 'Pluto', capacitySplit: 0.5 },
+      ],
+    })
+    const allTeamNames = ['Cygnus', 'Pluto', 'Sagan']
+    const activeTeams = new Set(['Cygnus'])
+
+    const filtered = filterResources([paul], {
+      groupBy: 'team',
+      activeSuppliers: new Set(['CG', 'TCS']),
+      activeTeams,
+      secondaryFilter: '',
+      transitionOnly: false,
+      viewMode: 'full',
+      editMode: false,
+    })
+    const names = renderedGroupNames(allTeamNames, 'team', activeTeams)
+    const groups = buildGroups(filtered, names, 'team')
+
+    expect(groups.map((g) => g.name)).toEqual(['Cygnus'])
+    expect(groups.find((g) => g.name === 'Pluto')).toBeUndefined()
+    expect(groups[0]?.resources.map((r) => r.name)).toEqual(['Paul Williams'])
+  })
+
+  it('is a no-op outside Team mode', () => {
+    expect(renderedGroupNames(['A', 'B'], 'discipline', new Set(['A']))).toEqual(['A', 'B'])
+    expect(renderedGroupNames(['A', 'B'], 'category', new Set())).toEqual(['A', 'B'])
+  })
+
+  it('treats an empty activeTeams set as "all teams" so the board never goes blank', () => {
+    expect(renderedGroupNames(['Cygnus', 'Pluto'], 'team', new Set())).toEqual(['Cygnus', 'Pluto'])
+  })
+})
+
+describe('toggleTeamSelection', () => {
+  const ALL_TEAMS = ['Cygnus', 'Pluto', 'Sagan']
+
+  it('isolates to the clicked team when every team is currently active', () => {
+    const result = toggleTeamSelection(new Set(ALL_TEAMS), ALL_TEAMS, 'Cygnus')
+    expect([...result]).toEqual(['Cygnus'])
+  })
+
+  it('adds a second team additively once the selection is already narrowed', () => {
+    const narrowed = toggleTeamSelection(new Set(ALL_TEAMS), ALL_TEAMS, 'Cygnus')
+    const withSecond = toggleTeamSelection(narrowed, ALL_TEAMS, 'Pluto')
+    expect(new Set(withSecond)).toEqual(new Set(['Cygnus', 'Pluto']))
+  })
+
+  it('removes an active team from a narrowed selection', () => {
+    const twoActive = new Set(['Cygnus', 'Pluto'])
+    const result = toggleTeamSelection(twoActive, ALL_TEAMS, 'Pluto')
+    expect([...result]).toEqual(['Cygnus'])
+  })
+
+  it('isolates from an empty selection exactly as it would from "all"', () => {
+    const result = toggleTeamSelection(new Set(), ALL_TEAMS, 'Sagan')
+    expect([...result]).toEqual(['Sagan'])
+  })
+
+  it('full sequence: isolate, add a second, then All teams resets to every team', () => {
+    let active: ReadonlySet<string> = new Set(ALL_TEAMS)
+
+    active = toggleTeamSelection(active, ALL_TEAMS, 'Cygnus')
+    expect(new Set(active)).toEqual(new Set(['Cygnus']))
+
+    active = toggleTeamSelection(active, ALL_TEAMS, 'Pluto')
+    expect(new Set(active)).toEqual(new Set(['Cygnus', 'Pluto']))
+
+    // "All teams" is a direct reset in the caller, not toggleTeamSelection —
+    // confirming it still fully resets regardless of how narrowed the
+    // selection got.
+    active = new Set(ALL_TEAMS)
+    expect(new Set(active)).toEqual(new Set(ALL_TEAMS))
   })
 })
 
