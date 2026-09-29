@@ -228,8 +228,13 @@ export function CreatePeriodWizard({
   const nextDisabled = step === 1 && !step1Valid
 
   return (
-    <div style={overlay} onClick={onClose} role="dialog" aria-modal>
-      <div style={card} onClick={(e) => e.stopPropagation()}>
+    // Same fix as AddResourceWizard: an accidental outside click used to
+    // close this modal and discard the period settings entered across
+    // Period/Copy forward/Confirm. The X button (and Cancel) remain the only
+    // deliberate ways out; Escape has no handler here either, so it stays a
+    // no-op, consistent with outside-click.
+    <div style={overlay} role="dialog" aria-modal>
+      <div style={card}>
         {/* Header */}
         <div style={headerStyle}>
           <span style={{ fontSize: 14, fontWeight: 600 }}>Create new period</span>
