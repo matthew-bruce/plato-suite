@@ -352,21 +352,41 @@ function nextDayIso(iso: string): string {
     .slice(0, 10)
 }
 
+/** Two pieces of the same engagement are one continuous bar: no inset between them. */
+function sameEngagement(
+  a: Pick<TimelineSegment, 'engagementId'>,
+  b: Pick<TimelineSegment, 'engagementId'>,
+): boolean {
+  return a.engagementId !== undefined && a.engagementId === b.engagementId
+}
+
 /**
  * Per-segment pixel insets for the segments actually rendered on one row. A
  * segment's right edge is inset where another segment starts the day after it
  * ends; its left edge is inset where another segment ends the day before it
  * starts. Segments touching nothing get { left: 0, right: 0 }.
+ *
+ * Only SEPARATE bars are pulled apart. Pieces of one engagement (a planview
+ * change, or a scheduled/unscheduled boundary) touch with no gap. Segments
+ * with no engagementId (legacy output) are always separate bars.
  */
 export function segmentTouchInsets(
-  segments: readonly Pick<TimelineSegment, 'start' | 'end'>[],
+  segments: readonly Pick<TimelineSegment, 'start' | 'end' | 'engagementId'>[],
 ): { left: number; right: number }[] {
-  const starts = new Set(segments.map((s) => s.start.slice(0, 10)))
-  const dayAfterEnds = new Set(segments.map((s) => nextDayIso(s.end)))
-  return segments.map((s) => ({
-    left: dayAfterEnds.has(s.start.slice(0, 10)) ? SEGMENT_TOUCH_INSET_PX : 0,
-    right: starts.has(nextDayIso(s.end)) ? SEGMENT_TOUCH_INSET_PX : 0,
-  }))
+  return segments.map((s) => {
+    const start = s.start.slice(0, 10)
+    const dayAfterEnd = nextDayIso(s.end)
+    const touchesBefore = segments.some(
+      (o) => o !== s && nextDayIso(o.end) === start && !sameEngagement(o, s),
+    )
+    const touchesAfter = segments.some(
+      (o) => o !== s && o.start.slice(0, 10) === dayAfterEnd && !sameEngagement(o, s),
+    )
+    return {
+      left: touchesBefore ? SEGMENT_TOUCH_INSET_PX : 0,
+      right: touchesAfter ? SEGMENT_TOUCH_INSET_PX : 0,
+    }
+  })
 }
 
 /**
@@ -478,6 +498,14 @@ export function buildQuarterSpans(
  * edges are not start or end dates for anybody and printing them there would
  * assert something untrue.
  */
+/**
+ * Tooltip line for an unscheduled piece: on the platform (inside an
+ * engagement) with no schedule row for the period.
+ */
+export function unscheduledTooltip(segment: Pick<TimelineSegment, 'start' | 'end'>): string {
+  return `Unscheduled · ${formatShortDate(segment.start)} – ${formatLongDate(segment.end)} · on the platform, no schedule row`
+}
+
 export function segmentLabel(segment: TimelineSegment): { text: string; dates: string } {
   const text = segment.code === 'NPC' ? `${segment.supplier} Hypercare` : segment.supplier
 
@@ -538,18 +566,25 @@ const FALLBACK_AVATAR_COLOUR = '#8F9495'
  * pre-sorted by deriveSegments, so first/last here is genuinely
  * chronological. This generalises to any future supplier pair — nothing here
  * is CG/TCS-specific.
+ *
+ * Engagement-engine output carries windowSuppliers (the suppliers of the
+ * engagements intersecting the visible window, chronological); when present
+ * it is used instead of the segments.
  */
 export function resolveAvatarColours(
   resource: TimelineResource,
   supplierColours: ReadonlyMap<string, string>,
 ): AvatarColour {
-  const segments = resource.segments
-  if (segments.length === 0) {
+  const suppliers =
+    resource.windowSuppliers !== undefined
+      ? resource.windowSuppliers
+      : resource.segments.map((s) => s.supplier)
+  if (suppliers.length === 0) {
     return { mode: 'solid', colour: FALLBACK_AVATAR_COLOUR }
   }
 
-  const fromSupplier = segments[0]!.supplier
-  const toSupplier = segments[segments.length - 1]!.supplier
+  const fromSupplier = suppliers[0]!
+  const toSupplier = suppliers[suppliers.length - 1]!
 
   if (fromSupplier === toSupplier) {
     return {

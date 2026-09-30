@@ -798,6 +798,20 @@
   z-index: 5;
 }
 
+/* Unscheduled — on the platform (inside an engagement) with no schedule row
+   for the period. A 2px dotted line 3px below the bar's bottom edge: .seg
+   ends 6px above the row's bottom, so the line sits 1px above it, entirely
+   inside the existing padding. Square ends, no radius. Never changes the
+   bar itself or the row's height. */
+.unscheduledMarker {
+  position: absolute;
+  bottom: 1px;
+  height: 0;
+  border-top: 2px dotted var(--rmg-color-text-light);
+  border-radius: 0;
+  pointer-events: none;
+}
+
 .flagDot {
   position: absolute;
   top: 2px;

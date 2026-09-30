@@ -54,6 +54,13 @@ export interface TimelineResource {
    * is showing it for review. See lib/resource-timeline/presentation.ts.
    */
   hiddenFromTimeline: boolean
+  /**
+   * Suppliers of the engagements that intersect the visible window, in
+   * chronological order with consecutive repeats collapsed. Set by the
+   * engagement engine only; drives the avatar split colour. Absent on legacy
+   * output, where the avatar falls back to the segments.
+   */
+  windowSuppliers?: string[]
 }
 
 export interface ResourceTimelineData {

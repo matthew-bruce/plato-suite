@@ -42,6 +42,7 @@ import {
   supplierStripe,
   supplierTint,
   toggleTeamSelection,
+  unscheduledTooltip,
   weekLinePositions,
 } from '@/lib/resource-timeline/presentation'
 import { buildStandaloneHtml } from '@/lib/resource-timeline/exportHtml'
@@ -339,6 +340,18 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
 
   const showSegmentTooltip = useCallback(
     (event: React.MouseEvent, resource: TimelineResource, segment: TimelineSegment) => {
+      if (segment.unscheduled) {
+        setTooltip({
+          x: event.clientX,
+          y: event.clientY,
+          name: resource.name,
+          sub: unscheduledTooltip(segment),
+          rows: [],
+          flag: null,
+        })
+        return
+      }
+
       const rows: { label: string; value: string }[] = []
       if (segment.realStart) rows.push({ label: 'From', value: formatLongDate(segment.start) })
       if (segment.realEnd) rows.push({ label: 'To', value: formatLongDate(segment.end) })
@@ -849,6 +862,25 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                                     {dates && <span className={styles.segDates}>{dates}</span>}
                                   </span>
                                 </div>
+                              )
+                            })}
+
+                            {/* Unscheduled marker: dotted underline spanning
+                                exactly the unscheduled piece, inside the row's
+                                existing bottom padding — the bar is unchanged. */}
+                            {segments.map((segment, index) => {
+                              if (!segment.unscheduled) return null
+                              const { left, width } = insetSegmentPosition(
+                                segmentGeometry(segment, data.windowStart, data.windowEnd),
+                                touchInsets[index]!,
+                              )
+                              return (
+                                <div
+                                  key={`unscheduled-${segment.supplier}-${segment.start}`}
+                                  className={styles.unscheduledMarker}
+                                  style={{ left, width }}
+                                  aria-hidden="true"
+                                />
                               )
                             })}
 

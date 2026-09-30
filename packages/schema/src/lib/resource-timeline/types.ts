@@ -116,6 +116,18 @@ export interface TimelineSegment {
    * surfaces as a data-quality signal instead of being silently resolved.
    */
   commercialStartMismatch: IsoDate | null
+  /**
+   * The engagement this piece belongs to. Set by the engagement engine only;
+   * absent on legacy segments. Pieces of one engagement touch with no inset,
+   * pieces of different engagements are inset 2px (see segmentTouchInsets).
+   */
+  engagementId?: string
+  /**
+   * On the platform (inside an engagement) but with no schedule row for the
+   * period. Set by the engagement engine only. Drawn as full availability in
+   * the engagement's supplier colour, with the dotted "unscheduled" marker.
+   */
+  unscheduled?: boolean
 }
 
 /** How a resource relates to the Dudley transition. Drives the status tag. */

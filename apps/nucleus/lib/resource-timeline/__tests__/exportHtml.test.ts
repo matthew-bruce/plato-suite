@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { ResourceTimelineData, TimelineResource } from '@plato/schema'
 import { buildStandaloneHtml } from '../exportHtml'
+import { unscheduledTooltip } from '../presentation'
 
 function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
   return {
@@ -246,6 +247,73 @@ describe('buildStandaloneHtml', () => {
       { left: 2, right: 0 },
     ])
     expect(touchInsets([{ start: '2026-07-01', end: '2026-09-30' }])).toEqual([{ left: 0, right: 0 }])
+  })
+
+  it('keeps pieces of one engagement touching in the export — no inset between them', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    const source = html.slice(html.indexOf('function nextDay('), html.indexOf('function fmtShort('))
+    const touchInsets = new Function('DATA', 'DAY', `${source}; return touchInsets;`)(
+      { touchInsetPx: 2 },
+      86_400_000,
+    ) as (segs: { start: string; end: string; engagementId?: string }[]) => { left: number; right: number }[]
+
+    expect(
+      touchInsets([
+        { start: '2026-09-08', end: '2026-09-30', engagementId: 'e1' },
+        { start: '2026-10-01', end: '2026-12-31', engagementId: 'e1' },
+      ]),
+    ).toEqual([
+      { left: 0, right: 0 },
+      { left: 0, right: 0 },
+    ])
+    expect(
+      touchInsets([
+        { start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' },
+        { start: '2026-10-01', end: '2026-12-31', engagementId: 'e2' },
+      ]),
+    ).toEqual([
+      { left: 0, right: 2 },
+      { left: 2, right: 0 },
+    ])
+  })
+
+  it('renders the unscheduled marker and its tooltip from the engine output alone', () => {
+    const unscheduled = resource({
+      segments: [
+        {
+          supplier: 'TCS',
+          code: 'REG',
+          start: '2026-09-08',
+          end: '2026-09-30',
+          realStart: true,
+          realEnd: false,
+          tentative: false,
+          flag: null,
+          commercialStartMismatch: null,
+          engagementId: 'e1',
+          unscheduled: true,
+        },
+      ],
+      gaps: [],
+    })
+    const html = buildStandaloneHtml(data({ resources: [unscheduled] }), OPTIONS)
+
+    // The piece travels in the embedded data; the runtime draws the marker.
+    expect(html).toContain('"unscheduled":true')
+    expect(html).toContain("if (s.unscheduled) bars += '<div class=\"unscheduled-marker\"")
+    expect(html).toMatch(/\.unscheduled-marker\{[^}]*border-top:2px dotted var\(--rmg-color-text-light\)/)
+
+    const source = html.slice(html.indexOf('function fmtShort('), html.indexOf('function disciplineOf('))
+    const tip = new Function(`${source}; return unscheduledTip;`)() as (s: { start: string; end: string }) => string
+    // Identical to the live page's tooltip text.
+    expect(tip({ start: '2026-09-08', end: '2026-09-30' })).toBe(
+      unscheduledTooltip({ start: '2026-09-08', end: '2026-09-30' }),
+    )
+  })
+
+  it('splits the avatar from windowSuppliers when present', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    expect(html).toContain('r.windowSuppliers !== undefined')
   })
 
   it('records when the snapshot was taken so it cannot be mistaken for live', () => {

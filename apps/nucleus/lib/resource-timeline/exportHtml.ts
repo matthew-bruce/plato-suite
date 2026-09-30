@@ -398,6 +398,7 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .seg-label{font-size:9.5px;font-weight:700;color:var(--sc);white-space:nowrap;padding:0 7px;letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis}
 .seg-label .dates{font-weight:500;opacity:.75;margin-left:5px}
 .gap-marker{position:absolute;top:50%;height:2px;transform:translateY(-1px);background:repeating-linear-gradient(90deg,var(--rmg-color-red) 0,var(--rmg-color-red) 3px,transparent 3px,transparent 6px);z-index:5}
+.unscheduled-marker{position:absolute;bottom:1px;height:0;border-top:2px dotted var(--rmg-color-text-light);border-radius:0;pointer-events:none}
 .flag-dot{position:absolute;top:2px;width:6px;height:6px;border-radius:50%;background:var(--rmg-color-red);border:1.5px solid #fff;z-index:21}
 .tooltip{position:fixed;z-index:9999;background:#fff;border:1px solid var(--rmg-color-grey-2);border-radius:var(--rmg-radius-s);padding:10px 13px;pointer-events:none;max-width:270px;box-shadow:0 4px 56px rgba(0,0,0,.08)}
 .tt-name{font-size:12px;font-weight:700;color:var(--rmg-color-text-heading)}
@@ -456,14 +457,15 @@ function pctAfter(iso){ return pctMs(Date.parse(iso.slice(0,10) + 'T00:00:00Z') 
 // Mirrors segmentTouchInsets() in presentation.ts. Computed at render time
 // because it depends on which suppliers are toggled on.
 function nextDay(iso){ return new Date(Date.parse(iso.slice(0,10) + 'T00:00:00Z') + DAY).toISOString().slice(0,10); }
+// Pieces of one engagement touch with no inset; only separate bars are
+// pulled apart (segments with no engagementId are always separate).
+function sameEngagement(a, b){ return a.engagementId !== undefined && a.engagementId === b.engagementId; }
 function touchInsets(segs){
-  var starts = {}, afterEnds = {};
-  segs.forEach(function(s){ starts[s.start.slice(0,10)] = true; afterEnds[nextDay(s.end)] = true; });
   return segs.map(function(s){
-    return {
-      left: afterEnds[s.start.slice(0,10)] ? DATA.touchInsetPx : 0,
-      right: starts[nextDay(s.end)] ? DATA.touchInsetPx : 0
-    };
+    var start = s.start.slice(0,10), after = nextDay(s.end);
+    var before = segs.some(function(o){ return o !== s && nextDay(o.end) === start && !sameEngagement(o, s); });
+    var next = segs.some(function(o){ return o !== s && o.start.slice(0,10) === after && !sameEngagement(o, s); });
+    return { left: before ? DATA.touchInsetPx : 0, right: next ? DATA.touchInsetPx : 0 };
   });
 }
 function fmtShort(iso){
@@ -471,6 +473,10 @@ function fmtShort(iso){
 }
 function fmtLong(iso){
   return new Date(iso.slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit',timeZone:'UTC'});
+}
+// Mirrors unscheduledTooltip() in presentation.ts.
+function unscheduledTip(s){
+  return 'Unscheduled · ' + fmtShort(s.start) + ' – ' + fmtLong(s.end) + ' · on the platform, no schedule row';
 }
 function disciplineOf(r){ return r.discipline || UNASSIGNED_DISCIPLINE; }
 function rankOf(r){ var d = disciplineOf(r); return d in DATA.rankTable ? DATA.rankTable[d] : 5; }
@@ -481,10 +487,13 @@ function palette(sup){ return DATA.palette[sup] || {name:sup,colour:'#8F9495',ti
 // chronologically first segment's supplier to the last's) for two or more.
 // Segments arrive pre-sorted by deriveSegments, so first/last here is
 // genuinely chronological, the same guarantee the React version relies on.
+// Engagement-engine output carries windowSuppliers and is used when present.
 function avatarColour(r){
-  var segs = r.segments;
-  if (!segs.length) return {mode:'solid', colour:'#8F9495'};
-  var from = segs[0].supplier, to = segs[segs.length-1].supplier;
+  var sups = r.windowSuppliers !== undefined
+    ? r.windowSuppliers
+    : r.segments.map(function(s){ return s.supplier; });
+  if (!sups.length) return {mode:'solid', colour:'#8F9495'};
+  var from = sups[0], to = sups[sups.length-1];
   if (from === to) return {mode:'solid', colour:palette(from).colour};
   return {mode:'split', fromColour:palette(from).colour, toColour:palette(to).colour};
 }
@@ -654,13 +663,16 @@ function render(){
         bars += '<div class="' + cls + '" style="' + pos + ';--sc:' + p.colour +
           ';--sct:' + p.tint + ';--sc2:' + p.stripe + '"' +
           ' data-tip-name="' + esc(r.name) + '"' +
-          ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"' +
+          (s.unscheduled
+            ? ' data-tip-unscheduled="1" data-tip-sub="' + esc(unscheduledTip(s)) + '"'
+            : ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"') +
           ' data-tip-from="' + (s.realStart ? esc(fmtLong(s.start)) : '') + '"' +
           ' data-tip-to="' + (s.realEnd ? esc(fmtLong(s.end)) : '') + '"' +
           ' data-tip-flag="' + esc(flag) + '">' +
           '<span class="seg-label">' + esc(lab.text) +
           (lab.dates ? '<span class="dates">' + esc(lab.dates) + '</span>' : '') + '</span></div>';
         if (flag) bars += '<div class="flag-dot" style="left:calc(' + a + '% + 4px)"></div>';
+        if (s.unscheduled) bars += '<div class="unscheduled-marker" style="' + pos + '"></div>';
       });
 
       rh += '<div class="res-right-row">' + bars + '</div>';
@@ -779,6 +791,8 @@ function attachTooltips(){
       var gap = el.getAttribute('data-tip-gap');
       if (gap) {
         rows = '<div class="tt-row"><span>Coverage gap</span><b>' + esc(gap) + '</b></div>';
+      } else if (el.getAttribute('data-tip-unscheduled')) {
+        rows = '';
       } else {
         var from = el.getAttribute('data-tip-from'), to = el.getAttribute('data-tip-to');
         if (from) rows += '<div class="tt-row"><span>From</span><b>' + esc(from) + '</b></div>';

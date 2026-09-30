@@ -2,31 +2,30 @@
 // All Supabase access goes through the @plato/schema server client (ADR-027) —
 // the page component never touches the SDK.
 //
-// The query's job is to assemble derivation INPUTS and hand them to
-// lib/resource-timeline. It deliberately does no date arithmetic of its own:
-// every boundary on the rendered timeline comes out of deriveSegments so there
-// is exactly one place where that logic lives.
+// The query's job is to fetch derivation INPUTS and hand them to a builder
+// (queries/resourceTimelineBuild.ts). It deliberately does no date arithmetic
+// of its own: every boundary on the rendered timeline comes out of the engine.
+//
+// Two engines run side by side until the diff report is reviewed (ADR-035):
+// 'engagements' (native, the default) and 'legacy' (translator →
+// deriveSegments). Both build from the same fetched rows.
 
 import { getSupabaseServerComponentClient } from '../serverComponent'
 import {
-  classifyTransition,
-  deriveGaps,
-  deriveSegments,
-} from '../lib/resource-timeline/deriveSegments'
-import { engagementsToTransitionRecords } from '../lib/resource-timeline/engagementsToTransitionRecords'
-import { resolveTeamsByResource } from '../lib/resource-timeline/resolveTeams'
-import { monthStartOf } from '../lib/resource-timeline/workingDays'
-import type {
-  AllocationInput,
-  EngagementRecord,
-  SegmentCode,
-  TeamAssignmentInput,
-} from '../lib/resource-timeline/types'
-import type {
-  ResourceTimelineData,
-  TimelineResource,
-  TimelineSupplier,
-} from '../types/resourceTimeline'
+  buildEngagementTimeline,
+  buildLegacyTimeline,
+  type AllocationRow,
+  type EngagementRow,
+  type MonthlyDaysRow,
+  type PeriodRow,
+  type RawTimelineRows,
+  type ResourceRow,
+  type SupplierRow,
+  type TeamAssignmentRow,
+} from './resourceTimelineBuild'
+import type { ResourceTimelineData } from '../types/resourceTimeline'
+
+export { orderDisciplines } from './resourceTimelineBuild'
 
 /**
  * The coarse period carries no month-level granularity; the granular one does.
@@ -36,146 +35,17 @@ import type {
 const COARSE_PERIOD_NAME = 'Q2 FY 26/27'
 const GRANULAR_PERIOD_NAME = 'Q3 FY 26/27'
 
-/**
- * Matthew Bruce is the Platform Head, not a delivery resource, and must never
- * appear on this view (standing rule, confirmed 16 Aug). Excluded here at the
- * query level rather than filtered in the UI, so no grouping mode, filter
- * combination or export path can surface him.
- */
-const EXCLUDED_RESOURCE_NAMES = ['Matthew Bruce']
-
-type SupplierRow = {
-  supplier_id: string
-  supplier_name: string
-  supplier_abbreviation: string
-  supplier_colour: string | null
-  sort_order: number | null
-}
-
-type PeriodRow = {
-  period_id: string
-  period_name: string
-  period_start_date: string
-  period_end_date: string
-}
-
-type AllocationRow = {
-  allocation_id: string
-  period_id: string
-  resource_id: string | null
-  supplier_id: string | null
-  planview_code: string | null
-}
-
-type MonthlyDaysRow = {
-  allocation_id: string
-  month_start_date: string
-  days: number | string
-}
-
-/* The label for a resource with no discipline row. Duplicated from the UI's
-   own UNASSIGNED_DISCIPLINE rather than imported: @plato/schema is the data
-   boundary and must not depend on an app. The two must agree — the UI groups
-   on the string this query emits. */
-const UNASSIGNED_DISCIPLINE_LABEL = 'Unassigned discipline'
-
-type DisciplineEmbed = { discipline_name: string; sort_order: number | null }
+export type TimelineEngine = 'engagements' | 'legacy'
 
 /**
- * The distinct Skillset names present, in the disciplines table's own
- * sort_order — the grouping order for the timeline's Skillset view and the
- * options in its secondary filter.
- *
- * This used to be a plain `.sort()`, which is alphabetical and is not an order
- * anyone chose: it opened the list with "AI / ML Engineering" and "Agile
- * Coaching" and scattered the taxonomy the column exists to express. The
- * column was not even selected by the query, so the data to order by never
- * reached the sort — the same shape of defect as display_order going unread by
- * the schedule exports.
- *
- * Ordered by sort_order with the name as the tiebreak, matching how the
- * supplier list here and the filter chips on Schedule and People already do
- * it. "Unassigned discipline" has no table row and therefore no order, so it
- * sorts last rather than wherever its initial letter would put it.
- *
- * Exported for its own tests: the ordering is the part worth pinning, and it
- * is not reachable through the full query.
+ * Which engine the page renders from unless the request asks otherwise
+ * (?engine=legacy). The legacy path stays callable for side-by-side checks
+ * until Phase 2 removes it.
  */
-export function orderDisciplines(
-  resources: readonly { discipline: string | null; disciplineSortOrder: number | null }[],
-): string[] {
-  const order = new Map<string, number>()
-  for (const r of resources) {
-    if (r.discipline && !order.has(r.discipline)) {
-      order.set(r.discipline, r.disciplineSortOrder ?? Number.POSITIVE_INFINITY)
-    }
-  }
-  return [...new Set(resources.map((r) => r.discipline ?? UNASSIGNED_DISCIPLINE_LABEL))].sort(
-    (a, b) => {
-      if (a === UNASSIGNED_DISCIPLINE_LABEL) return 1
-      if (b === UNASSIGNED_DISCIPLINE_LABEL) return -1
-      const oa = order.get(a) ?? Number.POSITIVE_INFINITY
-      const ob = order.get(b) ?? Number.POSITIVE_INFINITY
-      return oa !== ob ? oa - ob : a.localeCompare(b)
-    },
-  )
-}
+export const DEFAULT_TIMELINE_ENGINE: TimelineEngine = 'engagements'
 
-type ResourceRow = {
-  resource_id: string
-  resource_name: string
-  disciplines: DisciplineEmbed | DisciplineEmbed[] | null
-  hidden_from_timeline: boolean
-}
-
-type TeamAssignmentRow = {
-  resource_id: string
-  period_id: string
-  capacity_split: number | string
-  teams: { team_name: string } | { team_name: string }[] | null
-}
-
-type EngagementRow = {
-  engagement_id: string
-  resource_id: string
-  supplier_id: string
-  roll_on_date: string | null
-  roll_off_date: string | null
-  roll_on_estimated: boolean
-  roll_on_tentative: boolean
-}
-
-function pickEmbed<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null
-  if (Array.isArray(value)) return value[0] ?? null
-  return value
-}
-
-/** Two letters, upper case. Neutral avatars — never coloured by supplier. */
-function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word[0] ?? '')
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-}
-
-/** Every YYYY-MM-01 from start to end inclusive. */
-function monthsBetween(start: string, end: string): string[] {
-  const months: string[] = []
-  const cursor = new Date(`${start.slice(0, 8)}01T00:00:00Z`)
-  const last = new Date(`${end.slice(0, 8)}01T00:00:00Z`)
-
-  while (cursor <= last) {
-    months.push(cursor.toISOString().slice(0, 10))
-    cursor.setUTCMonth(cursor.getUTCMonth() + 1)
-  }
-  return months
-}
-
-export async function getResourceTimelineData(): Promise<ResourceTimelineData | null> {
+/** Fetch every row either builder needs, for the coarse + granular window. */
+export async function fetchTimelineRows(): Promise<RawTimelineRows | null> {
   const supabase = await getSupabaseServerComponentClient()
 
   const { data: periodsData, error: periodsErr } = await supabase
@@ -191,14 +61,14 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   const granular = periods.find((p) => p.period_name === GRANULAR_PERIOD_NAME)
   if (!coarse || !granular) return null
 
-  const [suppliersResult, allocsResult, bankHolidaysResult] = await Promise.all([
+  const [suppliersResult, allocsResult, bankHolidaysResult, engagementsResult] = await Promise.all([
     supabase
       .from('suppliers')
       .select('supplier_id, supplier_name, supplier_abbreviation, supplier_colour, sort_order')
       .order('sort_order'),
     supabase
       .from('resource_period_allocations')
-      .select('allocation_id, period_id, resource_id, supplier_id, planview_code')
+      .select('allocation_id, period_id, resource_id, supplier_id, planview_code, engagement_id')
       .in('period_id', [coarse.period_id, granular.period_id])
       .not('resource_id', 'is', null)
       .is('deleted_at', null),
@@ -209,6 +79,16 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
       .select('holiday_date')
       .gte('holiday_date', `${coarse.period_start_date.slice(0, 4)}-01-01`)
       .lte('holiday_date', `${granular.period_end_date.slice(0, 4)}-12-31`),
+    // Every non-deleted engagement: the native engine also draws people who
+    // are on the platform in the window without holding an allocation.
+    // roll_on_estimated / roll_on_tentative are read by the legacy translator
+    // only.
+    supabase
+      .from('resource_engagements')
+      .select(
+        'engagement_id, resource_id, supplier_id, roll_on_date, roll_off_date, roll_on_estimated, roll_on_tentative',
+      )
+      .is('deleted_at', null),
   ])
 
   if (suppliersResult.error) {
@@ -217,21 +97,21 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   if (allocsResult.error) {
     throw new Error(`Failed to load allocations: ${allocsResult.error.message}`)
   }
+  if (engagementsResult.error) {
+    throw new Error(`Failed to load engagements: ${engagementsResult.error.message}`)
+  }
 
-  const supplierRows = (suppliersResult.data ?? []) as unknown as SupplierRow[]
-  const allocRows = (allocsResult.data ?? []) as unknown as AllocationRow[]
-  const bankHolidays = ((bankHolidaysResult.data ?? []) as unknown as { holiday_date: string }[]).map(
-    (h) => h.holiday_date.slice(0, 10),
-  )
+  const allocations = (allocsResult.data ?? []) as unknown as AllocationRow[]
+  const engagements = (engagementsResult.data ?? []) as unknown as EngagementRow[]
 
-  const supplierById = new Map(supplierRows.map((s) => [s.supplier_id, s]))
-  const abbrevOf = (id: string | null): string | null =>
-    id === null ? null : (supplierById.get(id)?.supplier_abbreviation ?? null)
+  const resourceIds = [
+    ...new Set([
+      ...allocations.map((a) => a.resource_id).filter((id): id is string => id !== null),
+      ...engagements.map((e) => e.resource_id),
+    ]),
+  ]
 
-  const resourceIds = [...new Set(allocRows.map((a) => a.resource_id).filter((id): id is string => id !== null))]
-  if (resourceIds.length === 0) return null
-
-  const [resourcesResult, teamsResult, monthlyResult, engagementsResult] = await Promise.all([
+  const [resourcesResult, teamsResult, monthlyResult] = await Promise.all([
     supabase
       .from('resources')
       .select(
@@ -250,15 +130,8 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
       .select('allocation_id, month_start_date, days')
       .in(
         'allocation_id',
-        allocRows.map((a) => a.allocation_id),
+        allocations.map((a) => a.allocation_id),
       ),
-    supabase
-      .from('resource_engagements')
-      .select(
-        'engagement_id, resource_id, supplier_id, roll_on_date, roll_off_date, roll_on_estimated, roll_on_tentative',
-      )
-      .in('resource_id', resourceIds)
-      .is('deleted_at', null),
   ])
 
   if (resourcesResult.error) {
@@ -270,151 +143,26 @@ export async function getResourceTimelineData(): Promise<ResourceTimelineData | 
   if (monthlyResult.error) {
     throw new Error(`Failed to load monthly days: ${monthlyResult.error.message}`)
   }
-  if (engagementsResult.error) {
-    throw new Error(`Failed to load engagements: ${engagementsResult.error.message}`)
-  }
-
-  const resourceRows = ((resourcesResult.data ?? []) as unknown as ResourceRow[]).filter(
-    (r) => !EXCLUDED_RESOURCE_NAMES.includes(r.resource_name.trim()),
-  )
-  const includedIds = new Set(resourceRows.map((r) => r.resource_id))
-
-  // allocation_id → { 'YYYY-MM-01': days }
-  const monthlyByAllocation = new Map<string, Record<string, number>>()
-  for (const row of (monthlyResult.data ?? []) as unknown as MonthlyDaysRow[]) {
-    const existing = monthlyByAllocation.get(row.allocation_id) ?? {}
-    existing[row.month_start_date.slice(0, 10)] = Number(row.days)
-    monthlyByAllocation.set(row.allocation_id, existing)
-  }
-
-  // Team assignments are period-scoped, and the query below fetches both
-  // periods so a resource with no granular-period row yet still gets their
-  // last-known (coarse-period) team rather than "Unassigned" — see
-  // resolveTeamsByResource() for how the two periods get collapsed to the
-  // one team set the timeline shows per person.
-  const teamAssignmentInputs: TeamAssignmentInput[] = ((teamsResult.data ?? []) as unknown as TeamAssignmentRow[])
-    .map((row) => {
-      const teamName = pickEmbed(row.teams)?.team_name
-      return teamName
-        ? {
-            resourceId: row.resource_id,
-            periodId: row.period_id,
-            teamName,
-            capacitySplit: Number(row.capacity_split),
-          }
-        : null
-    })
-    .filter((row): row is TeamAssignmentInput => row !== null)
-  const teamsByResource = resolveTeamsByResource(teamAssignmentInputs, granular.period_id)
-
-  // Phase 1 (ADR-035): engagements are translated into the TransitionRecord
-  // shape the derivation already consumes, so deriveSegments/deriveGaps and
-  // classification run unchanged.
-  const engagementInputs: EngagementRecord[] = []
-  for (const row of (engagementsResult.data ?? []) as unknown as EngagementRow[]) {
-    if (!includedIds.has(row.resource_id)) continue
-    const supplier = abbrevOf(row.supplier_id)
-    if (!supplier) continue
-    engagementInputs.push({
-      engagementId: row.engagement_id,
-      resourceId: row.resource_id,
-      supplier,
-      rollOnDate: row.roll_on_date,
-      rollOffDate: row.roll_off_date,
-      rollOnEstimated: row.roll_on_estimated,
-      rollOnTentative: row.roll_on_tentative,
-    })
-  }
-  const transitionByResource = engagementsToTransitionRecords(engagementInputs)
-
-  // resource_id → period_id → allocation inputs
-  const allocsByResource = new Map<string, Map<string, AllocationInput[]>>()
-  for (const row of allocRows) {
-    if (row.resource_id === null || !includedIds.has(row.resource_id)) continue
-    const supplier = abbrevOf(row.supplier_id)
-    if (!supplier) continue
-
-    const byPeriod = allocsByResource.get(row.resource_id) ?? new Map<string, AllocationInput[]>()
-    const list = byPeriod.get(row.period_id) ?? []
-    list.push({
-      supplier,
-      // Only hypercare changes how a segment is anchored; every other planview
-      // code renders the same way.
-      code: (row.planview_code === 'NPC' ? 'NPC' : 'REG') satisfies SegmentCode,
-      monthlyDays: monthlyByAllocation.get(row.allocation_id) ?? {},
-    })
-    byPeriod.set(row.period_id, list)
-    allocsByResource.set(row.resource_id, byPeriod)
-  }
-
-  const coarseWindow = { start: coarse.period_start_date, end: coarse.period_end_date }
-  const granularWindow = { start: granular.period_start_date, end: granular.period_end_date }
-
-  const resources: TimelineResource[] = resourceRows
-    .map((row): TimelineResource => {
-      const byPeriod = allocsByResource.get(row.resource_id)
-      const transition = transitionByResource.get(row.resource_id) ?? null
-
-      const segments = deriveSegments({
-        transition,
-        coarseAllocations: byPeriod?.get(coarse.period_id) ?? [],
-        granularAllocations: byPeriod?.get(granular.period_id) ?? [],
-        coarseWindow,
-        granularWindow,
-        bankHolidays,
-      })
-
-      const classification = classifyTransition(transition, segments, granularWindow.start)
-      const teams = teamsByResource.get(row.resource_id) ?? []
-
-      return {
-        resourceId: row.resource_id,
-        name: row.resource_name,
-        initials: initialsOf(row.resource_name),
-        discipline: pickEmbed(row.disciplines)?.discipline_name ?? null,
-        disciplineSortOrder: pickEmbed(row.disciplines)?.sort_order ?? null,
-        teams: teams.length > 0 ? teams : [{ teamName: 'Unassigned', capacitySplit: 1 }],
-        status: classification.status,
-        category: classification.category,
-        categoryLabel: classification.categoryLabel,
-        segments,
-        // Off the transition record, never off the segments — see deriveGaps.
-        gaps: deriveGaps(transition, bankHolidays),
-        joiningDate: transition?.joiningDate ?? null,
-        notes: transition?.notes ?? null,
-        hiddenFromTimeline: row.hidden_from_timeline,
-      }
-    })
-    // Drop anyone the data is entirely silent about rather than rendering an
-    // empty row — this view is about coverage, and no coverage is not a row.
-    .filter((r) => r.segments.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-  const suppliers: TimelineSupplier[] = supplierRows
-    .filter((s) => resources.some((r) => r.segments.some((seg) => seg.supplier === s.supplier_abbreviation)))
-    .map((s) => ({
-      abbreviation: s.supplier_abbreviation,
-      name: s.supplier_name,
-      // DB is the source of truth for supplier colour (design system §2).
-      colour: s.supplier_colour ?? '#8F9495',
-      sortOrder: s.sort_order ?? 0,
-    }))
-
-  const teams = [...new Set(resources.flatMap((r) => r.teams.map((t) => t.teamName)))].sort((a, b) =>
-    a === 'Unassigned' ? 1 : b === 'Unassigned' ? -1 : a.localeCompare(b),
-  )
-  const disciplines = orderDisciplines(resources)
 
   return {
-    windowStart: coarseWindow.start,
-    windowEnd: granularWindow.end,
-    months: monthsBetween(monthStartOf(coarseWindow.start), granularWindow.end),
-    resources,
-    suppliers,
-    teams,
-    disciplines,
-    coarsePeriodName: coarse.period_name,
-    granularPeriodName: granular.period_name,
-    granularWindowStart: monthStartOf(granularWindow.start),
+    coarse,
+    granular,
+    suppliers: (suppliersResult.data ?? []) as unknown as SupplierRow[],
+    allocations,
+    monthlyDays: (monthlyResult.data ?? []) as unknown as MonthlyDaysRow[],
+    bankHolidays: ((bankHolidaysResult.data ?? []) as unknown as { holiday_date: string }[]).map((h) =>
+      h.holiday_date.slice(0, 10),
+    ),
+    resources: (resourcesResult.data ?? []) as unknown as ResourceRow[],
+    teamAssignments: (teamsResult.data ?? []) as unknown as TeamAssignmentRow[],
+    engagements,
   }
+}
+
+export async function getResourceTimelineData(
+  engine: TimelineEngine = DEFAULT_TIMELINE_ENGINE,
+): Promise<ResourceTimelineData | null> {
+  const rows = await fetchTimelineRows()
+  if (rows === null) return null
+  return engine === 'legacy' ? buildLegacyTimeline(rows) : buildEngagementTimeline(rows).data
 }

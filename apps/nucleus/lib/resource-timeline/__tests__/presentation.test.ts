@@ -23,6 +23,7 @@ import {
   supplierStripe,
   supplierTint,
   toggleTeamSelection,
+  unscheduledTooltip,
   weekLinePositions,
 } from '../presentation'
 
@@ -799,5 +800,73 @@ describe('resolveAvatarColours', () => {
       mode: 'solid',
       colour: '#8F9495',
     })
+  })
+})
+
+/* ── Engagement engine output ─────────────────────────────────────── */
+
+describe('segment touch insets — engagement-aware', () => {
+  it('pieces of one engagement touch with no inset (scheduled/unscheduled boundary)', () => {
+    const insets = segmentTouchInsets([
+      seg({ supplier: 'TCS', start: '2026-09-08', end: '2026-09-30', engagementId: 'e1', unscheduled: true }),
+      seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31', engagementId: 'e1' }),
+    ])
+    expect(insets).toEqual([
+      { left: 0, right: 0 },
+      { left: 0, right: 0 },
+    ])
+  })
+
+  it('pieces of one engagement touch with no inset (planview change)', () => {
+    const insets = segmentTouchInsets([
+      seg({ supplier: 'CG', code: 'REG', start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' }),
+      seg({ supplier: 'CG', code: 'NPC', start: '2026-10-01', end: '2026-10-30', engagementId: 'e1' }),
+    ])
+    expect(insets.every((i) => i.left === 0 && i.right === 0)).toBe(true)
+  })
+
+  it('separate engagements that meet end-to-start are inset 2px each', () => {
+    const insets = segmentTouchInsets([
+      seg({ supplier: 'CG', start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' }),
+      seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31', engagementId: 'e2' }),
+    ])
+    expect(insets).toEqual([
+      { left: 0, right: 2 },
+      { left: 2, right: 0 },
+    ])
+  })
+})
+
+describe('resolveAvatarColours — window suppliers', () => {
+  const SUPPLIER_COLOURS = new Map([
+    ['CG', '#003C82'],
+    ['TCS', '#9B0A6E'],
+  ])
+
+  it('uses windowSuppliers when the engagement engine provides them', () => {
+    const person = resource({
+      segments: [seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31' })],
+      windowSuppliers: ['CG', 'TCS'],
+    })
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({
+      mode: 'split',
+      fromColour: '#003C82',
+      toColour: '#9B0A6E',
+    })
+  })
+
+  it('stays solid when only one supplier intersects the window', () => {
+    const person = resource({ windowSuppliers: ['TCS'] })
+    expect(resolveAvatarColours(person, SUPPLIER_COLOURS)).toEqual({ mode: 'solid', colour: '#9B0A6E' })
+  })
+})
+
+describe('unscheduledTooltip', () => {
+  it('reads "Unscheduled · {d MMM} – {d MMM yy} · on the platform, no schedule row"', () => {
+    // Same date helpers as every other label on the page, so the month
+    // abbreviation follows the runtime's en-GB locale ("Sep" or "Sept").
+    expect(unscheduledTooltip({ start: '2026-09-08', end: '2026-09-30' })).toMatch(
+      /^Unscheduled · 8 Sept? – 30 Sept? 26 · on the platform, no schedule row$/,
+    )
   })
 })
