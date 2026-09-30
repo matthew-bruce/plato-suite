@@ -41,8 +41,7 @@ export type RuleId =
   | 'R2-roll-on'
   | 'R2/R6-roll-off'
   | 'R5-unscheduled'
-  | 'SPEC-monthly-days'
-  | 'SPEC-anchoring'
+  | 'SPEC-engagement-span'
   | 'SPEC-category'
   | 'R7-overlap-risk'
   | 'R12-no-tentative'
@@ -54,10 +53,8 @@ export const RULE_TEXT: Record<RuleId, string> = {
   'R2-roll-on': 'Rule 2 — engagement roll-on is the actual and overrides the schedule',
   'R2/R6-roll-off': 'Rules 2 & 6 — the bar ends at roll-off; scheduled-after-leaving gets no treatment',
   'R5-unscheduled': 'Rule 5 — engaged but not scheduled: drawn from the engagement with the unscheduled marker',
-  'SPEC-monthly-days':
-    'Spec — part-time pattern comes from monthly days in every period (the old engine drew the first period flat and ignored its monthly rows)',
-  'SPEC-anchoring':
-    'Spec — start-anchoring as today, but "already present last month" now comes from the engagements, not the schedule',
+  'SPEC-engagement-span':
+    'Spec — a bar runs roll-on to roll-off; monthly days are days bought, not a calendar, so the taper, noise threshold and NPC end/start-anchoring no longer shape or break bars',
   'SPEC-category':
     'Spec — transition category derived on the fly from the order of engagements intersecting the window (the translator read every engagement, and roll_on_estimated)',
   'R7-overlap-risk': 'Rule 7 — no stored labels; overlap risk is not produced',
@@ -176,21 +173,15 @@ function engagementCovering(engs: readonly DiffEngagement[], supplier: string, d
   )
 }
 
-function inRange(day: IsoDate, range: PeriodWindow): boolean {
-  return day >= range.start && day <= range.end
-}
-
 /**
  * Days the old engine covered for a supplier that the new one does not.
- * Explained when the engagement dates exclude them (rule 2/6), or when they
- * sit in the flat period and that period's monthly rows don't book them.
+ * Explained only when the engagement dates exclude them (rules 2 and 6): the
+ * new engine draws every day of an engagement's span in the window.
  */
 function explainOnlyOld(
   runs: readonly { start: IsoDate; end: IsoDate }[],
   supplier: string,
-  ctx: DiffContext,
   engs: readonly DiffEngagement[],
-  allocs: readonly DiffAllocation[],
 ): Finding[] {
   const findings: Finding[] = []
   for (const run of runs) {
@@ -202,14 +193,6 @@ function explainOnlyOld(
         rule: before ? 'R2-roll-on' : 'R2/R6-roll-off',
         text: `${supplier} ${fmtRun(run)} dropped: outside the ${supplier} engagement`,
       })
-      continue
-    }
-    const inCoarse = days.every((d) => inRange(d, ctx.coarsePeriod))
-    const coarseMonthly = allocs.some(
-      (a) => a.supplier === supplier && a.periodStart === ctx.coarsePeriod.start && Object.keys(a.monthlyDays).length > 0,
-    )
-    if (inCoarse && coarseMonthly) {
-      findings.push({ rule: 'SPEC-monthly-days', text: `${supplier} ${fmtRun(run)} no longer drawn: not booked in that period's monthly days` })
       continue
     }
     findings.push({ rule: null, text: `${supplier} ${fmtRun(run)} drawn by the old engine only` })
@@ -234,24 +217,15 @@ function explainOnlyNew(
       continue
     }
     const startsAtRollOn = engs.some((e) => e.supplier === supplier && e.rollOnDate === run.start)
-    const endsAtRollOff = engs.some((e) => e.supplier === supplier && e.rollOffDate === run.end)
     if (startsAtRollOn) {
       findings.push({ rule: 'R2-roll-on', text: `${supplier} ${fmtRun(run)} added: bar starts at the ${run.start} roll-on` })
       continue
     }
-    if (endsAtRollOff) {
-      findings.push({ rule: 'R2/R6-roll-off', text: `${supplier} ${fmtRun(run)} added: bar runs to the ${run.end} roll-off` })
-      continue
-    }
-    // Presence: the run sits at the start of a month the person was already
-    // on the platform for (per engagements) the month before.
-    const monthStart = `${run.start.slice(0, 7)}-01`
-    const priorDay = addDays(monthStart, -1)
-    const presentBefore = engs.some(
-      (e) => e.rollOnDate !== null && e.rollOnDate <= priorDay && (e.rollOffDate === null || e.rollOffDate >= priorDay),
-    )
-    if (presentBefore && run.start.slice(0, 7) === run.end.slice(0, 7)) {
-      findings.push({ rule: 'SPEC-anchoring', text: `${supplier} ${fmtRun(run)} added: front-anchored, on the platform the month before` })
+    // Scheduled days inside the engagement that the old engine left out
+    // because of the monthly-days taper, noise threshold, anchoring or a
+    // zero-day month: the bar now simply runs through its engagement.
+    if (daysOf(run).every((d) => engagementCovering(engs, supplier, d) !== undefined)) {
+      findings.push({ rule: 'SPEC-engagement-span', text: `${supplier} ${fmtRun(run)} added: inside the engagement, no longer tapered or broken by booked days` })
       continue
     }
     findings.push({ rule: null, text: `${supplier} ${fmtRun(run)} drawn by the new engine only` })
@@ -285,7 +259,6 @@ export function compareTimelines(
     const oldView = o ? viewOf(o) : null
     const newView = n ? viewOf(n) : null
     const engs = ctx.engagementsByName.get(name) ?? []
-    const allocs = ctx.allocationsByName.get(name) ?? []
     const findings: Finding[] = []
 
     const oldBars = oldView?.bars ?? []
@@ -301,7 +274,7 @@ export function compareTimelines(
       const onlyNew = [...newCover.keys()].filter((d) => !oldCover.has(d))
       if (onlyOld.length > 0 || onlyNew.length > 0) coverChanged = true
 
-      findings.push(...explainOnlyOld(runsOf(onlyOld), supplier, ctx, engs, allocs))
+      findings.push(...explainOnlyOld(runsOf(onlyOld), supplier, engs))
 
       const newScheduled = onlyNew.filter((d) => !newCover.get(d)!.unscheduled)
       const newUnscheduled = onlyNew.filter((d) => newCover.get(d)!.unscheduled)

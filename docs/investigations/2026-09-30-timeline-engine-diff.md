@@ -15,6 +15,50 @@ and the native engine (`engagementEngine.ts`) were both run over:
 Regenerate with `npx vite-node scripts/timeline-engine-diff.ts <snapshot.json> <report.md>`.
 The snapshot query is at the end of this document.
 
+## Update — bars from engagement dates only (30 Sep, second round)
+
+Approved after live review. In the new engine a bar now runs roll-on to
+roll-off, full stop. Monthly days are days bought, not a calendar, so they no
+longer taper, anchor or break a bar; they appear only in the tooltip ("Oct 5d ·
+Nov 5d · Dec 4d", or "Q3 64d" where a period has no monthly rows). Pieces of one
+engagement join into one continuous bar, and the end of a bar before a later,
+separate bar is shortened by 3px.
+
+The report below is regenerated from a fresh live snapshot. Its engagements,
+allocations and monthly days are checksum-identical to the morning's; it adds
+`capacity_days`, disciplines and team assignments.
+
+**UNEXPLAINED: none in either run.**
+
+Live (113 people, 48 differ):
+
+| Rule | People |
+|---|---|
+| SPEC-engagement-span | 21. Legacy tapered their Q3 bar short in December (EPAM/HT people booked under the full month); it now runs to the engagement's end. Aliaksei Yakimovich, Bence Daroczi, Chris Horton, Daria Grek, Dzianis Roi, Ekaterina Webster, Emil Nowak, Francesca Bateman, Freddie Leigh-Akompi, Gleb Kazak, Ievgeniia Usovik, Jan Urbaniak, Maksim Klimenko, Mikalai Kavaliou, Pavel Yukhnovich, Pushpalatha Surineni, Rachel Hatcher, Rita Makai, Roland Meszaros, Roman Syromiatnikov, Svetlana Solodkaia |
+| SPEC-category | 13 (unchanged, see conflict 2) |
+| R2-roll-on | 9 (unchanged) |
+| R5-unscheduled | 5 (unchanged: Amol Tate, Nawaz Mohammed, Pradeep Bolke, Suraj Pawar, Sushil Suresh) |
+| R2/R6-roll-off | 1 (Zouhir Saad-Saoud, unchanged) |
+
+Fixture (21 people, 9 differ): SPEC-engagement-span 4 (Bharat Patil, Manasi
+Ketkar, Nikhil Vibhav, Pradeep Bolke: hypercare now runs to roll-off rather
+than the last booked month), R5-unscheduled 5, R2-roll-on 1, R12 1.
+
+**Conflict 1 below is resolved by this change.** The Phase-1 Q2 taper holes are
+gone: Nilesh Kumar, Poornachandran Ramakrishnan and the rest are continuous
+again, and now match legacy in Q2.
+
+**Team moves (report only, no change).** In Team grouping a person appears
+under one team only: their Q3 team where they have one (resolveTeamsByResource
+lets the granular period replace the coarse one), with their whole bar,
+including the Q2 portion spent in the old team. Live examples: Prapti Verma and
+Shubham Kumar (one TCS engagement each, Cygnus in Q2 → Orion in Q3) appear only
+under Orion.
+
+---
+
+# Phase 1 report (superseded bar geometry; kept for history)
+
 ## UNEXPLAINED
 
 **None in either run.** Every difference is credited to a rule below by the
@@ -100,6 +144,12 @@ Live summary: 113 people compared, 42 differ.
 
 ## Snapshot query (read-only)
 
+The second-round snapshot extends the query below with `a.capacity_days` on
+allocations, `d.discipline_name, d.sort_order` on resources (via
+`disciplines`), and a `teams` array of
+`[resource, period, capacity_split, team_name]` from non-deleted
+`resource_team_assignments`. The surrogate ids are unchanged.
+
 ```sql
 with p as (select period_id, period_name, period_start_date, period_end_date,
                   case when period_start_date='2026-07-01' then 'P2' else 'P3' end k
@@ -127,15 +177,14 @@ geometry, gaps, category or avatar from them, and the diff doesn't compare them.
 
 ---
 
-# Generated report
+# Generated report (second round)
 
 ## Rule key
 
 - **R2-roll-on** — Rule 2 — engagement roll-on is the actual and overrides the schedule
 - **R2/R6-roll-off** — Rules 2 & 6 — the bar ends at roll-off; scheduled-after-leaving gets no treatment
 - **R5-unscheduled** — Rule 5 — engaged but not scheduled: drawn from the engagement with the unscheduled marker
-- **SPEC-monthly-days** — Spec — part-time pattern comes from monthly days in every period (the old engine drew the first period flat and ignored its monthly rows)
-- **SPEC-anchoring** — Spec — start-anchoring as today, but "already present last month" now comes from the engagements, not the schedule
+- **SPEC-engagement-span** — Spec — a bar runs roll-on to roll-off; monthly days are days bought, not a calendar, so the taper, noise threshold and NPC end/start-anchoring no longer shape or break bars
 - **SPEC-category** — Spec — transition category derived on the fly from the order of engagements intersecting the window (the translator read every engagement, and roll_on_estimated)
 - **R7-overlap-risk** — Rule 7 — no stored labels; overlap risk is not produced
 - **R12-no-tentative** — Rule 12 — no tentative roll-on/roll-off; nothing tentative or hatched
@@ -145,7 +194,7 @@ geometry, gaps, category or avatar from them, and the diff doesn't compare them.
 
 ## (a) dudleyCohort fixture
 
-21 people compared; 8 differ; 0 with unexplained differences.
+21 people compared; 9 differ; 0 with unexplained differences.
 
 ### UNEXPLAINED
 
@@ -163,7 +212,7 @@ None.
 
 - **Old:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-10-30 — Rolling off, hypercare only — no TCS move, avatar solid CG
 - **New:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-10-31 — Rolling off, hypercare only — no TCS move, avatar solid CG
-- CG 2026-10-31 added: bar runs to the 2026-10-31 roll-off — **R2/R6-roll-off**
+- CG 2026-10-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Deva Palanisamy
 
@@ -177,6 +226,12 @@ None.
 - **New:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-12-31 *(unscheduled)*; TCS 2026-10-14 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
 - CG 2026-10-01–2026-12-31 unscheduled (on the platform, no schedule row) — **R5-unscheduled**
 
+#### Manasi Ketkar
+
+- **Old:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-10-07 — Not part of Dudley transition, avatar solid CG
+- **New:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid CG
+- CG 2026-10-08–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
 #### Mathivanan Pandurangan
 
 - **Old:** TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
@@ -187,14 +242,14 @@ None.
 
 - **Old:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Signed with TCS — start date TBC, avatar split CG→TCS
 - **New:** CG 2026-07-01 → 2026-09-30; CG NPC 2026-10-01 → 2026-10-31; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-10-31 added: bar runs to the 2026-10-31 roll-off — **R2/R6-roll-off**
+- CG 2026-10-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 - category Signed with TCS — start date TBC (mover_doj_tbc) → Transitioned to TCS (mover) — **R12-no-tentative**
 
 #### Pradeep Bolke
 
 - **Old:** CG NPC 2026-10-01 → 2026-10-30 — Rolling off, hypercare only — no TCS move, avatar solid CG
 - **New:** CG 2026-07-01 → 2026-09-30 *(unscheduled)*; CG NPC 2026-10-01 → 2026-10-31 — Rolling off, hypercare only — no TCS move, avatar solid CG
-- CG 2026-10-31 added: bar runs to the 2026-10-31 roll-off — **R2/R6-roll-off**
+- CG 2026-10-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 - CG 2026-07-01–2026-09-30 unscheduled (on the platform, no schedule row) — **R5-unscheduled**
 
 #### Prajwal Kumar
@@ -211,7 +266,7 @@ New engine: 0 overlap-risk labels, 0 tentative segments.
 
 ## (b) Live data — Q2 + Q3 FY26/27
 
-113 people compared; 42 differ; 0 with unexplained differences.
+113 people compared; 48 differ; 0 with unexplained differences.
 
 ### UNEXPLAINED
 
@@ -222,8 +277,8 @@ None.
 #### Aliaksei Yakimovich
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-28; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Amol Tate
 
@@ -237,17 +292,23 @@ None.
 - **New:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid TCS
 - category Established at TCS (no CG history) (joiner) → Not part of Dudley transition (incumbent) — **SPEC-category**
 
-#### Bharat Patil
+#### Bence Daroczi
 
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- **New:** CG 2026-07-01 → 2026-09-24; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- CG 2026-09-25–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Chris Horton
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-07 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-08; EPAM 2026-10-01 → 2026-12-07 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-09–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-08–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Daria Grek
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Deepak Balasaheb Pawar
 
@@ -261,6 +322,24 @@ None.
 - **New:** TCS 2026-09-02 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
 - TCS 2026-07-01–2026-09-01 dropped: outside the TCS engagement — **R2-roll-on**
 
+#### Dzianis Roi
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Ekaterina Webster
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Emil Nowak
+
+- **Old:** HT 2026-07-01 → 2026-09-30; HT 2026-10-01 → 2026-12-14 — Not part of Dudley transition, avatar solid HT
+- **New:** HT 2026-07-01 → 2026-09-30; HT 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid HT
+- HT 2026-12-15–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
 #### Fauji Sirajuddin
 
 - **Old:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
@@ -270,26 +349,38 @@ None.
 #### Francesca Bateman
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-10 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-04; EPAM 2026-10-01 → 2026-12-10 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-05–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-11–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Freddie Leigh-Akompi
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-16 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-16; EPAM 2026-10-01 → 2026-12-16 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-17–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-17–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Gleb Kazak
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Ievgeniia Usovik
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-02 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-02; EPAM 2026-10-01 → 2026-12-02 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-03–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-03–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### James Taylor
 
 - **Old:** NH 2026-07-01 → 2026-09-30; NH 2026-10-01 → 2026-12-31 — Not moving — attrition, avatar solid NH
 - **New:** NH 2026-07-01 → 2026-09-30; NH 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid NH
 - category Not moving — attrition (rolledoff) → Not part of Dudley transition (incumbent) — **SPEC-category**
+
+#### Jan Urbaniak
+
+- **Old:** HT 2026-07-01 → 2026-09-30; HT 2026-10-01 → 2026-10-13 — Not part of Dudley transition, avatar solid HT
+- **New:** HT 2026-07-01 → 2026-09-30; HT 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid HT
+- HT 2026-10-14–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Kiran MH
 
@@ -315,17 +406,11 @@ None.
 - **New:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid TCS
 - category Established at TCS (no CG history) (joiner) → Not part of Dudley transition (incumbent) — **SPEC-category**
 
-#### Makarand Parab
+#### Maksim Klimenko
 
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-16; TCS 2026-11-02 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- **New:** CG 2026-07-01 → 2026-09-28; CG 2026-10-01 → 2026-10-16; TCS 2026-11-02 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
-
-#### Manasi Ketkar
-
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- **New:** CG 2026-07-01 → 2026-09-07; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- CG 2026-09-08–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Marvania Vivek Sureshbhai
 
@@ -338,6 +423,12 @@ None.
 - **Old:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
 - **New:** TCS 2026-09-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
 - TCS 2026-07-01–2026-08-31 dropped: outside the TCS engagement — **R2-roll-on**
+
+#### Mikalai Kavaliou
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Minu Agrawal
 
@@ -357,23 +448,11 @@ None.
 - **New:** RMG 2026-09-14 → 2026-09-30 *(unscheduled)*; RMG 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid RMG
 - RMG 2026-09-14–2026-09-30 unscheduled (on the platform, no schedule row) — **R5-unscheduled**
 
-#### Nikhil Vibhav
+#### Pavel Yukhnovich
 
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- **New:** CG 2026-07-01 → 2026-09-28; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
-
-#### Nilesh Kumar
-
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- **New:** CG 2026-07-01 → 2026-09-28; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
-
-#### Poornachandran Ramakrishnan
-
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- **New:** CG 2026-07-01 → 2026-09-28; CG 2026-10-01 → 2026-10-30; TCS 2026-12-01 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Pradeep Bolke
 
@@ -390,8 +469,15 @@ None.
 #### Pushpalatha Surineni
 
 - **Old:** TCS 2026-10-26 → 2026-12-07 — Established at TCS (no CG history), avatar solid TCS
-- **New:** TCS 2026-10-01 → 2026-12-07 — Established at TCS (no CG history), avatar solid TCS
+- **New:** TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
 - TCS 2026-10-01–2026-10-25 added: bar starts at the 2026-10-01 roll-on — **R2-roll-on**
+- TCS 2026-12-08–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Rachel Hatcher
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Raghaveni Adula
 
@@ -399,11 +485,23 @@ None.
 - **New:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid TCS
 - category Established at TCS (no CG history) (joiner) → Not part of Dudley transition (incumbent) — **SPEC-category**
 
-#### Sajesh Advilkar
+#### Rita Makai
 
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- **New:** CG 2026-07-01 → 2026-09-22; CG 2026-10-01 → 2026-10-30 — Not moving — attrition, avatar solid CG
-- CG 2026-09-23–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Roland Meszaros
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
+
+#### Roman Syromiatnikov
+
+- **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Saranya T S
 
@@ -444,20 +542,14 @@ None.
 #### Svetlana Solodkaia
 
 - **Old:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
-- **New:** EPAM 2026-07-01 → 2026-09-24; EPAM 2026-10-01 → 2026-12-18 — Not part of Dudley transition, avatar solid EPAM
-- EPAM 2026-09-25–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
+- **New:** EPAM 2026-07-01 → 2026-09-30; EPAM 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid EPAM
+- EPAM 2026-12-19–2026-12-31 added: inside the engagement, no longer tapered or broken by booked days — **SPEC-engagement-span**
 
 #### Vidhya Vijayakumar
 
 - **Old:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Established at TCS (no CG history), avatar solid TCS
 - **New:** TCS 2026-07-01 → 2026-09-30; TCS 2026-10-01 → 2026-12-31 — Not part of Dudley transition, avatar solid TCS
 - category Established at TCS (no CG history) (joiner) → Not part of Dudley transition (incumbent) — **SPEC-category**
-
-#### Vipul Suriya
-
-- **Old:** CG 2026-07-01 → 2026-09-30; CG 2026-10-01 → 2026-10-30; TCS 2026-11-16 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- **New:** CG 2026-07-01 → 2026-09-28; CG 2026-10-01 → 2026-10-30; TCS 2026-11-16 → 2026-12-31 — Transitioned to TCS, avatar split CG→TCS
-- CG 2026-09-29–2026-09-30 no longer drawn: not booked in that period's monthly days — **SPEC-monthly-days**
 
 #### Vishal V
 

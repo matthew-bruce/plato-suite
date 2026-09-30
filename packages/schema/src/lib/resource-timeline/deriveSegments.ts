@@ -113,7 +113,7 @@ function mergeAllocations(allocations: readonly AllocationInput[]): AllocationIn
  * "Contiguous" means adjacent in the month list, so a zero month breaks the
  * run — which is exactly how a November start after an empty October reads.
  */
-export function contiguousRuns(monthlyDays: Record<MonthStart, number>): MonthStart[][] {
+function contiguousRuns(monthlyDays: Record<MonthStart, number>): MonthStart[][] {
   const runs: MonthStart[][] = []
   let current: MonthStart[] = []
 
@@ -134,7 +134,7 @@ export function contiguousRuns(monthlyDays: Record<MonthStart, number>): MonthSt
  * that is full or only trivially short, so callers can treat "0 missing" as
  * "starts/ends at the month boundary" without repeating the threshold check.
  */
-export function missingDays(
+function missingDays(
   month: MonthStart,
   actualDays: number,
   bankHolidays: readonly IsoDate[],

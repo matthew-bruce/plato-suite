@@ -19,7 +19,7 @@ function eng(overrides: Partial<EngineEngagement> & Pick<EngineEngagement, 'enga
 }
 
 function alloc(overrides: Partial<EngineAllocation> & Pick<EngineAllocation, 'engagementId' | 'periodId'>): EngineAllocation {
-  return { allocationId: `${overrides.engagementId}-${overrides.periodId}`, resourceId: 'r1', code: 'REG', monthlyDays: {}, ...overrides }
+  return { allocationId: `${overrides.engagementId}-${overrides.periodId}`, resourceId: 'r1', code: 'REG', monthlyDays: {}, capacityDays: null, ...overrides }
 }
 
 function run(partial: Partial<EngagementTimelineInput>) {
@@ -183,8 +183,46 @@ describe('new hire roll-off', () => {
   })
 })
 
-describe('monthly-days logic within a scheduled period', () => {
-  it('starts at the roll-on inside the period, overriding a later back-anchored start', () => {
+describe('bar shape comes from engagement dates only', () => {
+  it('a part-time engagement (5 days every month) is one continuous bar with no gaps', () => {
+    const five = { '2026-07-01': 5, '2026-08-01': 5, '2026-09-01': 5 }
+    const fiveQ3 = { '2026-10-01': 5, '2026-11-01': 5, '2026-12-01': 5 }
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A' })],
+      allocations: [
+        alloc({ engagementId: 'e1', periodId: 'q2', monthlyDays: five }),
+        alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: fiveQ3 }),
+      ],
+    })
+    expect(bars(r1!.segments)).toEqual([
+      ['A', '2026-07-01', '2026-09-30', false],
+      ['A', '2026-10-01', '2026-12-31', false],
+    ])
+  })
+
+  it('monthly days short by N days mid-engagement leave no gap', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOffDate: '2026-10-30' })],
+      allocations: [
+        alloc({ engagementId: 'e1', periodId: 'q2', monthlyDays: { '2026-07-01': 21, '2026-08-01': 18, '2026-09-01': 12 } }),
+        alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: { '2026-10-01': 22 } }),
+      ],
+    })
+    expect(bars(r1!.segments)).toEqual([
+      ['A', '2026-07-01', '2026-09-30', false],
+      ['A', '2026-10-01', '2026-10-30', false],
+    ])
+  })
+
+  it('a zero-day month inside a scheduled period is still covered', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01' })],
+      allocations: [alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: { '2026-10-01': 0, '2026-11-01': 0, '2026-12-01': 21 } })],
+    })
+    expect(bars(r1!.segments)).toEqual([['A', '2026-10-01', '2026-12-31', false]])
+  })
+
+  it('a partial first month starts at roll-on, not at a back-anchored day', () => {
     const { r1 } = run({
       engagements: [eng({ engagementId: 'e1', supplier: 'B', rollOnDate: '2026-10-01' })],
       allocations: [alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: { '2026-10-01': 5, '2026-11-01': 21, '2026-12-01': 21 } })],
@@ -192,33 +230,72 @@ describe('monthly-days logic within a scheduled period', () => {
     expect(r1!.segments[0]!.start).toBe('2026-10-01')
   })
 
-  it('front-anchors a partial first month when the person was on the platform the month before', () => {
+  it('hypercare runs to the engagement’s roll-off, not to its last booked month', () => {
     const { r1 } = run({
-      engagements: [
-        eng({ engagementId: 'e1', supplier: 'A', rollOffDate: '2026-09-30' }),
-        eng({ engagementId: 'e2', supplier: 'B', rollOnDate: '2026-10-01' }),
-      ],
-      allocations: [alloc({ engagementId: 'e2', periodId: 'q3', monthlyDays: { '2026-10-01': 10, '2026-11-01': 21, '2026-12-01': 21 } })],
-    })
-    const b = r1!.segments.find((s) => s.engagementId === 'e2')!
-    expect(b.start).toBe('2026-10-01')
-  })
-
-  it('tapers the end in a short final month, within the noise threshold otherwise', () => {
-    const { r1 } = run({
-      engagements: [eng({ engagementId: 'e1', supplier: 'A' })],
-      allocations: [alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: { '2026-10-01': 22, '2026-11-01': 21, '2026-12-01': 10 } })],
-    })
-    // 10 of December's working days, front-anchored: 1 Dec … 14 Dec.
-    expect(r1!.segments.at(-1)!.end).toBe('2026-12-14')
-  })
-
-  it('ends hypercare at its last booked month rather than the window edge', () => {
-    const { r1 } = run({
-      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01' })],
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01', rollOffDate: '2026-11-04' })],
       allocations: [alloc({ engagementId: 'e1', periodId: 'q3', code: 'NPC', monthlyDays: { '2026-10-01': 22 } })],
     })
-    expect(bars(r1!.segments)).toEqual([['A', '2026-10-01', '2026-10-30', false]])
+    expect(r1!.segments.map((s) => [s.code, s.start, s.end])).toEqual([['NPC', '2026-10-01', '2026-11-04']])
+  })
+
+  it('a period mixing hypercare with other planviews is drawn as ordinary cover', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01' })],
+      allocations: [
+        alloc({ engagementId: 'e1', periodId: 'q3', allocationId: 'x' }),
+        alloc({ engagementId: 'e1', periodId: 'q3', allocationId: 'y', code: 'NPC' }),
+      ],
+    })
+    expect(r1!.segments.map((s) => s.code)).toEqual(['REG'])
+  })
+})
+
+describe('booked days (tooltip only)', () => {
+  it('carries monthly days per month inside the window on scheduled pieces', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01' })],
+      allocations: [alloc({ engagementId: 'e1', periodId: 'q3', monthlyDays: { '2026-10-01': 5, '2026-11-01': 5, '2026-12-01': 4 } })],
+    })
+    expect(r1!.segments[0]!.bookedDays).toEqual([
+      { unit: 'month', start: '2026-10-01', days: 5 },
+      { unit: 'month', start: '2026-11-01', days: 5 },
+      { unit: 'month', start: '2026-12-01', days: 4 },
+    ])
+  })
+
+  it('falls back to the period’s flat days where there are no monthly rows', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-10-01' })],
+      allocations: [alloc({ engagementId: 'e1', periodId: 'q3', capacityDays: 64 })],
+    })
+    expect(r1!.segments[0]!.bookedDays).toEqual([{ unit: 'period', start: '2026-10-01', days: 64 }])
+  })
+
+  it('sums the engagement’s allocations and covers every period in the window', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A' })],
+      allocations: [
+        alloc({ engagementId: 'e1', periodId: 'q2', allocationId: 'x', monthlyDays: { '2026-07-01': 10.5 } }),
+        alloc({ engagementId: 'e1', periodId: 'q2', allocationId: 'y', monthlyDays: { '2026-07-01': 5 } }),
+        alloc({ engagementId: 'e1', periodId: 'q3', capacityDays: 30 }),
+      ],
+    })
+    const expected = [
+      { unit: 'month', start: '2026-07-01', days: 15.5 },
+      { unit: 'period', start: '2026-10-01', days: 30 },
+    ]
+    expect(r1!.segments.map((s) => s.bookedDays)).toEqual([expected, expected])
+  })
+
+  it('puts no days on unscheduled pieces', () => {
+    const { r1 } = run({
+      engagements: [eng({ engagementId: 'e1', supplier: 'A', rollOnDate: '2026-09-08' })],
+      allocations: [alloc({ engagementId: 'e1', periodId: 'q3', capacityDays: 60 })],
+    })
+    const [unscheduled, scheduled] = r1!.segments
+    expect(unscheduled!.unscheduled).toBe(true)
+    expect(unscheduled!.bookedDays).toBeUndefined()
+    expect(scheduled!.bookedDays).toEqual([{ unit: 'period', start: '2026-10-01', days: 60 }])
   })
 })
 

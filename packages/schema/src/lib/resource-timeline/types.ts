@@ -128,6 +128,22 @@ export interface TimelineSegment {
    * the engagement's supplier colour, with the dotted "unscheduled" marker.
    */
   unscheduled?: boolean
+  /**
+   * Days bought for this piece's engagement inside the window, for the
+   * tooltip only — never geometry. Engagement engine, scheduled pieces only.
+   */
+  bookedDays?: BookedDays[]
+}
+
+/**
+ * Days bought, as shown in the tooltip: one monthly-days row ('month', start
+ * = YYYY-MM-01) or a period's flat capacity total ('period', start = the
+ * period's first day inside the window).
+ */
+export interface BookedDays {
+  unit: 'month' | 'period'
+  start: IsoDate
+  days: number
 }
 
 /** How a resource relates to the Dudley transition. Drives the status tag. */

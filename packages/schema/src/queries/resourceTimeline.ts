@@ -68,7 +68,7 @@ export async function fetchTimelineRows(): Promise<RawTimelineRows | null> {
       .order('sort_order'),
     supabase
       .from('resource_period_allocations')
-      .select('allocation_id, period_id, resource_id, supplier_id, planview_code, engagement_id')
+      .select('allocation_id, period_id, resource_id, supplier_id, planview_code, engagement_id, capacity_days')
       .in('period_id', [coarse.period_id, granular.period_id])
       .not('resource_id', 'is', null)
       .is('deleted_at', null),

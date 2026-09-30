@@ -71,6 +71,8 @@ export type AllocationRow = {
   supplier_id: string | null
   planview_code: string | null
   engagement_id: string | null
+  /** Flat day total for the period. Tooltip only (engagement engine). */
+  capacity_days: number | string | null
 }
 
 export type MonthlyDaysRow = {
@@ -264,7 +266,11 @@ function resourceBase(
   }
 }
 
-function assemble(rows: RawTimelineRows, unsorted: TimelineResource[]): ResourceTimelineData {
+function assemble(
+  rows: RawTimelineRows,
+  unsorted: TimelineResource[],
+  source: 'engagements' | 'legacy',
+): ResourceTimelineData {
   // Drop anyone the data is entirely silent about rather than rendering an
   // empty row — this view is about coverage, and no coverage is not a row.
   const resources = unsorted
@@ -296,6 +302,7 @@ function assemble(rows: RawTimelineRows, unsorted: TimelineResource[]): Resource
     coarsePeriodName: rows.coarse.period_name,
     granularPeriodName: rows.granular.period_name,
     granularWindowStart: monthStartOf(rows.granular.period_start_date),
+    source,
   }
 }
 
@@ -387,7 +394,7 @@ export function buildLegacyTimeline(rows: RawTimelineRows): ResourceTimelineData
     }
   })
 
-  return assemble(rows, resources)
+  return assemble(rows, resources, 'legacy')
 }
 
 /* ── Native: engagementEngine ───────────────────────────────────────── */
@@ -426,6 +433,7 @@ export function buildEngagementTimeline(rows: RawTimelineRows): EngagementTimeli
       periodId: row.period_id,
       code: row.planview_code === 'NPC' ? 'NPC' : 'REG',
       monthlyDays: monthly.get(row.allocation_id) ?? {},
+      capacityDays: row.capacity_days === null ? null : Number(row.capacity_days),
     })
   }
 
@@ -471,5 +479,5 @@ export function buildEngagementTimeline(rows: RawTimelineRows): EngagementTimeli
     }
   })
 
-  return { data: assemble(rows, resources), dataIssues }
+  return { data: assemble(rows, resources, 'engagements'), dataIssues }
 }

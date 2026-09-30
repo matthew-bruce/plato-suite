@@ -61,4 +61,22 @@ describe.each(SOURCES)('%s', (_label, source) => {
   it('never reads roll_on_estimated', () => {
     expect(source).not.toMatch(/roll_?on_?estimated/i)
   })
+
+  it('no longer uses the monthly-days taper, noise threshold or anchoring helpers', () => {
+    const helpers = [
+      'contiguousRuns',
+      'missingDays',
+      'NOISE_THRESHOLD_DAYS',
+      'firstWorkingDayOfMonth',
+      'lastWorkingDayOfMonth',
+      'nthWorkingDay',
+      'fullMonthWorkingDays',
+      'hadPresenceBefore',
+      'buildPriorPresence',
+      'previousMonthStart',
+      'presentBefore',
+      'frontAnchored',
+    ]
+    expect(helpers.filter((name) => new RegExp(`\\b${name}\\b`).test(source))).toEqual([])
+  })
 })

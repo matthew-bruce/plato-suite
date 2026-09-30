@@ -24,6 +24,10 @@ import {
   supplierTint,
   toggleTeamSelection,
   unscheduledTooltip,
+  financialQuarterOf,
+  headerSplitPositions,
+  isBandedQuarter,
+  quarterBands,
   weekLinePositions,
 } from '../presentation'
 
@@ -560,10 +564,10 @@ describe('segment touch insets', () => {
       seg({ supplier: 'CG', start: '2026-07-01', end: '2026-09-30' }),
       seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31' }),
     ])
-    expect(SEGMENT_TOUCH_INSET_PX).toBe(2)
+    expect(SEGMENT_TOUCH_INSET_PX).toBe(3)
     expect(insets).toEqual([
-      { left: 0, right: 2 },
-      { left: 2, right: 0 },
+      { left: 0, right: 3 },
+      { left: 0, right: 0 },
     ])
   })
 
@@ -576,13 +580,13 @@ describe('segment touch insets', () => {
     })
   })
 
-  it('does not inset segments separated by a real gap', () => {
+  it('insets the end of a bar before a real day gap too (day gap + 3px)', () => {
     const insets = segmentTouchInsets([
       seg({ start: '2026-07-01', end: '2026-09-29' }),
       seg({ supplier: 'TCS', start: '2026-10-12', end: '2026-12-31' }),
     ])
     expect(insets).toEqual([
-      { left: 0, right: 0 },
+      { left: 0, right: 3 },
       { left: 0, right: 0 },
     ])
   })
@@ -825,14 +829,14 @@ describe('segment touch insets — engagement-aware', () => {
     expect(insets.every((i) => i.left === 0 && i.right === 0)).toBe(true)
   })
 
-  it('separate engagements that meet end-to-start are inset 2px each', () => {
+  it('separate engagements with a zero-day gap: the earlier bar ends 3px short', () => {
     const insets = segmentTouchInsets([
       seg({ supplier: 'CG', start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' }),
       seg({ supplier: 'TCS', start: '2026-10-01', end: '2026-12-31', engagementId: 'e2' }),
     ])
     expect(insets).toEqual([
-      { left: 0, right: 2 },
-      { left: 2, right: 0 },
+      { left: 0, right: 3 },
+      { left: 0, right: 0 },
     ])
   })
 })
@@ -868,5 +872,49 @@ describe('unscheduledTooltip', () => {
     expect(unscheduledTooltip({ start: '2026-09-08', end: '2026-09-30' })).toMatch(
       /^Unscheduled · 8 Sept? – 30 Sept? 26 · on the platform, no schedule row$/,
     )
+  })
+})
+
+describe('quarter bands (Q1/Q3 of the financial year)', () => {
+  it('numbers financial quarters from April', () => {
+    expect(['2026-04-01', '2026-07-15', '2026-10-01', '2027-01-31'].map(financialQuarterOf)).toEqual([1, 2, 3, 4])
+  })
+
+  it('bands Q1 and Q3 only', () => {
+    expect(['2026-05-01', '2026-08-01', '2026-11-01', '2027-02-01'].map(isBandedQuarter)).toEqual([
+      true,
+      false,
+      true,
+      false,
+    ])
+  })
+
+  it('bands only Q3 in a Q2 + Q3 window, from 1 Oct to the window end', () => {
+    const bands = quarterBands('2026-07-01', '2026-12-31')
+    expect(bands).toHaveLength(1)
+    expect(bands[0]!.left).toBeCloseTo(percentOf('2026-10-01', '2026-07-01', '2026-12-31'), 10)
+    expect(bands[0]!.left + bands[0]!.width).toBeCloseTo(100, 10)
+  })
+
+  it('keys off the quarter itself, not the window: shifting the window keeps Q3 banded and Q2 plain', () => {
+    // Window now starts in Q3 and runs into Q4: Q3 is still the banded one.
+    const shifted = quarterBands('2026-10-15', '2027-03-31')
+    expect(shifted).toHaveLength(1)
+    expect(shifted[0]!.left).toBe(0)
+    expect(shifted[0]!.left + shifted[0]!.width).toBeCloseTo(percentAfter('2026-12-31', '2026-10-15', '2027-03-31'), 10)
+    // Window of Q1 + Q2: Q1 is banded, not whichever quarter comes first.
+    const early = quarterBands('2026-04-01', '2026-09-30')
+    expect(early).toHaveLength(1)
+    expect(early[0]!.left).toBe(0)
+    expect(early[0]!.left + early[0]!.width).toBeCloseTo(percentAfter('2026-06-30', '2026-04-01', '2026-09-30'), 10)
+  })
+
+  it('splits the header at each quarter boundary between spans', () => {
+    expect(
+      headerSplitPositions([
+        { label: 'Q2', months: ['2026-07-01', '2026-08-01', '2026-09-01'] },
+        { label: 'Q3', months: ['2026-10-01', '2026-11-01', '2026-12-01'] },
+      ]),
+    ).toEqual([50])
   })
 })

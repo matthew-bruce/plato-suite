@@ -5,7 +5,7 @@
 // exactly the same grouping, sorting and filtering rules as the live page.
 // One implementation, two renderers.
 
-import type { TimelineResource, TimelineSegment, TransitionStatus } from '@plato/schema'
+import type { BookedDays, TimelineResource, TimelineSegment, TransitionStatus } from '@plato/schema'
 
 export type GroupMode = 'team' | 'discipline' | 'category'
 
@@ -339,12 +339,14 @@ export function gapGeometry(
 }
 
 /**
- * Visual gap between two bars on the same row that meet end-to-start (one
- * ends on a date, the next starts the following day). Each touching edge is
- * inset by this many pixels, so the pair reads as two bars rather than one.
- * Purely presentational: segment dates and geometry are untouched.
+ * Break inset: at every break between two separate bars on a row — one
+ * engagement ending, a later one starting, whatever the day gap — the bar that
+ * ends before the break is shortened by this many pixels at its end. The
+ * visible space is therefore the real day gap plus this inset, and two bars a
+ * day apart still read as two. Purely presentational: segment dates and
+ * geometry are untouched. Shared by both engines' output.
  */
-export const SEGMENT_TOUCH_INSET_PX = 2
+export const SEGMENT_TOUCH_INSET_PX = 3
 
 function nextDayIso(iso: string): string {
   return new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + MS_PER_DAY)
@@ -352,7 +354,7 @@ function nextDayIso(iso: string): string {
     .slice(0, 10)
 }
 
-/** Two pieces of the same engagement are one continuous bar: no inset between them. */
+/** Two pieces of the same engagement are one continuous bar. */
 function sameEngagement(
   a: Pick<TimelineSegment, 'engagementId'>,
   b: Pick<TimelineSegment, 'engagementId'>,
@@ -361,32 +363,66 @@ function sameEngagement(
 }
 
 /**
- * Per-segment pixel insets for the segments actually rendered on one row. A
- * segment's right edge is inset where another segment starts the day after it
- * ends; its left edge is inset where another segment ends the day before it
- * starts. Segments touching nothing get { left: 0, right: 0 }.
- *
- * Only SEPARATE bars are pulled apart. Pieces of one engagement (a planview
- * change, or a scheduled/unscheduled boundary) touch with no gap. Segments
- * with no engagementId (legacy output) are always separate bars.
+ * Per-segment pixel insets for the segments actually rendered on one row.
+ * Only the right edge is ever inset: a segment that is the end of its bar and
+ * is followed later on the row by a separate bar loses SEGMENT_TOUCH_INSET_PX
+ * at its end. Pieces of one engagement are one bar and never inset between
+ * themselves; a bar with nothing after it is not inset. Segments with no
+ * engagementId (legacy output) are each their own bar.
  */
 export function segmentTouchInsets(
   segments: readonly Pick<TimelineSegment, 'start' | 'end' | 'engagementId'>[],
 ): { left: number; right: number }[] {
   return segments.map((s) => {
-    const start = s.start.slice(0, 10)
-    const dayAfterEnd = nextDayIso(s.end)
-    const touchesBefore = segments.some(
-      (o) => o !== s && nextDayIso(o.end) === start && !sameEngagement(o, s),
+    const separateBarAfter = segments.some(
+      (o) => o !== s && !sameEngagement(o, s) && o.start.slice(0, 10) > s.end.slice(0, 10),
     )
-    const touchesAfter = segments.some(
-      (o) => o !== s && o.start.slice(0, 10) === dayAfterEnd && !sameEngagement(o, s),
+    const continues = segments.some(
+      (o) => o !== s && sameEngagement(o, s) && o.start.slice(0, 10) === nextDayIso(s.end),
     )
-    return {
-      left: touchesBefore ? SEGMENT_TOUCH_INSET_PX : 0,
-      right: touchesAfter ? SEGMENT_TOUCH_INSET_PX : 0,
-    }
+    return { left: 0, right: separateBarAfter && !continues ? SEGMENT_TOUCH_INSET_PX : 0 }
   })
+}
+
+/**
+ * Which rendered segments join their neighbours into one continuous bar:
+ * touching pieces of the same engagement (a quarter boundary, a planview
+ * change, an unscheduled span starting or ending). A joined edge is drawn
+ * square, and only the bar's first piece carries the left accent and label.
+ */
+export function segmentJoins(
+  segments: readonly Pick<TimelineSegment, 'start' | 'end' | 'engagementId'>[],
+): { joinsPrevious: boolean; joinsNext: boolean }[] {
+  return segments.map((s) => ({
+    joinsPrevious: segments.some(
+      (o) => o !== s && sameEngagement(o, s) && nextDayIso(o.end) === s.start.slice(0, 10),
+    ),
+    joinsNext: segments.some(
+      (o) => o !== s && sameEngagement(o, s) && o.start.slice(0, 10) === nextDayIso(s.end),
+    ),
+  }))
+}
+
+/**
+ * The label for segment i. A piece continuing an earlier piece of the same
+ * bar has none; the first piece is labelled for the whole bar, so its dates
+ * run to wherever the bar (not the piece) really ends.
+ */
+export function barLabel(
+  segments: readonly TimelineSegment[],
+  index: number,
+): { text: string; dates: string } | null {
+  const joins = segmentJoins(segments)
+  if (joins[index]!.joinsPrevious) return null
+  let last = segments[index]!
+  for (;;) {
+    const next = segments.find(
+      (o) => o !== last && sameEngagement(o, last) && o.start.slice(0, 10) === nextDayIso(last.end),
+    )
+    if (!next) break
+    last = next
+  }
+  return segmentLabel({ ...segments[index]!, end: last.end, realEnd: last.realEnd })
 }
 
 /**
@@ -506,6 +542,32 @@ export function unscheduledTooltip(segment: Pick<TimelineSegment, 'start' | 'end
   return `Unscheduled · ${formatShortDate(segment.start)} – ${formatLongDate(segment.end)} · on the platform, no schedule row`
 }
 
+function formatDays(days: number): string {
+  return `${Number.isInteger(days) ? days : Number(days.toFixed(2))}d`
+}
+
+/**
+ * Tooltip line of days bought for a scheduled piece's engagement, e.g.
+ * "Oct 5d · Nov 5d · Dec 4d", or "Q3 64d" for a period with no monthly
+ * breakdown. Null when there is nothing to show (unscheduled pieces carry
+ * no bookedDays).
+ */
+export function bookedDaysLine(bookedDays: readonly BookedDays[] | undefined): string | null {
+  if (!bookedDays || bookedDays.length === 0) return null
+  return bookedDays
+    .map((b) => {
+      const label =
+        b.unit === 'month'
+          ? new Date(`${b.start.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', {
+              month: 'short',
+              timeZone: 'UTC',
+            })
+          : `Q${financialQuarterOf(b.start)}`
+      return `${label} ${formatDays(b.days)}`
+    })
+    .join(' · ')
+}
+
 export function segmentLabel(segment: TimelineSegment): { text: string; dates: string } {
   const text = segment.code === 'NPC' ? `${segment.supplier} Hypercare` : segment.supplier
 
@@ -515,6 +577,67 @@ export function segmentLabel(segment: TimelineSegment): { text: string; dates: s
   if (segment.realStart) return { text, dates: `from ${formatShortDate(segment.start)}` }
   if (segment.realEnd) return { text, dates: `to ${formatShortDate(segment.end)}` }
   return { text, dates: '' }
+}
+
+/* ── Quarters ──────────────────────────────────────────────────────── */
+
+/** First calendar month (1–12) of the financial year: April. */
+export const FINANCIAL_YEAR_START_MONTH = 4
+
+/** Financial quarter (1–4) a date falls in. April–June is Q1. */
+export function financialQuarterOf(iso: string): number {
+  const month = Number(iso.slice(5, 7))
+  return Math.floor(((month - FINANCIAL_YEAR_START_MONTH + 12) % 12) / 3) + 1
+}
+
+/**
+ * Q1 and Q3 are banded, Q2 and Q4 are not. Decided by the quarter itself, so
+ * the pattern doesn't flip when the visible window moves.
+ */
+export function isBandedQuarter(iso: string): boolean {
+  return financialQuarterOf(iso) % 2 === 1
+}
+
+/**
+ * Horizontal extent (as window percentages, day-accurate like the bars) of
+ * every banded financial quarter inside the window.
+ */
+export function quarterBands(windowStart: string, windowEnd: string): { left: number; width: number }[] {
+  const bands: { left: number; width: number }[] = []
+  let cursor = windowStart.slice(0, 10)
+  while (cursor <= windowEnd) {
+    // The quarter containing `cursor` ends the day before the next quarter's
+    // first month (three months after the quarter's first month).
+    const month = Number(cursor.slice(5, 7))
+    const offset = (month - FINANCIAL_YEAR_START_MONTH + 12) % 3
+    const first = new Date(Date.UTC(Number(cursor.slice(0, 4)), month - 1 - offset, 1))
+    const nextQuarter = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 3, 1))
+    const quarterEnd = new Date(nextQuarter.getTime() - MS_PER_DAY).toISOString().slice(0, 10)
+    const end = quarterEnd < windowEnd ? quarterEnd : windowEnd
+    if (isBandedQuarter(cursor)) {
+      const left = percentOf(cursor, windowStart, windowEnd)
+      bands.push({ left, width: percentAfter(end, windowStart, windowEnd) - left })
+    }
+    cursor = nextQuarter.toISOString().slice(0, 10)
+  }
+  return bands
+}
+
+/**
+ * Header split positions: percentages across the month header (whose columns
+ * are equal-width months, not day-accurate) at every quarter boundary between
+ * two header quarter spans.
+ */
+export function headerSplitPositions(spans: readonly QuarterSpan[]): number[] {
+  const total = spans.reduce((n, s) => n + s.months.length, 0)
+  if (total === 0) return []
+  const positions: number[] = []
+  let before = 0
+  spans.slice(0, -1).forEach((span) => {
+    before += span.months.length
+    positions.push((before / total) * 100)
+  })
+  return positions
 }
 
 /* ── Supplier colour ───────────────────────────────────────────────── */

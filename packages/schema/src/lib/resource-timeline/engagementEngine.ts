@@ -10,17 +10,17 @@
 //     schedule. Both are inclusive: roll-on is the first day available to the
 //     platform, roll-off the last day on it.
 //  3. Each engagement is a separate stint and becomes its own bar, clipped to
-//     the window. A null roll-off is open-ended. A null roll-on is not a
-//     confirmed stint, so it draws nothing and is reported as a data issue.
+//     the window: roll-on to roll-off, inclusive, and nothing else decides its
+//     shape. A null roll-off is open-ended. A null roll-on is not a confirmed
+//     stint, so it draws nothing and is reported as a data issue.
 //  4. A date inside engagement E is SCHEDULED iff a non-deleted allocation
 //     linked to E exists for the period containing that date. Otherwise it is
 //     UNSCHEDULED and is drawn as full availability with the unscheduled
 //     marker. The forecast itself is left alone.
-//  5. Inside scheduled periods, planview and part-time pattern come from the
-//     allocations and monthly days, reusing the existing monthly-days logic:
-//     contiguous runs, the noise threshold, hypercare (NPC) end-anchoring and
-//     start-anchoring. "Already present last month" is now answered by the
-//     engagements themselves, not by the schedule.
+//  5. Monthly days are a count of days bought, not a calendar: they never
+//     start, end or break a bar. Within the span, allocations decide only the
+//     planview of each piece and whether it is scheduled. The days themselves
+//     travel on scheduled pieces (bookedDays) for the tooltip.
 //  6. Scheduled after leaving gets no treatment — the bar ends at roll-off.
 //  7. A gap is the space between consecutive engagements of one person.
 //  8. Status labels are derived on the fly from the engagements, never stored.
@@ -28,9 +28,9 @@
 //  9. Nothing here knows a supplier name, a date, or a supplier-specific rule.
 //     It never reads the estimated or the tentative roll-on flag.
 
-import { contiguousRuns, missingDays } from './deriveSegments'
 import type { CoverageGap } from './deriveSegments'
 import type {
+  BookedDays,
   IsoDate,
   MonthStart,
   PeriodWindow,
@@ -39,17 +39,7 @@ import type {
   TransitionCategory,
   TransitionStatus,
 } from './types'
-import {
-  addDays,
-  firstWorkingDayOfMonth,
-  isWeekend,
-  lastWorkingDayOfMonth,
-  maxIso,
-  minIso,
-  monthStartOf,
-  nthWorkingDay,
-  previousMonthStart,
-} from './workingDays'
+import { addDays, isWeekend, maxIso, minIso, monthStartOf } from './workingDays'
 
 /* ── Inputs ─────────────────────────────────────────────────────────── */
 
@@ -71,6 +61,8 @@ export interface EngineAllocation {
   code: SegmentCode
   /** Per-month day counts keyed YYYY-MM-01; empty when never broken down. */
   monthlyDays: Record<MonthStart, number>
+  /** The allocation's flat day total for its period (capacity_days). */
+  capacityDays: number | null
 }
 
 export interface EnginePeriod {
@@ -107,10 +99,7 @@ export interface EngineResource {
   classification: EngineClassification
 }
 
-export type DataIssueKind =
-  | 'null_roll_on'
-  | 'allocation_without_engagement'
-  | 'scheduled_without_days_in_span'
+export type DataIssueKind = 'null_roll_on' | 'allocation_without_engagement'
 
 export interface DataIssue {
   kind: DataIssueKind
@@ -133,10 +122,6 @@ function intersect(a: PeriodWindow, b: PeriodWindow): PeriodWindow | null {
   return start <= end ? { start, end } : null
 }
 
-function contains(range: PeriodWindow, date: IsoDate): boolean {
-  return date >= range.start && date <= range.end
-}
-
 /**
  * An engagement's span clipped to a range. Open-ended roll-off runs to the
  * range's end. Null roll-on has no span at all.
@@ -150,11 +135,6 @@ export function engagementSpanWithin(
     { start: engagement.rollOnDate, end: engagement.rollOffDate ?? range.end },
     range,
   )
-}
-
-/** Does any engagement cover at least one day of the given range? */
-function coveredDuring(engagements: readonly EngineEngagement[], range: PeriodWindow): boolean {
-  return engagements.some((e) => engagementSpanWithin(e, range) !== null)
 }
 
 /**
@@ -185,131 +165,51 @@ function windowSlices(
   return slices
 }
 
-/* ── Scheduled pieces (monthly-days logic) ──────────────────────────── */
+/* ── Scheduled pieces ─────────────────────────────────────────────── */
 
-interface RawPiece {
-  code: SegmentCode
-  start: IsoDate
-  end: IsoDate
+type Slice = { periodId: string | null; range: PeriodWindow }
+
+/**
+ * Planview of a scheduled piece. Only hypercare is drawn differently, so a
+ * period whose linked allocations are all NPC is NPC; any other mix is REG.
+ */
+function planviewOf(allocations: readonly EngineAllocation[]): SegmentCode {
+  return allocations.every((a) => a.code === 'NPC') ? 'NPC' : 'REG'
 }
 
-/** Collapse one engagement's allocations in one period by planview code. */
-function mergeByCode(allocations: readonly EngineAllocation[]): { code: SegmentCode; monthlyDays: Record<MonthStart, number> }[] {
-  const merged = new Map<SegmentCode, Record<MonthStart, number>>()
-  for (const alloc of allocations) {
-    const existing = merged.get(alloc.code)
-    if (!existing) {
-      merged.set(alloc.code, { ...alloc.monthlyDays })
+/**
+ * Days bought for one engagement inside the window, for the tooltip only:
+ * each period's monthly-days rows where it has any (summed across the
+ * engagement's allocations), otherwise the period's flat capacity total.
+ */
+function bookedDaysFor(allocations: readonly EngineAllocation[], slices: readonly Slice[]): BookedDays[] {
+  const out: BookedDays[] = []
+  for (const slice of slices) {
+    if (slice.periodId === null) continue
+    const inPeriod = allocations.filter((a) => a.periodId === slice.periodId)
+    if (inPeriod.length === 0) continue
+
+    if (inPeriod.some((a) => Object.keys(a.monthlyDays).length > 0)) {
+      const firstMonth = monthStartOf(slice.range.start)
+      const byMonth = new Map<MonthStart, number>()
+      for (const a of inPeriod) {
+        for (const [month, days] of Object.entries(a.monthlyDays)) {
+          if (month < firstMonth || month > slice.range.end) continue
+          byMonth.set(month, (byMonth.get(month) ?? 0) + days)
+        }
+      }
+      for (const month of [...byMonth.keys()].sort()) {
+        out.push({ unit: 'month', start: month, days: byMonth.get(month)! })
+      }
       continue
     }
-    for (const [month, days] of Object.entries(alloc.monthlyDays)) {
-      existing[month] = (existing[month] ?? 0) + days
+
+    const flat = inPeriod.map((a) => a.capacityDays).filter((d): d is number => d !== null)
+    if (flat.length > 0) {
+      out.push({ unit: 'period', start: slice.range.start, days: flat.reduce((sum, d) => sum + d, 0) })
     }
   }
-  return [...merged.entries()].map(([code, monthlyDays]) => ({ code, monthlyDays }))
-}
-
-/**
- * Geometry the booked days imply inside one period, before the engagement's
- * own dates are applied. Same rules as the legacy granular pass: a period with
- * no monthly rows is one flat block; otherwise each contiguous run of months
- * with days is a piece, front-anchored for hypercare or where the person was
- * already on the platform the month before, back-anchored otherwise, with a
- * short final month tapering the end.
- */
-function bookedPieces(
-  code: SegmentCode,
-  monthlyDays: Record<MonthStart, number>,
-  period: PeriodWindow,
-  presentBefore: (month: MonthStart) => boolean,
-  bankHolidays: readonly IsoDate[],
-): RawPiece[] {
-  const periodFirstMonth = monthStartOf(period.start)
-  const periodLastMonth = monthStartOf(period.end)
-  const inPeriod: Record<MonthStart, number> = {}
-  for (const [month, days] of Object.entries(monthlyDays)) {
-    if (month >= periodFirstMonth && month <= periodLastMonth) inPeriod[month] = days
-  }
-
-  if (Object.keys(inPeriod).length === 0) {
-    return [{ code, start: period.start, end: period.end }]
-  }
-
-  const isHypercare = code === 'NPC'
-  const pieces: RawPiece[] = []
-
-  for (const run of contiguousRuns(inPeriod)) {
-    const firstMonth = run[0]!
-    const lastMonth = run[run.length - 1]!
-    const lastMonthDays = inPeriod[lastMonth] ?? 0
-
-    const frontAnchored = isHypercare || presentBefore(firstMonth)
-
-    let start: IsoDate
-    if (frontAnchored) {
-      start = firstWorkingDayOfMonth(firstMonth, bankHolidays)
-    } else {
-      const missing = missingDays(firstMonth, inPeriod[firstMonth] ?? 0, bankHolidays)
-      start =
-        missing > 0
-          ? nthWorkingDay(firstMonth, missing, bankHolidays)
-          : firstWorkingDayOfMonth(firstMonth, bankHolidays)
-    }
-
-    const daysSitAtMonthEnd = !frontAnchored && firstMonth === lastMonth
-    const endMissing = daysSitAtMonthEnd ? 0 : missingDays(lastMonth, lastMonthDays, bankHolidays)
-
-    let end: IsoDate
-    if (endMissing > 0) {
-      end = nthWorkingDay(lastMonth, lastMonthDays - 1, bankHolidays)
-    } else {
-      const stops = lastMonth < periodLastMonth || isHypercare
-      end = stops ? lastWorkingDayOfMonth(lastMonth, bankHolidays) : period.end
-    }
-
-    pieces.push({ code, start: maxIso(start, period.start), end: minIso(maxIso(end, start), period.end) })
-  }
-  return pieces
-}
-
-/**
- * Scheduled pieces for one engagement in one period. The booked-days geometry
- * is computed first; then the engagement's dates override it (rule 2): a
- * roll-on inside the period becomes the first piece's start, a roll-off inside
- * the period becomes the last piece's end, and everything is clipped to the
- * engagement's span within the period (rule 6).
- */
-function scheduledPieces(
-  allocations: readonly EngineAllocation[],
-  engagement: EngineEngagement,
-  period: PeriodWindow,
-  span: PeriodWindow,
-  presentBefore: (month: MonthStart) => boolean,
-  bankHolidays: readonly IsoDate[],
-): RawPiece[] {
-  const booked = mergeByCode(allocations)
-    .flatMap(({ code, monthlyDays }) => bookedPieces(code, monthlyDays, period, presentBefore, bankHolidays))
-    .filter((p) => p.end >= span.start && p.start <= span.end)
-    .sort((a, b) => (a.start !== b.start ? (a.start < b.start ? -1 : 1) : a.end < b.end ? -1 : 1))
-
-  if (booked.length === 0) return []
-
-  const rollOn = engagement.rollOnDate
-  const rollOff = engagement.rollOffDate
-  if (rollOn !== null && contains(period, rollOn)) {
-    booked[0] = { ...booked[0]!, start: rollOn }
-  }
-  if (rollOff !== null && contains(period, rollOff)) {
-    let lastIndex = 0
-    booked.forEach((p, i) => {
-      if (p.end >= booked[lastIndex]!.end) lastIndex = i
-    })
-    booked[lastIndex] = { ...booked[lastIndex]!, end: rollOff }
-  }
-
-  return booked
-    .map((p) => ({ ...p, start: maxIso(p.start, span.start), end: minIso(p.end, span.end) }))
-    .filter((p) => p.start <= p.end)
+  return out
 }
 
 /* ── Gaps, suppliers, classification ────────────────────────────────── */
@@ -431,17 +331,11 @@ function deriveResource(
   resourceId: string,
   engagements: readonly EngineEngagement[],
   allocations: readonly EngineAllocation[],
-  slices: readonly { periodId: string | null; range: PeriodWindow }[],
+  slices: readonly Slice[],
   window: PeriodWindow,
   bankHolidays: readonly IsoDate[],
-  issues: DataIssue[],
 ): EngineResource {
   const dated = engagements.filter((e) => e.rollOnDate !== null)
-
-  // "Was this person on the platform last month?" — answered by the
-  // engagements (the actuals), across every supplier.
-  const presentBefore = (month: MonthStart): boolean =>
-    coveredDuring(dated, { start: previousMonthStart(month), end: addDays(month, -1) })
 
   const allocsByEngagementPeriod = new Map<string, EngineAllocation[]>()
   for (const alloc of allocations) {
@@ -458,7 +352,13 @@ function deriveResource(
     const span = engagementSpanWithin(engagement, window)
     if (span === null) continue
 
-    const pieces: (RawPiece & { unscheduled: boolean })[] = []
+    const linkedToEngagement = allocations.filter((a) => a.engagementId === engagement.engagementId)
+    const bookedDays = bookedDaysFor(linkedToEngagement, slices)
+
+    // One piece per period slice of the span: the span itself decides where
+    // the bar starts and ends; the slice only decides planview and whether
+    // it is scheduled. Pieces of one engagement always touch.
+    const pieces: { code: SegmentCode; start: IsoDate; end: IsoDate; unscheduled: boolean }[] = []
     for (const slice of slices) {
       const within = intersect(span, slice.range)
       if (within === null) continue
@@ -473,17 +373,7 @@ function deriveResource(
         continue
       }
 
-      const scheduled = scheduledPieces(linked, engagement, slice.range, within, presentBefore, bankHolidays)
-      if (scheduled.length === 0) {
-        issues.push({
-          kind: 'scheduled_without_days_in_span',
-          resourceId,
-          engagementId: engagement.engagementId,
-          allocationId: null,
-          periodId: slice.periodId,
-        })
-      }
-      for (const p of scheduled) pieces.push({ ...p, unscheduled: false })
+      pieces.push({ code: planviewOf(linked), start: within.start, end: within.end, unscheduled: false })
     }
 
     pieces.sort((a, b) => (a.start !== b.start ? (a.start < b.start ? -1 : 1) : a.end < b.end ? -1 : 1))
@@ -506,6 +396,7 @@ function deriveResource(
         commercialStartMismatch: null,
         engagementId: engagement.engagementId,
         unscheduled: piece.unscheduled,
+        ...(piece.unscheduled ? {} : { bookedDays }),
       })
     })
   }
@@ -523,7 +414,8 @@ function deriveResource(
 
 /**
  * Derive every resource's bars, gaps, avatar suppliers and transition
- * category from engagements, allocations and monthly days. A resource appears
+ * category from engagements and allocations (monthly days only feed the
+ * tooltip's bookedDays). A resource appears
  * in the output when it has any engagement or allocation; one with no bars in
  * the window comes back with an empty segment list.
  */
@@ -563,7 +455,6 @@ export function deriveEngagementTimeline(input: EngagementTimelineInput): Engage
         slices,
         input.window,
         input.bankHolidays,
-        issues,
       ),
     )
   }

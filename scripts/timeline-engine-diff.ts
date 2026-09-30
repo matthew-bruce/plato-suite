@@ -33,6 +33,7 @@ import {
   type ResourceRow,
   type SupplierRow,
 } from '../packages/schema/src/queries/resourceTimelineBuild'
+import { snapshotRows, type Snapshot } from './timelineSnapshot'
 import {
   compareTimelines,
   renderDiffSection,
@@ -210,6 +211,7 @@ function dudleyRows(fx: DudleyFixture): RawTimelineRows {
           supplier_id: sid(a.supplier),
           planview_code: a.code === 'NPC' ? 'NPC' : 'PR',
           engagement_id: engagementFor.get(a.supplier) ?? null,
+          capacity_days: null,
         })
         for (const [month, days] of Object.entries(a.monthlyDays)) {
           monthlyDays.push({ allocation_id: aid, month_start_date: month, days })
@@ -240,60 +242,7 @@ function dudleyRows(fx: DudleyFixture): RawTimelineRows {
   }
 }
 
-/* ── (b) live snapshot ──────────────────────────────────────────────── */
-
-interface Snapshot {
-  periods: [string, string, string, string][]
-  suppliers: [string, string, string | null, number | null][]
-  resources: [string, string, boolean][]
-  engagements: [string, string, string, string | null, string | null, boolean, boolean][]
-  allocations: [string, string, string, string | null, string | null, string | null][]
-  monthly: [string, string, number][]
-  holidays: string[]
-}
-
-function snapshotRows(snap: Snapshot): RawTimelineRows {
-  const [coarse, granular] = [...snap.periods]
-    .sort((a, b) => (a[2] < b[2] ? -1 : 1))
-    .map(([id, name, start, end]) => ({ period_id: id, period_name: name, period_start_date: start, period_end_date: end }))
-  return {
-    coarse: coarse!,
-    granular: granular!,
-    suppliers: snap.suppliers.map(([abbr, name, colour, sort]) => ({
-      supplier_id: abbr,
-      supplier_name: name,
-      supplier_abbreviation: abbr,
-      supplier_colour: colour,
-      sort_order: sort,
-    })),
-    allocations: snap.allocations.map(([aid, pid, rid, sup, code, eid]) => ({
-      allocation_id: aid,
-      period_id: pid,
-      resource_id: rid,
-      supplier_id: sup,
-      planview_code: code,
-      engagement_id: eid,
-    })),
-    monthlyDays: snap.monthly.map(([aid, month, days]) => ({ allocation_id: aid, month_start_date: `${month}-01`, days })),
-    bankHolidays: snap.holidays,
-    resources: snap.resources.map(([rid, name, hidden]) => ({
-      resource_id: rid,
-      resource_name: name,
-      disciplines: null,
-      hidden_from_timeline: hidden,
-    })),
-    teamAssignments: [],
-    engagements: snap.engagements.map(([eid, rid, sup, on, off, est, tent]) => ({
-      engagement_id: eid,
-      resource_id: rid,
-      supplier_id: sup,
-      roll_on_date: on,
-      roll_off_date: off,
-      roll_on_estimated: est,
-      roll_on_tentative: tent,
-    })),
-  }
-}
+/* ── (b) live snapshot: see scripts/timelineSnapshot.ts ─────────────── */
 
 /* ── Main ───────────────────────────────────────────────────────────── */
 
