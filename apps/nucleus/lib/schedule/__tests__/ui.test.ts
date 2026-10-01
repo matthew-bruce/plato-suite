@@ -516,12 +516,13 @@ describe('sumFilteredDays', () => {
     expect(sumFilteredDays(groupOf(rows), null)).toBe(10.5)
   })
 
-  it('excludes BAU rows, matching the BASE/+VAT footer filter', () => {
+  it('includes BAU and NPC rows — Days is the displayed column, not the cost filter', () => {
     const rows: Row[] = [
       { capacity_days: 10, planview_code: 'PR' },
-      { capacity_days: 99, planview_code: 'BAU' },
+      { capacity_days: 64, planview_code: 'BAU' },
+      { capacity_days: 5, planview_code: 'NPC' },
     ]
-    expect(sumFilteredDays(groupOf(rows), null)).toBe(10)
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(79)
   })
 
   it('applies the team capacity split when a team filter is active', () => {
@@ -606,7 +607,7 @@ describe('sumChargeableDays', () => {
   // A resource with either code must contribute zero days here while still
   // counting toward headcount/base-cost totals via the separate rules those
   // use (isCountedInHeadcount, isIncludedInBaseCost).
-  it('excludes NPC and F_Gov rows, unlike sumFilteredDays which includes F_Gov', () => {
+  it('excludes NPC, F_Gov and BAU rows, unlike sumFilteredDays which counts every displayed row', () => {
     const rows: Row[] = [
       { capacity_days: 548, planview_code: 'PR', utilisation_percent: 100 },
       { capacity_days: 11, planview_code: 'NPC', utilisation_percent: 100 },
@@ -615,10 +616,10 @@ describe('sumChargeableDays', () => {
       { capacity_days: 99, planview_code: 'BAU', utilisation_percent: 100 },
     ]
     expect(sumChargeableDays(groupOf(rows), null)).toBe(548)
-    // sumFilteredDays (the BASE/+VAT footer's rule) keeps F_Gov — the two
-    // helpers must diverge there, not agree, or this is the same bug again
+    // sumFilteredDays (the footer's Days total) counts every displayed row —
+    // the two helpers must diverge, not agree, or this is the same bug again
     // under a different name.
-    expect(sumFilteredDays(groupOf(rows), null)).toBe(548 + 25)
+    expect(sumFilteredDays(groupOf(rows), null)).toBe(548 + 11 + 6 + 25 + 99)
   })
 
   it('reproduces the reported Cygnus example: 565 total, 548 PR-only after excluding 17 NPC days', () => {

@@ -25,7 +25,7 @@ import type {
   PlatformCostItem,
   ResourceLocation,
 } from '@plato/schema'
-import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod } from '@plato/schema'
+import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod, countHeadcount } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -71,6 +71,7 @@ import { setBlendedRate, updateCostConfiguration } from '@/app/actions/rates'
 import { decideRateUpsert, type ExistingCostConfigRow } from '@/lib/rates/upsertDecision'
 import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
+import { computeFooterTotals } from '@/lib/schedule/footerTotals'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
@@ -86,7 +87,6 @@ import {
   getTextColour,
   withAlpha,
   sortAllocations as sortByColumn,
-  sumFilteredDays,
   sumChargeableDays,
   formatDaysTotal,
   calculateConfirmedCount,
@@ -94,7 +94,7 @@ import {
   type SortableCol,
   type SortDir,
 } from '@/lib/schedule/ui'
-import { computeRecoveryVariance } from '@/lib/schedule/recoveryVariance'
+import { computeRecoveryVariance, periodRecoveryVariance } from '@/lib/schedule/recoveryVariance'
 import styles from './schedule.module.css'
 
 type Props = { data: SchedulePageData }
@@ -414,11 +414,14 @@ export function SchedulePageClient({ data }: Props) {
       groupedBySupplier.flatMap((g) =>
         g.rows.map((r) => ({
           allocation_id: r.allocation_id,
+          resource_id: r.resource_id,
           resource_name: r.resource_name,
           role_title: r.role_title,
           resource_location: r.resource_location,
+          planview_code: r.planview_code,
           capacity_days: r.capacity_days,
           base_total_pence: r.base_total_pence,
+          vat_total_pence: r.vat_total_pence,
           teams: (r.teams as unknown as TeamAssignment[] | undefined) ?? [],
         })),
       ),
@@ -473,7 +476,7 @@ export function SchedulePageClient({ data }: Props) {
       chargeableDays,
       calcRatePence,
       calcRateIncEtp,
-      headcount: localAllocations.length,
+      headcount: countHeadcount(localAllocations),
     }
   }, [localAllocations, localCostItems, vatPct])
 
@@ -1040,7 +1043,7 @@ export function SchedulePageClient({ data }: Props) {
               />
               <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>
-                  {filtered.length} resources
+                  {countHeadcount(filtered)} resources
                 </PageToolbarResourceCount>
                 <PageToolbarExpandButton
                   expanded={allExpanded}
@@ -1194,6 +1197,11 @@ export function SchedulePageClient({ data }: Props) {
       open={exportViewOpen}
       onClose={() => setExportViewOpen(false)}
       rows={exportRows}
+      // The same cost items and inclusion rule the table footer uses, so the
+      // Copy view's grand totals equal the on-screen footer.
+      costItems={filteredCostItems}
+      includeCostItems={isUnfiltered}
+      vatPct={vatPct}
       activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
       periodName={period.period_name}
       workingDays={workingDays}
@@ -1293,9 +1301,14 @@ function KpiStrip({
     : formatMoney(Math.round(totals.calcRatePence), { decimals: 2 })
 
   const currentRate = (costConfig?.blended_day_rate_override ?? 0) / 100
-  const advisedRate = Math.round(totals.calcRateIncEtp) / 100
+  // Unrounded: rounding happens only at display (see periodRecoveryVariance).
+  const advisedRate = totals.calcRateIncEtp / 100
   const totalPRDays = totals.chargeableDays
-  const recovery = computeRecoveryVariance(currentRate, advisedRate, totalPRDays)
+  const recovery = periodRecoveryVariance(
+    costConfig?.blended_day_rate_override ?? 0,
+    totals.totalPlatformIncEtp,
+    totalPRDays,
+  )
   const recoveryVarianceFormatted = Math.abs(recovery.totalVariance).toLocaleString('en-GB', { maximumFractionDigits: 0 })
 
   let recoveryVarianceValue: string
@@ -1849,37 +1862,24 @@ function ScheduleTable({
     ? `Filtered totals — ${activeTeamFilter} (proportional)`
     : 'Filtered totals'
 
-  const footerBase = groups.reduce((s, g) => {
-    return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code)) return rs
-      return rs + Math.round((r.base_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
-    }, 0)
-  }, 0)
-
-  const footerVat = groups.reduce((s, g) => {
-    return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code)) return rs
-      return rs + Math.round((r.vat_total_pence ?? 0) * getCapacitySplit(r.teams, activeTeamFilter))
-    }, 0)
-  }, 0)
-
-  const footerDays = sumFilteredDays(groups, activeTeamFilter)
+  // Shared with the Copy view (ExportCurrentViewModal) so the two can't drift.
+  const footer = computeFooterTotals(groups.flatMap((g) => g.rows), costItems, {
+    activeTeamFilter,
+    includeCostItems: isUnfiltered,
+    vatPct,
+  })
   // Cost items aren't part of any team/search/planview/location filter (they
-  // don't belong to a resource), so — same as costItemsBase/costItemsVat
-  // above — they only count when the view is otherwise unfiltered; folding
-  // them in while a filter is active would overstate what's actually shown.
+  // don't belong to a resource), so they only count when the view is
+  // otherwise unfiltered; folding them in while a filter is active would
+  // overstate what's actually shown.
   const footerConfirmed = calculateConfirmedCount([
     ...groups.flatMap((g) => g.rows),
     ...(isUnfiltered ? costItems : []),
   ])
 
-  const costItemsBase = costItems.reduce((s, item) => s + item.amount_pence, 0)
-  const costItemsVat = costItems.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
-
-  // Internal Run Rate's capacity base: only PR (isChargeableRow) rows count,
-  // same as sumFilteredDays does for isIncludedInBaseCost — F_Gov and BAU
-  // cost the platform but are not cross-charged, and NPC is excluded from
-  // both rules. See sumChargeableDays in lib/schedule/ui.ts.
+  // Internal Run Rate's capacity base: only PR (isChargeableRow) rows count —
+  // F_Gov and BAU cost the platform but are not cross-charged, and NPC is
+  // excluded too. See sumChargeableDays in lib/schedule/ui.ts.
   const totalCapacityDays = activeTeamFilter ? sumChargeableDays(groups, activeTeamFilter) : 0
 
   return (
@@ -1980,13 +1980,13 @@ function ScheduleTable({
             {footerLabel}
           </div>
           <div style={{ gridColumn: 10 }}>
-            <BandTotal label="Days" value={formatDaysTotal(footerDays)} />
+            <BandTotal label="Days" value={formatDaysTotal(footer.days)} />
           </div>
           <div style={{ gridColumn: 12 }}>
-            <BandTotal label="Base" value={formatMoney(footerBase + (isUnfiltered ? costItemsBase : 0))} blur={isPrivate} />
+            <BandTotal label="Base" value={formatMoney(footer.basePence)} blur={isPrivate} />
           </div>
           <div style={{ gridColumn: 13 }}>
-            <BandTotal label="+VAT" value={formatMoney(footerVat + (isUnfiltered ? costItemsVat : 0))} blur={isPrivate} />
+            <BandTotal label="+VAT" value={formatMoney(footer.vatPence)} blur={isPrivate} />
           </div>
           <div style={{ gridColumn: 14 }}>
             <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
@@ -2018,9 +2018,11 @@ function TeamRunRateBar({
   blendedDayRate: number
   periodWorkingDays: number
 }) {
-  const quarterCost = Math.round(totalCapacityDays * blendedDayRate)
+  // Both derived from the unrounded quarter figure; rounded only for display.
+  const quarterCostExact = totalCapacityDays * blendedDayRate
+  const quarterCost = Math.round(quarterCostExact)
   const sprintCost =
-    periodWorkingDays > 0 ? Math.round((quarterCost / periodWorkingDays) * 10) : 0
+    periodWorkingDays > 0 ? Math.round((quarterCostExact / periodWorkingDays) * 10) : 0
 
   const labelStyle: React.CSSProperties = {
     fontSize: 10,
@@ -2308,6 +2310,7 @@ function SupplierSection({
   const pillTextColour = getTextColour(colour)
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
   const supplierConfirmed = calculateConfirmedCount(rows)
+  const supplierHeadcount = countHeadcount(rows)
   const { isPrivate } = usePrivacyMode()
   const blurStyle = privacyBlurStyle(isPrivate)
 
@@ -2366,7 +2369,7 @@ function SupplierSection({
             {name ?? 'Vacant / TBC'}
           </span>
           <span style={{ fontSize: 12, color: '#8F9495' }}>
-            {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
+            {supplierHeadcount} {supplierHeadcount === 1 ? 'resource' : 'resources'}
           </span>
         </div>
         <div

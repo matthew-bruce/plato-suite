@@ -2,13 +2,17 @@
 
 import { useMemo, useState } from 'react'
 import { X, Copy, Check } from 'lucide-react'
-import { formatMoney } from '@/lib/schedule/ui'
+import { costCellDecoration, formatDaysTotal, formatMoney } from '@/lib/schedule/ui'
 import {
+  buildCopyView,
+  costItemCategoryLabel,
   sortExportRows,
   nextExportSortState,
   sortIndicator,
   splitTeamAssignments,
   getTeamCellStyle,
+  type CopyView,
+  type ExportCostItem,
   type ExportRow,
   type ExportSortableCol,
   type ExportSortState,
@@ -18,13 +22,14 @@ const HEADER_BG = '#2A2A2D'
 
 // Percentage-based (not pixel) column widths so the table scales
 // proportionally in the modal AND in whatever it's pasted into.
-const COL_WIDTHS: Record<'resource' | 'role' | 'team' | 'location' | 'days' | 'total', string> = {
-  resource: '16%',
-  role: '24%',
-  team: '22%',
-  location: '12%',
-  days: '8%',
-  total: '18%',
+const COL_WIDTHS: Record<'resource' | 'role' | 'team' | 'location' | 'days' | 'total' | 'vat', string> = {
+  resource: '15%',
+  role: '20%',
+  team: '20%',
+  location: '10%',
+  days: '7%',
+  total: '14%',
+  vat: '14%',
 }
 
 const SORTABLE_HEADERS: { col: ExportSortableCol; label: string; align: 'left' | 'right' }[] = [
@@ -43,6 +48,11 @@ export interface ExportCurrentViewModalProps {
   open: boolean
   onClose: () => void
   rows: ExportRow[]
+  /** The page's Ad-hoc / ETP / SS items (already confirmed-filtered). */
+  costItems: ExportCostItem[]
+  /** The page's isUnfiltered — cost items show only then, as on the page. */
+  includeCostItems: boolean
+  vatPct: number
   /** Team filter value ('all'/'no-team' already normalised to null by the caller). */
   activeTeamFilter: string | null
   periodName: string
@@ -53,6 +63,9 @@ export function ExportCurrentViewModal({
   open,
   onClose,
   rows,
+  costItems,
+  includeCostItems,
+  vatPct,
   activeTeamFilter,
   periodName,
   workingDays,
@@ -63,12 +76,9 @@ export function ExportCurrentViewModal({
 
   const sortedRows = useMemo(() => sortExportRows(rows, sort.col, sort.dir), [rows, sort])
 
-  const totals = useMemo(
-    () => ({
-      days: rows.reduce((s, r) => s + (r.capacity_days ?? 0), 0),
-      costPence: rows.reduce((s, r) => s + (r.base_total_pence ?? 0), 0),
-    }),
-    [rows],
+  const view = useMemo(
+    () => buildCopyView(sortedRows, costItems, { activeTeamFilter, includeCostItems, vatPct }),
+    [sortedRows, costItems, activeTeamFilter, includeCostItems, vatPct],
   )
 
   if (!open) return null
@@ -78,8 +88,8 @@ export function ExportCurrentViewModal({
   }
 
   async function handleCopy() {
-    const html = buildCopyHtml(sortedRows, activeTeamFilter, periodName)
-    const text = buildCopyText(sortedRows)
+    const html = buildCopyHtml(view, activeTeamFilter, periodName)
+    const text = buildCopyText(view)
     try {
       if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
         await navigator.clipboard.write([
@@ -164,7 +174,7 @@ export function ExportCurrentViewModal({
           <div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>Export current view</div>
             <div style={{ fontSize: 11, color: '#B8B8BC', marginTop: 2 }}>
-              {periodName} · {rows.length} resource{rows.length !== 1 ? 's' : ''}
+              {periodName} · {view.headcount} resource{view.headcount !== 1 ? 's' : ''}
               {activeTeamFilter ? ` · filtered by ${activeTeamFilter}` : ''}
             </div>
           </div>
@@ -188,6 +198,7 @@ export function ExportCurrentViewModal({
               <col style={{ width: COL_WIDTHS.location }} />
               <col style={{ width: COL_WIDTHS.days }} />
               <col style={{ width: COL_WIDTHS.total }} />
+              <col style={{ width: COL_WIDTHS.vat }} />
             </colgroup>
             <thead>
               <tr style={{ background: '#FAFAFA', borderBottom: '2px solid #E0E0E0' }}>
@@ -198,11 +209,27 @@ export function ExportCurrentViewModal({
                 {SORTABLE_HEADERS.slice(2).map(({ col, label, align }) => (
                   <SortableHeader key={col} col={col} label={label} align={align} sort={sort} onClick={handleHeaderClick} style={th(align)} />
                 ))}
+                <th style={th('right')}>+VAT</th>
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((r) => {
+              {view.lines.map((line) => {
+                if (line.kind === 'costItem') {
+                  return (
+                    <tr key={line.item.cost_item_id} style={{ background: '#FAFAFA' }}>
+                      <td style={td('left')}>{line.item.label || '—'}</td>
+                      <td style={td('left')}>{costItemCategoryLabel(line.item.cost_item_category)}</td>
+                      <td style={td('left')}>—</td>
+                      <td style={td('left')}>—</td>
+                      <td style={td('right')}>—</td>
+                      <td style={td('right')}>{formatMoney(line.basePence)}</td>
+                      <td style={td('right')}>{formatMoney(line.vatPence)}</td>
+                    </tr>
+                  )
+                }
+                const r = line.row
                 const teamDisplay = splitTeamAssignments(r.teams, activeTeamFilter)
+                const decoration = costCellDecoration(r.planview_code)
                 return (
                   <tr key={r.allocation_id}>
                     <td style={td('left')}>{r.resource_name ?? 'TBC'}</td>
@@ -231,12 +258,21 @@ export function ExportCurrentViewModal({
                       )}
                     </td>
                     <td style={td('left')}>{capitalise(r.resource_location)}</td>
-                    <td style={td('right')}>{(r.capacity_days ?? 0).toLocaleString('en-GB', { maximumFractionDigits: 1 })}</td>
-                    <td style={td('right')}>{formatMoney(r.base_total_pence ?? 0)}</td>
+                    <td style={td('right')}>{formatDaysTotal(line.days)}</td>
+                    <td style={{ ...td('right'), textDecoration: decoration }}>{formatMoney(line.basePence)}</td>
+                    <td style={{ ...td('right'), textDecoration: decoration }}>{formatMoney(line.vatPence)}</td>
                   </tr>
                 )
               })}
             </tbody>
+            <tfoot>
+              <tr style={{ background: '#F5F5F5', fontWeight: 700 }}>
+                <td style={{ ...td('left'), fontWeight: 700 }} colSpan={4}>Total</td>
+                <td style={{ ...td('right'), fontWeight: 700 }}>{formatDaysTotal(view.totals.days)}</td>
+                <td style={{ ...td('right'), fontWeight: 700 }}>{formatMoney(view.totals.basePence)}</td>
+                <td style={{ ...td('right'), fontWeight: 700 }}>{formatMoney(view.totals.vatPence)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
@@ -248,7 +284,7 @@ export function ExportCurrentViewModal({
           }}
         >
           <div style={{ fontSize: 11, color: '#8F9495' }}>
-            {rows.length} resource{rows.length !== 1 ? 's' : ''} · {totals.days.toLocaleString('en-GB', { maximumFractionDigits: 1 })} days · {formatMoney(totals.costPence)} · {workingDays} working days this period
+            {view.headcount} resource{view.headcount !== 1 ? 's' : ''} · {formatDaysTotal(view.totals.days)} days · {formatMoney(view.totals.basePence)} base · {formatMoney(view.totals.vatPence)} inc. VAT · {workingDays} working days this period
           </div>
           <button
             type="button"
@@ -309,15 +345,29 @@ function SortableHeader({
    The copied HTML prefers wrapping over ellipsis — the paste target
    (email / Teams) controls the available width, not this modal. ── */
 
-function buildCopyHtml(rows: ExportRow[], activeTeamFilter: string | null, periodName: string): string {
-  const cell = (content: string, align: 'left' | 'right' = 'left'): string =>
-    `<td style="padding:6px 10px;font-size:12px;color:#2A2A2D;border-top:1px solid #EEEEEE;text-align:${align};white-space:normal;word-break:break-word;">${content}</td>`
+function buildCopyHtml(view: CopyView, activeTeamFilter: string | null, periodName: string): string {
+  const cell = (content: string, align: 'left' | 'right' = 'left', extra = ''): string =>
+    `<td style="padding:6px 10px;font-size:12px;color:#2A2A2D;border-top:1px solid #EEEEEE;text-align:${align};white-space:normal;word-break:break-word;${extra}">${content}</td>`
 
   const headerCell = (label: string, width: string, align: 'left' | 'right' = 'left'): string =>
     `<th style="width:${width};padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#555;background:#FAFAFA;border-bottom:2px solid #E0E0E0;text-align:${align};">${label}</th>`
 
-  const rowsHtml = rows
-    .map((r) => {
+  const rowsHtml = view.lines
+    .map((line) => {
+      if (line.kind === 'costItem') {
+        return (
+          '<tr>' +
+          cell(escapeHtml(line.item.label || '—')) +
+          cell(escapeHtml(costItemCategoryLabel(line.item.cost_item_category))) +
+          cell('—') +
+          cell('—') +
+          cell('—', 'right') +
+          cell(escapeHtml(formatMoney(line.basePence)), 'right') +
+          cell(escapeHtml(formatMoney(line.vatPence)), 'right') +
+          '</tr>'
+        )
+      }
+      const r = line.row
       const teamDisplay = splitTeamAssignments(r.teams, activeTeamFilter)
       const teamHtml =
         teamDisplay.length === 0
@@ -328,18 +378,30 @@ function buildCopyHtml(rows: ExportRow[], activeTeamFilter: string | null, perio
                 return `<span style="font-weight:${s.fontWeight};font-size:${s.fontSize}px;color:${s.color};">${s.prefix}${escapeHtml(t.teamName)} ${Math.round(t.capacitySplit * 100)}%</span>`
               })
               .join(', ')
+      const strike = costCellDecoration(r.planview_code) ? 'text-decoration:line-through;' : ''
       return (
         '<tr>' +
         cell(escapeHtml(r.resource_name ?? 'TBC')) +
         cell(escapeHtml(r.role_title ?? '—')) +
         cell(teamHtml) +
         cell(escapeHtml(capitalise(r.resource_location))) +
-        cell((r.capacity_days ?? 0).toLocaleString('en-GB', { maximumFractionDigits: 1 }), 'right') +
-        cell(escapeHtml(formatMoney(r.base_total_pence ?? 0)), 'right') +
+        cell(formatDaysTotal(line.days), 'right') +
+        cell(escapeHtml(formatMoney(line.basePence)), 'right', strike) +
+        cell(escapeHtml(formatMoney(line.vatPence)), 'right', strike) +
         '</tr>'
       )
     })
     .join('')
+
+  const totalCell = (content: string, align: 'left' | 'right' = 'left'): string =>
+    cell(content, align, 'font-weight:700;background:#F5F5F5;')
+  const totalsHtml =
+    '<tr>' +
+    `<td colspan="4" style="padding:6px 10px;font-size:12px;color:#2A2A2D;border-top:1px solid #EEEEEE;font-weight:700;background:#F5F5F5;">Total</td>` +
+    totalCell(formatDaysTotal(view.totals.days), 'right') +
+    totalCell(escapeHtml(formatMoney(view.totals.basePence)), 'right') +
+    totalCell(escapeHtml(formatMoney(view.totals.vatPence)), 'right') +
+    '</tr>'
 
   return (
     `<table style="border-collapse:collapse;width:100%;table-layout:fixed;font-family:sans-serif;">` +
@@ -347,6 +409,7 @@ function buildCopyHtml(rows: ExportRow[], activeTeamFilter: string | null, perio
     '<colgroup>' +
     `<col style="width:${COL_WIDTHS.resource}"/><col style="width:${COL_WIDTHS.role}"/><col style="width:${COL_WIDTHS.team}"/>` +
     `<col style="width:${COL_WIDTHS.location}"/><col style="width:${COL_WIDTHS.days}"/><col style="width:${COL_WIDTHS.total}"/>` +
+    `<col style="width:${COL_WIDTHS.vat}"/>` +
     '</colgroup>' +
     '<thead><tr>' +
     headerCell('Resource', COL_WIDTHS.resource) +
@@ -355,25 +418,46 @@ function buildCopyHtml(rows: ExportRow[], activeTeamFilter: string | null, perio
     headerCell('Location', COL_WIDTHS.location) +
     headerCell('Days', COL_WIDTHS.days, 'right') +
     headerCell('Run rate cost', COL_WIDTHS.total, 'right') +
+    headerCell('+VAT', COL_WIDTHS.vat, 'right') +
     '</tr></thead>' +
     `<tbody>${rowsHtml}</tbody>` +
+    `<tfoot>${totalsHtml}</tfoot>` +
     '</table>'
   )
 }
 
-function buildCopyText(rows: ExportRow[]): string {
-  const header = ['Resource', 'Role', 'Team(s)', 'Location', 'Days', 'Run rate cost'].join('\t')
-  const lines = rows.map((r) =>
-    [
+function buildCopyText(view: CopyView): string {
+  const header = ['Resource', 'Role', 'Team(s)', 'Location', 'Days', 'Run rate cost', '+VAT'].join('\t')
+  const lines = view.lines.map((line) => {
+    if (line.kind === 'costItem') {
+      return [
+        line.item.label || '—',
+        costItemCategoryLabel(line.item.cost_item_category),
+        '—',
+        '—',
+        '—',
+        formatMoney(line.basePence),
+        formatMoney(line.vatPence),
+      ].join('\t')
+    }
+    const r = line.row
+    return [
       r.resource_name ?? 'TBC',
       r.role_title ?? '—',
       r.teams.map((t) => `${t.teamName} ${Math.round(t.capacitySplit * 100)}%`).join(', ') || 'No Team',
       capitalise(r.resource_location),
-      (r.capacity_days ?? 0).toLocaleString('en-GB', { maximumFractionDigits: 1 }),
-      formatMoney(r.base_total_pence ?? 0),
-    ].join('\t'),
-  )
-  return [header, ...lines].join('\n')
+      formatDaysTotal(line.days),
+      formatMoney(line.basePence),
+      formatMoney(line.vatPence),
+    ].join('\t')
+  })
+  const totals = [
+    'Total', '', '', '',
+    formatDaysTotal(view.totals.days),
+    formatMoney(view.totals.basePence),
+    formatMoney(view.totals.vatPence),
+  ].join('\t')
+  return [header, ...lines, totals].join('\n')
 }
 
 function escapeHtml(s: string): string {
