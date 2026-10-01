@@ -41,6 +41,25 @@ export interface RecoveryVariance {
  * @param days X-Chargeable Days for the period, to project the per-unit gap
  *   into a total over/under-recovery.
  */
+/**
+ * The Recovery variance card's figure, from the page's own totals. The advised
+ * rate goes in UNROUNDED — rounding it to whole pence first and then
+ * multiplying by thousands of days compounds the rounding error (Q3 FY 26/27:
+ * £84,181.20 instead of £84,157.63). Round only for display.
+ *
+ * @param appliedRatePence the applied blended rate, integer pence per day.
+ * @param totalPlatformPence Total Platform Cost inc. ETP & SS, pence.
+ * @param chargeableDays PR-only, utilisation-weighted days.
+ */
+export function periodRecoveryVariance(
+  appliedRatePence: number,
+  totalPlatformPence: number,
+  chargeableDays: number,
+): RecoveryVariance {
+  const advisedRatePence = chargeableDays > 0 ? totalPlatformPence / chargeableDays : 0
+  return computeRecoveryVariance(appliedRatePence / 100, advisedRatePence / 100, chargeableDays)
+}
+
 export function computeRecoveryVariance(
   currentRate: number,
   advisedRate: number,

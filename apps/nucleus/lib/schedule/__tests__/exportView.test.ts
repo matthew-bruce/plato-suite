@@ -13,6 +13,7 @@ function row(p: Partial<ExportRow> & { allocation_id: string }): ExportRow {
     resource_id: null,
     resource_name: null,
     role_title: null,
+    planview_code: null,
     resource_location: null,
     capacity_days: null,
     base_total_pence: 0,

@@ -2,6 +2,7 @@
 // Money is stored as integer pence per ADR-029.
 
 import type { CSSProperties } from 'react'
+import { isChargeableRow } from '@plato/schema'
 import { getCapacitySplit } from '../scheduleUtils'
 
 // Single source of truth for the five valid planview_code values, shared by
@@ -104,16 +105,17 @@ interface DaysRow {
   teams?: Array<{ teamId: string; teamName: string; capacitySplit: number }>
 }
 
-// Sums capacity_days across groups/rows using the same row filter and
-// capacity-split weighting as the BASE/+VAT footer totals (isIncludedInBaseCost
-// + getCapacitySplit), so the Days total stays in lockstep with those figures.
+// The footer's Days total: the sum of the Days column for the rows displayed —
+// capacity_days × the active team's capacity split, for EVERY displayed row.
+// Deliberately not filtered by isIncludedInBaseCost: that is the cost rule, and
+// reusing it here dropped BAU's (and NPC's) days from a total whose column
+// shows them.
 export function sumFilteredDays<T extends DaysRow>(
   groups: { rows: T[] }[],
   activeTeamFilter: string | null,
 ): number {
   return groups.reduce((s, g) => {
     return s + g.rows.reduce((rs, r) => {
-      if (!isIncludedInBaseCost(r.planview_code)) return rs
       return rs + (r.capacity_days ?? 0) * getCapacitySplit(r.teams ?? [], activeTeamFilter)
     }, 0)
   }, 0)
@@ -123,9 +125,9 @@ interface ChargeableDaysRow extends DaysRow {
   utilisation_percent: number
 }
 
-// Sums capacity_days across groups/rows the same way sumFilteredDays does,
-// but filtered to isChargeableRow (PR only) rather than isIncludedInBaseCost,
-// and weighted by utilisation_percent as well as team capacity_split. This is
+// Sums capacity_days across groups/rows like sumFilteredDays does, but
+// filtered to isChargeableRow (PR only) and weighted by utilisation_percent as
+// well as team capacity_split. This is
 // the capacity base for "Internal Run Rate": F_Gov and BAU cost the platform
 // and stay in the BASE/+VAT footer via isIncludedInBaseCost, but they are not
 // cross-charged, so they must not inflate the recoverable-days figure
@@ -190,12 +192,13 @@ export function calculateConfirmedCount(
   }
 }
 
-export function isChargeableRow(planviewCode: string | null | undefined): boolean {
-  return planviewCode === 'PR'
-}
+// Defined in @plato/schema so the homepage query (which lives there) and this
+// page share one predicate; re-exported for the existing callers.
+export { isChargeableRow }
 
-// is_chargeable drives the "Chargeable" Yes/No badge and excludes non-PR
-// rows from the billable-days total used to calculate the blended rate.
+// The value written to the stored is_chargeable column. Nothing in the app
+// reads that column back — the badge, the sort and every total use
+// isChargeableRow on planview_code — but it is still written correctly.
 // It is true ONLY for planview_code === 'PR' — F_Gov, BAU, and NPC are all
 // false. F_Gov's cost is still correctly included in Total Platform Cost,
 // but via isIncludedInBaseCost() above — a separate, deliberately
@@ -209,7 +212,7 @@ export function isChargeableRow(planviewCode: string | null | undefined): boolea
 //
 // Must always return the same result as isChargeableRow() above.
 export function deriveIsChargeable(planviewCode: string | null | undefined): boolean {
-  return planviewCode === 'PR'
+  return isChargeableRow(planviewCode)
 }
 
 // Applied to every allocation update payload before it's sent to the DB:
@@ -384,7 +387,6 @@ interface SortRow {
   role_title: string | null
   planview_code: string | null
   resource_location: string | null
-  is_chargeable: boolean
   capacity_days: number | null
   day_rate: number
   utilisation_percent: number
@@ -416,7 +418,9 @@ export function sortAllocations<T extends SortRow>(
       case 'plan':
         return mul * compareStrings(a.planview_code ?? '', b.planview_code ?? '')
       case 'chargeable':
-        return mul * (Number(a.is_chargeable) - Number(b.is_chargeable))
+        // The badge's own rule, not the stored is_chargeable column (which can
+        // be stale), so the sort agrees with what each row displays.
+        return mul * (Number(isChargeableRow(a.planview_code)) - Number(isChargeableRow(b.planview_code)))
       case 'location':
         return mul * compareStrings(a.resource_location ?? '', b.resource_location ?? '')
       case 'days':
