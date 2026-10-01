@@ -25,7 +25,7 @@ import type {
   PlatformCostItem,
   ResourceLocation,
 } from '@plato/schema'
-import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod } from '@plato/schema'
+import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod, countHeadcount } from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -414,6 +414,7 @@ export function SchedulePageClient({ data }: Props) {
       groupedBySupplier.flatMap((g) =>
         g.rows.map((r) => ({
           allocation_id: r.allocation_id,
+          resource_id: r.resource_id,
           resource_name: r.resource_name,
           role_title: r.role_title,
           resource_location: r.resource_location,
@@ -473,7 +474,7 @@ export function SchedulePageClient({ data }: Props) {
       chargeableDays,
       calcRatePence,
       calcRateIncEtp,
-      headcount: localAllocations.length,
+      headcount: countHeadcount(localAllocations),
     }
   }, [localAllocations, localCostItems, vatPct])
 
@@ -1040,7 +1041,7 @@ export function SchedulePageClient({ data }: Props) {
               />
               <PageToolbarPrimaryActions style={{ marginLeft: 'auto' }}>
                 <PageToolbarResourceCount>
-                  {filtered.length} resources
+                  {countHeadcount(filtered)} resources
                 </PageToolbarResourceCount>
                 <PageToolbarExpandButton
                   expanded={allExpanded}
@@ -2308,6 +2309,7 @@ function SupplierSection({
   const pillTextColour = getTextColour(colour)
   const weightedAvgDayRate = days > 0 ? (base / 100) / days : 0
   const supplierConfirmed = calculateConfirmedCount(rows)
+  const supplierHeadcount = countHeadcount(rows)
   const { isPrivate } = usePrivacyMode()
   const blurStyle = privacyBlurStyle(isPrivate)
 
@@ -2366,7 +2368,7 @@ function SupplierSection({
             {name ?? 'Vacant / TBC'}
           </span>
           <span style={{ fontSize: 12, color: '#8F9495' }}>
-            {rows.length} {rows.length === 1 ? 'resource' : 'resources'}
+            {supplierHeadcount} {supplierHeadcount === 1 ? 'resource' : 'resources'}
           </span>
         </div>
         <div

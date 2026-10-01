@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { X, Copy, Check } from 'lucide-react'
+import { countHeadcount } from '@plato/schema'
 import { formatMoney } from '@/lib/schedule/ui'
 import {
   sortExportRows,
@@ -67,6 +68,7 @@ export function ExportCurrentViewModal({
     () => ({
       days: rows.reduce((s, r) => s + (r.capacity_days ?? 0), 0),
       costPence: rows.reduce((s, r) => s + (r.base_total_pence ?? 0), 0),
+      headcount: countHeadcount(rows),
     }),
     [rows],
   )
@@ -164,7 +166,7 @@ export function ExportCurrentViewModal({
           <div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>Export current view</div>
             <div style={{ fontSize: 11, color: '#B8B8BC', marginTop: 2 }}>
-              {periodName} · {rows.length} resource{rows.length !== 1 ? 's' : ''}
+              {periodName} · {totals.headcount} resource{totals.headcount !== 1 ? 's' : ''}
               {activeTeamFilter ? ` · filtered by ${activeTeamFilter}` : ''}
             </div>
           </div>
@@ -248,7 +250,7 @@ export function ExportCurrentViewModal({
           }}
         >
           <div style={{ fontSize: 11, color: '#8F9495' }}>
-            {rows.length} resource{rows.length !== 1 ? 's' : ''} · {totals.days.toLocaleString('en-GB', { maximumFractionDigits: 1 })} days · {formatMoney(totals.costPence)} · {workingDays} working days this period
+            {totals.headcount} resource{totals.headcount !== 1 ? 's' : ''} · {totals.days.toLocaleString('en-GB', { maximumFractionDigits: 1 })} days · {formatMoney(totals.costPence)} · {workingDays} working days this period
           </div>
           <button
             type="button"

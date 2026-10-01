@@ -8,6 +8,8 @@ import type { TeamAssignment } from '@plato/schema'
 
 export interface ExportRow {
   allocation_id: string
+  /** NULL for a vacant seat — needed so the modal's resource count is headcount, not rows. */
+  resource_id: string | null
   resource_name: string | null
   role_title: string | null
   resource_location: string | null

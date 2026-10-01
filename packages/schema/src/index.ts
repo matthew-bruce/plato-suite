@@ -21,6 +21,8 @@ export type {
 
 export { computeUnallocatedPct, selectDefaultPeriod } from './utils/schedule'
 export type { DefaultPeriodCandidate } from './utils/schedule'
+export { countHeadcount } from './utils/headcount'
+export type { HeadcountRow } from './utils/headcount'
 
 export type { AppliedConfigPeriod } from './queries/costConfig'
 export { pickEffectiveCostConfig, pickAppliedCostConfig } from './utils/costConfig'

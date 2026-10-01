@@ -5,6 +5,7 @@ import { getSupabaseServerComponentClient } from '../serverComponent'
 import { resolveAppliedCostConfiguration } from './costConfig'
 import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepage'
 import type { PeriodStatus } from '../types/schedule'
+import { countHeadcount } from '../utils/headcount'
 
 const WEB_PLATFORM_CODE = 'WEB'
 const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
@@ -13,6 +14,7 @@ const EMPTY: HomepageData = { periods: [], activePeriod: null, attentionItems: [
 
 type RawAllocRow = {
   allocation_id: string
+  resource_id: string | null
   planview_code: string | null
   day_rate: number
   utilisation_percent: number | string
@@ -94,6 +96,7 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
       .from('resource_period_allocations')
       .select(`
         allocation_id,
+        resource_id,
         planview_code,
         day_rate,
         utilisation_percent,
@@ -143,7 +146,7 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
       period_start_date: periodRow.period_start_date as string,
       period_end_date: periodRow.period_end_date as string,
       period_status: periodRow.period_status as PeriodStatus,
-      headcount: allocs.length,
+      headcount: countHeadcount(allocs),
       base_cost_pence,
       vat_cost_pence,
       chargeable_cost_pence,
