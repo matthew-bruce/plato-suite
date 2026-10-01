@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeRecoveryVariance } from '../recoveryVariance'
+import { computeRecoveryVariance, periodRecoveryVariance } from '../recoveryVariance'
 import { Q3_EXPECTED } from './fixtures/q3Fy2627'
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -73,5 +73,35 @@ describe('computeRecoveryVariance', () => {
     expect(Math.sign(shortfall.perUnitVariance)).toBe(Math.sign(shortfall.totalVariance))
     expect(surplus.direction).toBe('surplus')
     expect(shortfall.direction).toBe('shortfall')
+  })
+})
+
+/* ══════════════════════════════════════════════════════════════════════
+   The Recovery variance card rounded the advised rate to whole pence before
+   multiplying by thousands of chargeable days. Pinned against the live
+   Q3 FY 26/27 figures: Total Platform Cost £2,892,442.37, 4,920 PR days,
+   applied rate £605.
+   ══════════════════════════════════════════════════════════════════════ */
+describe('periodRecoveryVariance — advised rate unrounded', () => {
+  const TOTAL_PLATFORM_PENCE = 289_244_237
+  const PR_DAYS = 4_920
+  const APPLIED_RATE_PENCE = 60_500
+
+  it('reproduces the live Q3 FY 26/27 variance of £84,157.63', () => {
+    const v = periodRecoveryVariance(APPLIED_RATE_PENCE, TOTAL_PLATFORM_PENCE, PR_DAYS)
+    expect(v.totalVariance).toBeCloseTo(84_157.63, 2)
+    expect(v.direction).toBe('surplus')
+  })
+
+  it('uses the exact advised rate, not one rounded to the penny first (£84,181.20)', () => {
+    const v = periodRecoveryVariance(APPLIED_RATE_PENCE, TOTAL_PLATFORM_PENCE, PR_DAYS)
+    const roundedFirst = computeRecoveryVariance(605, Math.round(TOTAL_PLATFORM_PENCE / PR_DAYS) / 100, PR_DAYS)
+    expect(roundedFirst.totalVariance).toBeCloseTo(84_181.2, 2)
+    expect(v.totalVariance).not.toBeCloseTo(roundedFirst.totalVariance, 0)
+    expect(v.perUnitVariance).toBeCloseTo(605 - TOTAL_PLATFORM_PENCE / PR_DAYS / 100, 10)
+  })
+
+  it('is zero, not NaN, when there are no chargeable days', () => {
+    expect(periodRecoveryVariance(APPLIED_RATE_PENCE, TOTAL_PLATFORM_PENCE, 0).totalVariance).toBe(0)
   })
 })

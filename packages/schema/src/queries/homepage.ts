@@ -5,6 +5,8 @@ import { getSupabaseServerComponentClient } from '../serverComponent'
 import { resolveAppliedCostConfiguration } from './costConfig'
 import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepage'
 import type { PeriodStatus } from '../types/schedule'
+import { countHeadcount } from '../utils/headcount'
+import { summariseHomepageCost } from '../utils/homepageCost'
 
 const WEB_PLATFORM_CODE = 'WEB'
 const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
@@ -13,11 +15,11 @@ const EMPTY: HomepageData = { periods: [], activePeriod: null, attentionItems: [
 
 type RawAllocRow = {
   allocation_id: string
+  resource_id: string | null
   planview_code: string | null
   day_rate: number
   utilisation_percent: number | string
   capacity_days: number | string | null
-  is_chargeable: boolean
   resources:
     | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }
     | { suppliers: { supplier_name: string } | { supplier_name: string }[] | null }[]
@@ -94,11 +96,11 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
       .from('resource_period_allocations')
       .select(`
         allocation_id,
+        resource_id,
         planview_code,
         day_rate,
         utilisation_percent,
         capacity_days,
-        is_chargeable,
         resources:resource_id (
           suppliers:supplier_id ( supplier_name )
         )
@@ -109,33 +111,20 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
     if (allocsErr) return { ...EMPTY, periods }
 
     const allocs = (allocsRaw ?? []) as unknown as RawAllocRow[]
-    let base_cost_pence = 0
-    let vat_cost_pence = 0
-    let chargeable_cost_pence = 0
-    let missingPlanview = 0
-    let missingCapacity = 0
-
-    for (const row of allocs) {
-      const utilisation = Number(row.utilisation_percent)
-      const capacityDays = row.capacity_days === null ? null : Number(row.capacity_days)
-
-      const resource = pickFirst(row.resources)
-      const supplier = resource ? pickFirst(resource.suppliers) : null
-      const isInternal = supplier?.supplier_name === INTERNAL_SUPPLIER_NAME
-
-      if (!row.planview_code) missingPlanview++
-      if (capacityDays === null) missingCapacity++
-
-      const base =
-        capacityDays === null
-          ? 0
-          : Math.round(row.day_rate * capacityDays * (utilisation / 100))
-      const vat = isInternal ? base : Math.round(base * (1 + vatPct / 100))
-
-      base_cost_pence += base
-      vat_cost_pence += vat
-      if (row.is_chargeable) chargeable_cost_pence += vat
-    }
+    const {
+      base_cost_pence,
+      vat_cost_pence,
+      chargeable_cost_pence,
+      missingPlanview,
+      missingCapacity,
+    } = summariseHomepageCost(
+      allocs.map((row) => {
+        const resource = pickFirst(row.resources)
+        const supplier = resource ? pickFirst(resource.suppliers) : null
+        return { ...row, isInternal: supplier?.supplier_name === INTERNAL_SUPPLIER_NAME }
+      }),
+      vatPct,
+    )
 
     const activePeriod: PeriodSummary = {
       period_id: periodRow.period_id as string,
@@ -143,7 +132,7 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
       period_start_date: periodRow.period_start_date as string,
       period_end_date: periodRow.period_end_date as string,
       period_status: periodRow.period_status as PeriodStatus,
-      headcount: allocs.length,
+      headcount: countHeadcount(allocs),
       base_cost_pence,
       vat_cost_pence,
       chargeable_cost_pence,
