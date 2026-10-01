@@ -121,3 +121,14 @@ export function evaluateFormula(formula: string, grid: Grid, hidden: HiddenRows 
     throw new Error(`unsupported term: ${term}`)
   }, 0)
 }
+
+/**
+ * Excel's ROUND(x, digits): half away from zero, applied to the value as
+ * Excel holds it (15 significant digits), so float noise in a product like
+ * 250 × 1.07082 cannot flip a half-penny the way it would in raw JS.
+ */
+export function excelRound(x: number, digits: number): number {
+  const shown = Number(x.toPrecision(15))
+  const factor = 10 ** digits
+  return (Math.sign(shown) * Math.round(Math.abs(shown) * factor)) / factor
+}

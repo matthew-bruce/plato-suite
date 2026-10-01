@@ -1,5 +1,9 @@
 import ExcelJS from 'exceljs'
-import { getSupabaseServerComponentClient, resolveCostConfigurationByCode } from '@plato/schema/server'
+import {
+  getSupabaseServerComponentClient,
+  resolveAppliedCostConfigurationByCode,
+} from '@plato/schema/server'
+import { computeRowMoneyPence, vatRateMilliPct } from '@plato/schema'
 import { workingDaysBetween } from '@/lib/schedule/format'
 import { buildRawDataTotalsTable } from '@/lib/export/rawDataTotalsTable'
 import {
@@ -8,6 +12,7 @@ import {
   EMPTY_GROUP_TOTAL,
 } from '@/lib/schedule/scheduleTotals'
 import { buildPlatformTotalFormula } from '@/lib/export/platformTotalFormula'
+import { calcCostItemVat } from '@/lib/schedule/costItems'
 import {
   LOCATION_BUCKETS,
   locationBucket,
@@ -33,6 +38,7 @@ const WEB_PLATFORM_CODE = 'WEB'
 /* ── Query result shapes ──────────────────────────────────────────── */
 
 interface PeriodRow {
+  locked: boolean
   period_name: string
   period_start_date: string
   period_end_date: string
@@ -240,7 +246,7 @@ export async function GET(request: Request): Promise<Response> {
   /* ── Query 1: Period ── */
   const { data: periodData, error: periodErr } = await supabase
     .from('periods')
-    .select('period_name, period_start_date, period_end_date')
+    .select('locked, period_name, period_start_date, period_end_date')
     .eq('period_id', periodId)
     .is('deleted_at', null)
     .maybeSingle()
@@ -249,16 +255,22 @@ export async function GET(request: Request): Promise<Response> {
   if (!periodData) return new Response('Period not found', { status: 404 })
   const period = periodData as PeriodRow
 
-  /* ── Query 2: Cost configuration (effective-dated, Web platform) ── */
-  // Shared resolver: the row whose effective_from is the latest on or before
-  // this period's start date — not merely the most recent row overall.
-  const costConfig = await resolveCostConfigurationByCode(
-    WEB_PLATFORM_CODE,
-    period.period_start_date,
-  )
-  const vatUpliftPercent: number = costConfig?.vat_uplift_percent ?? 0
-  // Round to exactly 5 dp so the cell reads 1.07082, not 1.0708200000001
-  const vatMultiplier = parseFloat((1 + Number(vatUpliftPercent) / 100).toFixed(5))
+  /* ── Query 2: Cost configuration (the one that APPLIES to this period) ── */
+  // The same resolver the Schedule page uses: a locked period is served from
+  // its frozen period_cost_snapshots row, a draft one from the live
+  // effective-dated lookup. The live-only lookup this used before priced a
+  // locked period at today's VAT rate while the page showed the frozen one.
+  const costConfig = await resolveAppliedCostConfigurationByCode(WEB_PLATFORM_CODE, {
+    period_id: periodId,
+    locked: period.locked === true,
+    period_start_date: period.period_start_date,
+  })
+  // The exact integer rate (7082 for 7.082%) every figure in this file is
+  // built with — docs/decisions/036-money-rounding.md.
+  const vatRate = vatRateMilliPct(costConfig?.vat_uplift_percent ?? 0)
+  // Display-only: the multiplier the detail sheet's VAT formulas read. Derived
+  // from the integer rate, so it is 1.07082 exactly, not 1.0708199999999999.
+  const vatMultiplier = (100_000 + vatRate) / 100_000
   const blendedDayRateOverridePence = costConfig?.blended_day_rate_override ?? null
 
   /* ── Query 3: Resource allocations ── */
@@ -603,7 +615,7 @@ export async function GET(request: Request): Promise<Response> {
           periodName: period.period_name,
           dateRange: scopedRange,
           exportedAt,
-          vatMultiplier,
+          vatRate,
           // Straight from the suppliers table via the allocation join — never
           // keyed on the supplier's name.
           supplierColour: supplier.colour,
@@ -760,7 +772,9 @@ export async function GET(request: Request): Promise<Response> {
         alloc.capacity_days ?? 0,
         alloc.day_rate / 100,
         formulaCell(`IF(E${rowNum}="PR","Yes","No")`),
-        formulaCell(`(H${rowNum}*I${rowNum})*J${rowNum}`),
+        // Rounded to the penny per row — the money rule — so the sheet
+        // recalculates to the same total as the Schedule page.
+        formulaCell(`ROUND((H${rowNum}*I${rowNum})*J${rowNum},2)`),
         // Placeholder — replaced in pass 2 once VAT row is known
         formulaCell(`L${rowNum}`),
         // Column N, Platform Schedule only. A literal Y/N rather than a
@@ -806,7 +820,7 @@ export async function GET(request: Request): Promise<Response> {
         ws.getCell(`M${rowNum}`).value = '—'
       }
 
-      if (alloc.vat_applies && !isZeroCost) vatRows.push(rowNum)
+      if (alloc.vat_applies !== false && !isZeroCost) vatRows.push(rowNum)
     }
   }
 
@@ -986,9 +1000,12 @@ export async function GET(request: Request): Promise<Response> {
   ws.getCell(`I${currentRateRowNum}`).font = { bold: true, color: { argb: 'FF1B5E20' }, size: 10 }
 
   /* ── Pass 2: back-fill VAT formulas with the now-known VAT multiplier cell ── */
+  // Rounded to the penny per row, as computeRowMoneyPence does. L is already
+  // whole pence, so ROUND(L × 1.07082, 2) is exactly L + ROUND(L × 7.082%, 2):
+  // the row's VAT is what gets rounded.
   for (const rowNum of vatRows) {
     const cell = ws.getCell(rowNum, 13) // M column
-    cell.value = formulaCell(`L${rowNum}*$I$${vatMultiplierRowNum}`)
+    cell.value = formulaCell(`ROUND(L${rowNum}*$I$${vatMultiplierRowNum},2)`)
     cell.numFmt = '£#,##0.00'
   }
 
@@ -1007,7 +1024,7 @@ export async function GET(request: Request): Promise<Response> {
   // with the page's Total Platform Cost card to the penny. This file used to
   // compute its own versions and disagreed on two counts — it summed BAU and
   // NPC allocations the page excludes, and never applied VAT to ad-hoc items.
-  const totals = computeScheduleTotals(allocations, costItems, vatMultiplier)
+  const totals = computeScheduleTotals(allocations, costItems, vatRate)
 
   const resBaseVat = totals.resourcesVatPence / 100
   const adhocTotal = totals.adhocVatPence / 100
@@ -1181,7 +1198,7 @@ export async function GET(request: Request): Promise<Response> {
   const bySupplier = computeTotalsByGroup(
     allocations,
     (a) => a.supplier_name,
-    vatMultiplier,
+    vatRate,
     countsTowardHeadcount,
   )
   // Grouped by bucket rather than by raw value, so a deliberate 'unspecified'
@@ -1190,7 +1207,7 @@ export async function GET(request: Request): Promise<Response> {
   const byLocation = computeTotalsByGroup(
     allocations,
     (a) => locationBucket(a.resource_location),
-    vatMultiplier,
+    vatRate,
     countsTowardHeadcount,
   )
   // Location headcounts per supplier: the HEADCOUNT population, not the cost
@@ -1331,7 +1348,7 @@ export async function GET(request: Request): Promise<Response> {
   const byPlanview = computeTotalsByGroup(
     allocations,
     (a) => a.planview_code,
-    vatMultiplier,
+    vatRate,
     countsTowardHeadcount,
   )
   for (const pv of planviewRows) {
@@ -1490,9 +1507,17 @@ export async function GET(request: Request): Promise<Response> {
   ws3.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: filterLastCol } }
 
   for (const alloc of allocations) {
-    const total =
-      (alloc.utilisation_percent / 100) * (alloc.capacity_days ?? 0) * (alloc.day_rate / 100)
-    const vatInclusive = alloc.vat_applies ? total * vatMultiplier : total
+    // The shared money rule, in pence, then pounds for the cell — the same
+    // figures the Schedule page and the Summary tab are built from.
+    const money = computeRowMoneyPence({
+      capacityDays: alloc.capacity_days,
+      dayRatePence: alloc.day_rate,
+      utilisationPercent: alloc.utilisation_percent,
+      vatApplies: alloc.vat_applies !== false,
+      vatRateMilliPct: vatRate,
+    })
+    const total = money.basePence / 100
+    const vatInclusive = money.incVatPence / 100
     const r = ws3.addRow([
       alloc.role_title ?? '',
       alloc.resource_name,
@@ -1527,7 +1552,11 @@ export async function GET(request: Request): Promise<Response> {
   for (const item of costItems) {
     const amount = item.amount_pence / 100
     const vatInclusive =
-      item.cost_item_category === 'ADHOC' && item.vat_applies ? amount * vatMultiplier : amount
+      calcCostItemVat(
+        item.amount_pence,
+        item.cost_item_category === 'ADHOC' && item.vat_applies,
+        vatRate,
+      ) / 100
     const r = ws3.addRow([
       item.label, '', '', '', '',
       '', '', '', '', '', '',

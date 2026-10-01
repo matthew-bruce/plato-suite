@@ -24,8 +24,16 @@ import type {
   TeamAssignment,
   PlatformCostItem,
   ResourceLocation,
+  VatRateMilliPct,
 } from '@plato/schema'
-import { getSupabaseBrowserClient, computeUnallocatedPct, selectDefaultPeriod, countHeadcount } from '@plato/schema'
+import {
+  getSupabaseBrowserClient,
+  computeUnallocatedPct,
+  selectDefaultPeriod,
+  countHeadcount,
+  computeRowMoneyPence,
+  vatRateMilliPct,
+} from '@plato/schema'
 import {
   PageToolbar,
   PageToolbarSearch,
@@ -168,6 +176,25 @@ function formatUkDate(iso: string): string {
 
 type Allocation = ScheduleAllocation & { teams?: string[] }
 
+/**
+ * A row's base_total_pence / vat_total_pence (inc VAT), derived exactly as the
+ * schedule query derives them — so an optimistic update can never disagree
+ * with what the next fetch returns.
+ */
+function rowTotals(
+  a: Pick<ScheduleAllocation, 'capacity_days' | 'day_rate' | 'utilisation_percent' | 'vat_applies'>,
+  vatRate: VatRateMilliPct,
+): { base_total_pence: number; vat_total_pence: number } {
+  const money = computeRowMoneyPence({
+    capacityDays: a.capacity_days,
+    dayRatePence: a.day_rate,
+    utilisationPercent: a.utilisation_percent,
+    vatApplies: a.vat_applies !== false,
+    vatRateMilliPct: vatRate,
+  })
+  return { base_total_pence: money.basePence, vat_total_pence: money.incVatPence }
+}
+
 interface SortState {
   col: SortableCol | null
   dir: SortDir
@@ -193,7 +220,12 @@ export function SchedulePageClient({ data }: Props) {
     () => [...new Set(periodMonths.map((m) => m.year))].filter((y) => !yearsWithHolidayData.has(y)),
     [periodMonths, yearsWithHolidayData],
   )
-  const vatPct = costConfig?.vat_uplift_percent ?? 0
+  // The period's VAT rate as an exact integer (7082 for 7.082%) — every
+  // money figure on this page goes through computeRowMoneyPence with it.
+  const vatRate = useMemo(
+    () => vatRateMilliPct(costConfig?.vat_uplift_percent ?? 0),
+    [costConfig?.vat_uplift_percent],
+  )
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isPending] = useTransition()
@@ -439,7 +471,6 @@ export function SchedulePageClient({ data }: Props) {
         isIncludedInBaseCost(a.planview_code) ? sum + (a.vat_total_pence ?? 0) : sum,
       0,
     )
-    const vatMultiplier = 1 + vatPct / 100
 
     // Split cost items by category
     const adHocItems = localCostItems.filter((i) => i.cost_item_category === 'ADHOC')
@@ -448,10 +479,10 @@ export function SchedulePageClient({ data }: Props) {
     )
 
     // adHocVat: only ADHOC items (with VAT applied per item's vat_applies flag)
-    const adHocVat = adHocItems.reduce((sum, item) => {
-      const base = item.amount_pence
-      return sum + (item.vat_applies ? Math.round(base * vatMultiplier) : base)
-    }, 0)
+    const adHocVat = adHocItems.reduce(
+      (sum, item) => sum + calcCostItemVat(item.amount_pence, item.vat_applies, vatRate),
+      0,
+    )
 
     // ETP + SS total: read directly from DB rows (VAT already embedded in ETP figure)
     const etpAndSsPence = etpAndSsItems.reduce((sum, i) => sum + i.amount_pence, 0)
@@ -478,7 +509,7 @@ export function SchedulePageClient({ data }: Props) {
       calcRateIncEtp,
       headcount: countHeadcount(localAllocations),
     }
-  }, [localAllocations, localCostItems, vatPct])
+  }, [localAllocations, localCostItems, vatRate])
 
   // costConfig with the locally-edited blended rate folded in, so every reader
   // (KPI cards, team run-rate) reflects an in-session rate change immediately.
@@ -635,11 +666,7 @@ export function SchedulePageClient({ data }: Props) {
     setLocalAllocations((prev) => prev.map((a) => {
       if (a.allocation_id !== id) return a
       const next = { ...a, ...finalUpdates }
-      const days = next.capacity_days ?? 0
-      const base = Math.round(next.day_rate * days * (next.utilisation_percent / 100))
-      const vatApplies = next.vat_applies !== false
-      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
-      return { ...next, base_total_pence: base, vat_total_pence: vat }
+      return { ...next, ...rowTotals(next, vatRate) }
     }))
     const supabase = getSupabaseBrowserClient()
     const { error } = await supabase.from('resource_period_allocations').update(finalUpdates).eq('allocation_id', id)
@@ -656,9 +683,8 @@ export function SchedulePageClient({ data }: Props) {
    * waiting for a refetch. Mirrors handleUpdateAllocation's own maths.
    */
   function withRecalculatedTotals(a: Allocation, capacityDays: number): Allocation {
-    const base = Math.round(a.day_rate * capacityDays * (a.utilisation_percent / 100))
-    const vat = a.vat_applies !== false ? Math.round(base * (1 + vatPct / 100)) : base
-    return { ...a, capacity_days: capacityDays, base_total_pence: base, vat_total_pence: vat }
+    const next = { ...a, capacity_days: capacityDays }
+    return { ...next, ...rowTotals(next, vatRate) }
   }
 
   /**
@@ -740,15 +766,13 @@ export function SchedulePageClient({ data }: Props) {
         if (!figures) return next
         const dayRate = figures.dayRate ?? next.day_rate
         const capacityDays = figures.capacityDays ?? next.capacity_days
-        const base = Math.round(dayRate * (capacityDays ?? 0) * (next.utilisation_percent / 100))
-        return {
+        const updated = {
           ...next,
           day_rate: dayRate,
           capacity_days: capacityDays,
           monthly_days: figures.monthlyDays ?? next.monthly_days,
-          base_total_pence: base,
-          vat_total_pence: next.vat_applies !== false ? Math.round(base * (1 + vatPct / 100)) : base,
         }
+        return { ...updated, ...rowTotals(updated, vatRate) }
       }),
     )
   }
@@ -820,7 +844,13 @@ export function SchedulePageClient({ data }: Props) {
     // real value. Derived totals are computed the same way handleUpdateAllocation
     // does, so BASE/+VAT and every roll-up are right immediately.
     const utilisationPercent = 100
-    const base = Math.round(data.dayRate * data.capacityDays * (utilisationPercent / 100))
+    const money = computeRowMoneyPence({
+      capacityDays: data.capacityDays,
+      dayRatePence: data.dayRate,
+      utilisationPercent,
+      vatApplies: true,
+      vatRateMilliPct: vatRate,
+    })
     const newAlloc: Allocation = {
       allocation_id: data.allocationId,
       resource_id: data.resourceId ?? null,
@@ -840,8 +870,8 @@ export function SchedulePageClient({ data }: Props) {
       is_confirmed: false,
       monthly_days: data.monthlyDays,
       teams,
-      base_total_pence: base,
-      vat_total_pence: Math.round(base * (1 + vatPct / 100)),
+      base_total_pence: money.basePence,
+      vat_total_pence: money.incVatPence,
       display_order: data.displayOrder,
     }
     setLocalAllocations((prev) => [...prev, newAlloc])
@@ -1121,7 +1151,7 @@ export function SchedulePageClient({ data }: Props) {
         onToggle={toggleSupplier}
         sort={sort}
         onSort={onHeaderClick}
-        vatPct={vatPct}
+        vatRate={vatRate}
         locked={isLocked}
         activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
         searchQuery={search}
@@ -1201,7 +1231,7 @@ export function SchedulePageClient({ data }: Props) {
       // Copy view's grand totals equal the on-screen footer.
       costItems={filteredCostItems}
       includeCostItems={isUnfiltered}
-      vatPct={vatPct}
+      vatRate={vatRate}
       activeTeamFilter={teamFilter === 'all' || teamFilter === 'no-team' ? null : teamFilter}
       periodName={period.period_name}
       workingDays={workingDays}
@@ -1799,7 +1829,7 @@ function ScheduleTable({
   onToggle,
   sort,
   onSort,
-  vatPct,
+  vatRate,
   locked,
   activeTeamFilter,
   searchQuery,
@@ -1830,7 +1860,7 @@ function ScheduleTable({
   onToggle: (name: string | null) => void
   sort: SortState
   onSort: (col: SortableCol) => void
-  vatPct: number
+  vatRate: VatRateMilliPct
   locked: boolean
   searchQuery: string
   activeTeamFilter: string | null
@@ -1866,7 +1896,7 @@ function ScheduleTable({
   const footer = computeFooterTotals(groups.flatMap((g) => g.rows), costItems, {
     activeTeamFilter,
     includeCostItems: isUnfiltered,
-    vatPct,
+    vatRate,
   })
   // Cost items aren't part of any team/search/planview/location filter (they
   // don't belong to a resource), so they only count when the view is
@@ -1899,12 +1929,12 @@ function ScheduleTable({
           const base = g.rows.reduce((s, r) => {
             if (!isIncludedInBaseCost(r.planview_code)) return s
             const split = getCapacitySplit(r.teams, activeTeamFilter)
-            return s + Math.round((r.base_total_pence ?? 0) * split)
+            return s + (r.base_total_pence ?? 0) * split
           }, 0)
           const vat = g.rows.reduce((s, r) => {
             if (!isIncludedInBaseCost(r.planview_code)) return s
             const split = getCapacitySplit(r.teams, activeTeamFilter)
-            return s + Math.round((r.vat_total_pence ?? 0) * split)
+            return s + (r.vat_total_pence ?? 0) * split
           }, 0)
           const days = g.rows.reduce((s, r) => {
             if (!isIncludedInBaseCost(r.planview_code)) return s
@@ -1923,7 +1953,7 @@ function ScheduleTable({
               base={base}
               vat={vat}
               days={days}
-              vatPct={vatPct}
+              vatRate={vatRate}
               activeTeamFilter={activeTeamFilter}
               searchQuery={searchQuery}
               editingSchedule={editingSchedule}
@@ -1946,7 +1976,7 @@ function ScheduleTable({
           onUpdate={onUpdateCostItem}
           onDelete={onDeleteCostItem}
           onAdd={onAddCostItem}
-          vatPct={vatPct}
+          vatRate={vatRate}
           locked={locked}
         />}
         {isUnfiltered && (costItems.some(
@@ -1955,7 +1985,7 @@ function ScheduleTable({
           items={costItems.filter(
             (i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES',
           )}
-          vatPct={vatPct}
+          vatRate={vatRate}
           locked={locked}
           editingEtpSs={editingEtpSs}
           onToggleEditEtpSs={onToggleEditEtpSs}
@@ -2268,7 +2298,7 @@ function SupplierSection({
   base,
   vat,
   days,
-  vatPct,
+  vatRate,
   activeTeamFilter,
   searchQuery,
   editingSchedule,
@@ -2291,7 +2321,7 @@ function SupplierSection({
   base: number
   vat: number
   days: number
-  vatPct: number
+  vatRate: VatRateMilliPct
   activeTeamFilter: string | null
   searchQuery: string
   editingSchedule: boolean
@@ -2475,7 +2505,7 @@ function SupplierSection({
                     <AllocationRow
                       key={r.allocation_id}
                       row={r}
-                      vatPct={vatPct}
+                      vatRate={vatRate}
                       activeTeamFilter={activeTeamFilter}
                       searchQuery={searchQuery}
                       editingSchedule={editingSchedule}
@@ -2497,7 +2527,7 @@ function SupplierSection({
             <AllocationRow
               key={r.allocation_id}
               row={r}
-              vatPct={vatPct}
+              vatRate={vatRate}
               activeTeamFilter={activeTeamFilter}
               searchQuery={searchQuery}
               editingSchedule={editingSchedule}
@@ -2557,7 +2587,7 @@ function AdHocSection({
   onUpdate,
   onDelete,
   onAdd,
-  vatPct,
+  vatRate,
   locked,
 }: {
   items: PlatformCostItem[]
@@ -2566,12 +2596,12 @@ function AdHocSection({
   onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAdd: () => Promise<void>
-  vatPct: number
+  vatRate: VatRateMilliPct
   locked: boolean
 }) {
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
-  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatRate), 0)
   const { isPrivate } = usePrivacyMode()
   const blurStyle = privacyBlurStyle(isPrivate)
 
@@ -2680,7 +2710,7 @@ function AdHocSection({
           key={item.cost_item_id}
           item={item}
           editing={editingAdHoc}
-          vatPct={vatPct}
+          vatRate={vatRate}
           onUpdate={onUpdate}
           onDelete={onDelete}
         />
@@ -2732,7 +2762,7 @@ const ETP_SS_CATEGORY_OPTIONS: { value: string; label: string }[] = [
 
 function EtpSsSection({
   items,
-  vatPct,
+  vatRate,
   locked,
   editingEtpSs,
   onToggleEditEtpSs,
@@ -2741,7 +2771,7 @@ function EtpSsSection({
   onAdd,
 }: {
   items: PlatformCostItem[]
-  vatPct: number
+  vatRate: VatRateMilliPct
   locked: boolean
   editingEtpSs: boolean
   onToggleEditEtpSs: () => void
@@ -2751,7 +2781,7 @@ function EtpSsSection({
 }) {
   const [expanded, setExpanded] = useState(true)
   const base = items.reduce((s, item) => s + item.amount_pence, 0)
-  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatPct), 0)
+  const vat = items.reduce((s, item) => s + calcCostItemVat(item.amount_pence, item.vat_applies, vatRate), 0)
   const { isPrivate } = usePrivacyMode()
   const blurStyle = privacyBlurStyle(isPrivate)
 
@@ -2868,7 +2898,7 @@ function EtpSsSection({
             key={item.cost_item_id}
             item={item}
             editing={false}
-            vatPct={vatPct}
+            vatRate={vatRate}
             onUpdate={async () => {}}
             onDelete={async () => {}}
           />
@@ -3028,13 +3058,13 @@ function EtpSsEditRow({
 function AdHocRow({
   item,
   editing,
-  vatPct,
+  vatRate,
   onUpdate,
   onDelete,
 }: {
   item: PlatformCostItem
   editing: boolean
-  vatPct: number
+  vatRate: VatRateMilliPct
   onUpdate: (id: string, updates: Partial<Pick<PlatformCostItem, 'label' | 'amount_pence' | 'vat_applies' | 'notes' | 'is_confirmed'>>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }) {
@@ -3043,7 +3073,7 @@ function AdHocRow({
   useEffect(() => setLabelValue(item.label), [item.label])
   useEffect(() => setAmountValue((item.amount_pence / 100).toFixed(2)), [item.amount_pence])
 
-  const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatPct)
+  const vatTotal = calcCostItemVat(item.amount_pence, item.vat_applies, vatRate)
   const { isPrivate } = usePrivacyMode()
   const blurStyle = privacyBlurStyle(isPrivate)
 
@@ -3308,7 +3338,7 @@ function ConfirmedStatusIcon({ isConfirmed, name }: { isConfirmed: boolean; name
 
 function AllocationRow({
   row,
-  vatPct,
+  vatRate,
   activeTeamFilter,
   searchQuery,
   editingSchedule,
@@ -3321,7 +3351,7 @@ function AllocationRow({
   dragHandleSlot,
 }: {
   row: Allocation
-  vatPct: number
+  vatRate: VatRateMilliPct
   activeTeamFilter: string | null
   searchQuery: string
   editingSchedule: boolean
@@ -3417,16 +3447,22 @@ function AllocationRow({
   const tbc = !row.resource_name
 
   const rawDays = row.capacity_days ?? 0
-  const rawBase = row.base_total_pence ?? Math.round(row.day_rate * rawDays * (row.utilisation_percent / 100))
+  const fallback =
+    row.base_total_pence === undefined || row.vat_total_pence === undefined
+      ? rowTotals(row, vatRate)
+      : null
+  const rawBase = row.base_total_pence ?? fallback!.base_total_pence
+  const rawVat = row.vat_total_pence ?? fallback!.vat_total_pence
   const vatApplies = row.vat_applies !== false
-  const rawVat = row.vat_total_pence ?? (vatApplies ? Math.round(rawBase * (1 + vatPct / 100)) : rawBase)
 
   const split = getCapacitySplit(row.teams, activeTeamFilter)
   const isProportional = split < 1.0
 
   const displayDays = isProportional ? rawDays * split : rawDays
-  const displayBase = isProportional ? Math.round(rawBase * split) : rawBase
-  const displayVat = isProportional ? Math.round(rawVat * split) : rawVat
+  // Prorated, not rounded — formatMoney rounds at display, so this cell and
+  // the footer start from the same unrounded figure.
+  const displayBase = isProportional ? rawBase * split : rawBase
+  const displayVat = isProportional ? rawVat * split : rawVat
 
   const rowBg = isFGov
     ? 'rgba(243,146,13,0.035)'

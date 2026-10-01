@@ -372,6 +372,7 @@ Any deviation from the principles in this document requires an ADR before implem
 | 032 | Nullable resource_id for vacant schedule slots |
 | 033 | Authenticated access (Supabase Auth) for Nucleus and Tessera — supersedes 031, ADR-TESS-001 |
 | 034 | PlatoShell — single shared shell component, mandatory for all apps |
+| 036 | One money-rounding rule — per-row integer pence, half-up, VAT via integer rate in thousandths of a percent; round only at display |
 
 **Tessera-specific**
 | ADR | Title |

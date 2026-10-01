@@ -20,6 +20,7 @@
 // against a SOW, and a sprint cadence has no part in that.
 
 import type ExcelJS from 'exceljs'
+import type { VatRateMilliPct } from '@plato/schema'
 import { formulaCell } from './formulaCell'
 import {
   MONEY_FORMAT,
@@ -71,7 +72,8 @@ export interface SupplierScheduleSheetParams {
   periodName: string
   dateRange: string
   exportedAt: string
-  vatMultiplier: number
+  /** The period's VAT rate in thousandths of a percent (7082 for 7.082%). */
+  vatRate: VatRateMilliPct
   /**
    * The supplier's brand colour, read live from suppliers.supplier_colour —
    * never a per-name lookup, since the table is the source of truth and a
@@ -96,16 +98,15 @@ function statsLine(rows: readonly VariantAllocationRow[]): string {
   ].join('  ·  ')
 }
 
-/** "7.082%" from a 1.07082 multiplier — the rate the figures were built with. */
-export function formatVatRate(vatMultiplier: number): string {
-  const percent = (vatMultiplier - 1) * 100
-  return `${percent.toLocaleString('en-GB', { maximumFractionDigits: 3 })}%`
+/** "7.082%" from the integer rate (7082) the figures were built with. */
+export function formatVatRate(vatRate: VatRateMilliPct): string {
+  return `${(vatRate / 1000).toLocaleString('en-GB', { maximumFractionDigits: 3 })}%`
 }
 
 export function buildSupplierScheduleSheet(
   params: SupplierScheduleSheetParams,
 ): ScopedSheetResult {
-  const { ws, rows, supplierName, periodName, dateRange, exportedAt, vatMultiplier, supplierColour } =
+  const { ws, rows, supplierName, periodName, dateRange, exportedAt, vatRate, supplierColour } =
     params
 
   const columns = SUPPLIER_SCHEDULE_COLUMNS
@@ -161,7 +162,7 @@ export function buildSupplierScheduleSheet(
 
     // NPC rows list but price at zero, matching the Rate Calculator and the
     // Team Schedule — see supplierRowMoney.
-    const money = supplierRowMoney(alloc, vatMultiplier)
+    const money = supplierRowMoney(alloc, vatRate)
     writeMoneyCell(ws, row, indexOf('dayRate'), money.dayRatePence)
     writeMoneyCell(ws, row, indexOf('base'), money.basePence)
     writeMoneyCell(ws, row, indexOf('vat'), money.vatPence)
@@ -224,7 +225,7 @@ export function buildSupplierScheduleSheet(
 
   ws.getCell(row, 1).value = 'VAT rate applied'
   ws.getCell(row, 1).font = { bold: true, size: 10 }
-  ws.getCell(row, 2).value = formatVatRate(vatMultiplier)
+  ws.getCell(row, 2).value = formatVatRate(vatRate)
   ws.getCell(row, 2).font = { bold: true, size: 10 }
   row++
 

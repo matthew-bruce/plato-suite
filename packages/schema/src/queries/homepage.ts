@@ -7,6 +7,7 @@ import type { HomepageData, PeriodSummary, AttentionItem } from '../types/homepa
 import type { PeriodStatus } from '../types/schedule'
 import { countHeadcount } from '../utils/headcount'
 import { summariseHomepageCost } from '../utils/homepageCost'
+import { vatRateMilliPct } from '../utils/money'
 
 const WEB_PLATFORM_CODE = 'WEB'
 const INTERNAL_SUPPLIER_NAME = 'Royal Mail Group'
@@ -123,7 +124,7 @@ export async function getHomepageData(periodId?: string): Promise<HomepageData> 
         const supplier = resource ? pickFirst(resource.suppliers) : null
         return { ...row, isInternal: supplier?.supplier_name === INTERNAL_SUPPLIER_NAME }
       }),
-      vatPct,
+      vatRateMilliPct(vatPct),
     )
 
     const activePeriod: PeriodSummary = {

@@ -29,7 +29,8 @@ interface Row extends TotalsAllocation, PopulationRow {
   supplier_name: string | null
 }
 
-const VAT = 1.07082
+/** 7.082% as the integer rate (thousandths of a percent). */
+const VAT = 7082
 
 const alloc = (over: Partial<Row>): Row => ({
   planview_code: 'PR',

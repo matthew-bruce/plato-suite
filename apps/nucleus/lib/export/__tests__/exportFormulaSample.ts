@@ -154,7 +154,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
     ws.addRow([
       'Role', 'Person', 'WEB', 'Team', code, 'Org', 'Onshore', 1, 10, rate / 100,
       formulaCell(`IF(E${rowNum}="PR","Yes","No")`),
-      formulaCell(`(H${rowNum}*I${rowNum})*J${rowNum}`),
+      formulaCell(`ROUND((H${rowNum}*I${rowNum})*J${rowNum},2)`),
       formulaCell(`L${rowNum}`), // VAT placeholder, same as route.ts's pass 1
     ])
     perRowChargeable.push(`K${rowNum}`)
@@ -172,7 +172,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
   // row is known.
   for (const ref of perRowVat) {
     const r = parseInt(ref.slice(1), 10)
-    ws.getCell(`M${r}`).value = formulaCell(`L${r}*$I$${vatMultiplierRow}`)
+    ws.getCell(`M${r}`).value = formulaCell(`ROUND(L${r}*$I$${vatMultiplierRow},2)`)
   }
 
   const subtotalRow = ws.rowCount + 1
@@ -233,7 +233,7 @@ export function buildSampleExportWorkbook(): SampleWorkbook {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: 1.07082,
+    vatRate: 7082,
   })
 
   const formulaTotalsIn = (

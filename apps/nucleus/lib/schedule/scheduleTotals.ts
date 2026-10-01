@@ -20,10 +20,12 @@
 //   - ETP and Shared Services are taken as-is: their figures already embed
 //     VAT, so uplifting them would double-count.
 //
-// Everything is integer pence with per-row rounding, matching how the page
-// derives base_total_pence / vat_total_pence, so the two agree to the penny
-// rather than to the nearest pound.
+// Everything is integer pence via computeRowMoneyPence — the suite's one money
+// rule (docs/decisions/036-money-rounding.md) — exactly as the schedule query
+// derives base_total_pence / vat_total_pence, so the two agree to the penny.
 
+import { computeRowMoneyPence, type VatRateMilliPct } from '@plato/schema'
+import { calcCostItemVat } from './costItems'
 import { isIncludedInBaseCost, isChargeableRow, isCountedInHeadcount } from './ui'
 
 export interface TotalsAllocation {
@@ -67,18 +69,28 @@ export function includedAllocations<T extends TotalsAllocation>(allocations: T[]
   return allocations.filter((a) => isIncludedInBaseCost(a.planview_code))
 }
 
-/** One allocation's cost before VAT, in pence — the page's own formula. */
+function rowMoney(a: TotalsAllocation, vatRate: VatRateMilliPct) {
+  return computeRowMoneyPence({
+    capacityDays: a.capacity_days,
+    dayRatePence: a.day_rate,
+    utilisationPercent: a.utilisation_percent,
+    // `!== false` rather than a truthy check: the page treats a missing flag
+    // as "VAT applies", and so must this.
+    vatApplies: a.vat_applies !== false,
+    vatRateMilliPct: vatRate,
+  })
+}
+
+/** One allocation's cost before VAT, in pence. */
 export function allocationBasePence(a: TotalsAllocation): number {
-  return Math.round(a.day_rate * (a.capacity_days ?? 0) * (a.utilisation_percent / 100))
+  return rowMoney(a, 0).basePence
 }
 
 /** One allocation's cost after VAT, in pence. */
-export function allocationVatPence(a: TotalsAllocation, vatMultiplier: number): number {
-  const base = allocationBasePence(a)
-  // `!== false` rather than a truthy check: the page treats a missing flag as
-  // "VAT applies", and so must this.
-  return a.vat_applies !== false ? Math.round(base * vatMultiplier) : base
+export function allocationVatPence(a: TotalsAllocation, vatRate: VatRateMilliPct): number {
+  return rowMoney(a, vatRate).incVatPence
 }
+
 
 function isAdhoc(item: TotalsCostItem): boolean {
   return item.cost_item_category === 'ADHOC'
@@ -130,7 +142,7 @@ export interface GroupTotal {
 export function computeTotalsByGroup<T extends TotalsAllocation>(
   allocations: T[],
   keyOf: (allocation: T) => string | null | undefined,
-  vatMultiplier: number,
+  vatRate: VatRateMilliPct,
   countsTowardHeadcount: (allocation: T) => boolean = (a) =>
     isCountedInHeadcount(a.planview_code),
 ): Map<string, GroupTotal> {
@@ -148,8 +160,9 @@ export function computeTotalsByGroup<T extends TotalsAllocation>(
     const group = groups.get(key) ?? { count: 0, basePence: 0, vatPence: 0 }
     if (counts) group.count += 1
     if (costs) {
-      group.basePence += allocationBasePence(a)
-      group.vatPence += allocationVatPence(a, vatMultiplier)
+      const money = rowMoney(a, vatRate)
+      group.basePence += money.basePence
+      group.vatPence += money.incVatPence
     }
     groups.set(key, group)
   }
@@ -161,23 +174,24 @@ export function computeTotalsByGroup<T extends TotalsAllocation>(
 export const EMPTY_GROUP_TOTAL: GroupTotal = { count: 0, basePence: 0, vatPence: 0 }
 
 /**
- * @param vatMultiplier 1 + vat_uplift_percent/100 (e.g. 1.07082).
+ * @param vatRate the period's VAT rate in thousandths of a percent (7082 for
+ *   7.082%) — see vatRateMilliPct in @plato/schema.
  */
 export function computeScheduleTotals(
   allocations: TotalsAllocation[],
   costItems: TotalsCostItem[],
-  vatMultiplier: number,
+  vatRate: VatRateMilliPct,
 ): ScheduleTotals {
   const resourcesVatPence = allocations.reduce(
     (sum, a) =>
-      isIncludedInBaseCost(a.planview_code) ? sum + allocationVatPence(a, vatMultiplier) : sum,
+      isIncludedInBaseCost(a.planview_code) ? sum + allocationVatPence(a, vatRate) : sum,
     0,
   )
 
-  const adhocVatPence = costItems.reduce((sum, i) => {
-    if (!isAdhoc(i)) return sum
-    return sum + (i.vat_applies ? Math.round(i.amount_pence * vatMultiplier) : i.amount_pence)
-  }, 0)
+  const adhocVatPence = costItems.reduce(
+    (sum, i) => (isAdhoc(i) ? sum + calcCostItemVat(i.amount_pence, i.vat_applies, vatRate) : sum),
+    0,
+  )
 
   const etpSsPence = costItems.reduce(
     (sum, i) => (isEtpOrSharedServices(i) ? sum + i.amount_pence : sum),

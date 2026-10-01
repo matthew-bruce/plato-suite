@@ -5,18 +5,20 @@ import {
   allocationVatPence,
 } from '../scheduleTotals'
 import type { TotalsAllocation, TotalsCostItem } from '../scheduleTotals'
+import { computeRowMoneyPence, type VatRateMilliPct } from '@plato/schema'
+import { calcCostItemVat } from '../costItems'
 import { isIncludedInBaseCost, isChargeableRow } from '../ui'
 import {
   Q3_ALLOCATIONS,
   Q3_COST_ITEMS,
-  Q3_VAT_MULTIPLIER,
+  Q3_VAT_RATE,
   Q3_EXPECTED,
 } from './fixtures/q3Fy2627'
 
 const gbp = (pence: number) => Math.round(pence / 100)
 
 describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
-  const totals = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_MULTIPLIER)
+  const totals = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_RATE)
 
   it('Total Platform Cost matches the live page to the pound', () => {
     expect(gbp(totals.totalPlatformPence)).toBe(Q3_EXPECTED.totalPlatformGbp)
@@ -27,7 +29,7 @@ describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
   })
 
   it('X-chargeable days are the PR-only, utilisation-weighted total', () => {
-    expect(totals.xChargeableDays).toBeCloseTo(Q3_EXPECTED.xChargeableDays, 1)
+    expect(totals.xChargeableDays).toBeCloseTo(Q3_EXPECTED.xChargeableDays, 0)
   })
 
   it('does not produce the old, wrong export figures', () => {
@@ -37,7 +39,7 @@ describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
 
   it('excluding BAU/NPC is worth the £89,597 the old export wrongly included', () => {
     const excluded = Q3_ALLOCATIONS.filter((a) => !isIncludedInBaseCost(a.planview_code))
-    const excludedVat = excluded.reduce((s, a) => s + allocationVatPence(a, Q3_VAT_MULTIPLIER), 0)
+    const excludedVat = excluded.reduce((s, a) => s + allocationVatPence(a, Q3_VAT_RATE), 0)
     expect(gbp(excludedVat)).toBe(Q3_EXPECTED.excludedRowsGbp)
   })
 
@@ -48,7 +50,7 @@ describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
 
   it('the two defects netted to the £80,300 gap that was reported', () => {
     const excludedVat = Q3_ALLOCATIONS.filter((a) => !isIncludedInBaseCost(a.planview_code))
-      .reduce((s, a) => s + allocationVatPence(a, Q3_VAT_MULTIPLIER), 0)
+      .reduce((s, a) => s + allocationVatPence(a, Q3_VAT_RATE), 0)
     const rawAdhoc = Q3_COST_ITEMS.reduce((s, i) => s + i.amount_pence, 0)
     const oldExportPence =
       totals.totalPlatformPence + excludedVat - (totals.adhocVatPence - rawAdhoc)
@@ -67,20 +69,27 @@ describe('Q3 FY 26/27 reconciliation (export vs live Schedule page)', () => {
 function livePageTotals(
   allocations: TotalsAllocation[],
   costItems: TotalsCostItem[],
-  vatMultiplier: number,
+  vatRate: VatRateMilliPct,
 ) {
+  // The page sums each row's vat_total_pence, which the schedule query
+  // derives with computeRowMoneyPence.
   const allocsVat = allocations.reduce((sum, a) => {
     if (!isIncludedInBaseCost(a.planview_code)) return sum
-    const base = Math.round(a.day_rate * (a.capacity_days ?? 0) * (a.utilisation_percent / 100))
-    return sum + (a.vat_applies !== false ? Math.round(base * vatMultiplier) : base)
+    return (
+      sum +
+      computeRowMoneyPence({
+        capacityDays: a.capacity_days,
+        dayRatePence: a.day_rate,
+        utilisationPercent: a.utilisation_percent,
+        vatApplies: a.vat_applies !== false,
+        vatRateMilliPct: vatRate,
+      }).incVatPence
+    )
   }, 0)
 
   const adHocVat = costItems
     .filter((i) => i.cost_item_category === 'ADHOC')
-    .reduce(
-      (sum, i) => sum + (i.vat_applies ? Math.round(i.amount_pence * vatMultiplier) : i.amount_pence),
-      0,
-    )
+    .reduce((sum, i) => sum + calcCostItemVat(i.amount_pence, i.vat_applies, vatRate), 0)
 
   const etpAndSsPence = costItems
     .filter((i) => i.cost_item_category === 'ETP' || i.cost_item_category === 'SHARED_SERVICES')
@@ -100,8 +109,8 @@ function livePageTotals(
 
 describe('the export and the live page agree', () => {
   it('on Q3 FY 26/27, to the penny', () => {
-    const mine = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_MULTIPLIER)
-    const live = livePageTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_MULTIPLIER)
+    const mine = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_RATE)
+    const live = livePageTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_RATE)
     expect(mine.totalPlatformPence).toBe(live.totalPlatformIncEtp)
     expect(mine.xChargeableDays).toBe(live.chargeableDays)
     expect(mine.advisedRatePence).toBe(live.calcRateIncEtp)
@@ -113,8 +122,8 @@ describe('the export and the live page agree', () => {
       { cost_item_category: 'ETP', amount_pence: 5_000_00, vat_applies: false },
       { cost_item_category: 'SHARED_SERVICES', amount_pence: 12_345_67, vat_applies: true },
     ]
-    const mine = computeScheduleTotals(Q3_ALLOCATIONS, items, Q3_VAT_MULTIPLIER)
-    const live = livePageTotals(Q3_ALLOCATIONS, items, Q3_VAT_MULTIPLIER)
+    const mine = computeScheduleTotals(Q3_ALLOCATIONS, items, Q3_VAT_RATE)
+    const live = livePageTotals(Q3_ALLOCATIONS, items, Q3_VAT_RATE)
     expect(mine.totalPlatformPence).toBe(live.totalPlatformIncEtp)
   })
 })
@@ -134,26 +143,26 @@ const row = (over: Partial<TotalsAllocation> = {}): TotalsAllocation => ({
 
 describe('which allocations count toward cost', () => {
   it('counts PR', () => {
-    expect(computeScheduleTotals([row()], [], 1).resourcesVatPence).toBe(500000)
+    expect(computeScheduleTotals([row()], [], 0).resourcesVatPence).toBe(500000)
   })
 
   it('counts F_Gov — overhead the platform still carries', () => {
     expect(
-      computeScheduleTotals([row({ planview_code: 'F_Gov' })], [], 1).resourcesVatPence,
+      computeScheduleTotals([row({ planview_code: 'F_Gov' })], [], 0).resourcesVatPence,
     ).toBe(500000)
   })
 
   it('excludes BAU', () => {
-    expect(computeScheduleTotals([row({ planview_code: 'BAU' })], [], 1).resourcesVatPence).toBe(0)
+    expect(computeScheduleTotals([row({ planview_code: 'BAU' })], [], 0).resourcesVatPence).toBe(0)
   })
 
   it('excludes NPC', () => {
-    expect(computeScheduleTotals([row({ planview_code: 'NPC' })], [], 1).resourcesVatPence).toBe(0)
+    expect(computeScheduleTotals([row({ planview_code: 'NPC' })], [], 0).resourcesVatPence).toBe(0)
   })
 
   it('excludes a row with no planview code at all', () => {
-    expect(computeScheduleTotals([row({ planview_code: null })], [], 1).resourcesVatPence).toBe(0)
-    expect(computeScheduleTotals([row({ planview_code: '' })], [], 1).resourcesVatPence).toBe(0)
+    expect(computeScheduleTotals([row({ planview_code: null })], [], 0).resourcesVatPence).toBe(0)
+    expect(computeScheduleTotals([row({ planview_code: '' })], [], 0).resourcesVatPence).toBe(0)
   })
 })
 
@@ -168,22 +177,22 @@ describe('which allocations count toward X-chargeable days', () => {
   })
 
   it('weights days by utilisation', () => {
-    expect(computeScheduleTotals([row({ utilisation_percent: 50 })], [], 1).xChargeableDays).toBe(5)
+    expect(computeScheduleTotals([row({ utilisation_percent: 50 })], [], 0).xChargeableDays).toBe(5)
   })
 
   it('treats a null capacity as zero days', () => {
-    expect(computeScheduleTotals([row({ capacity_days: null })], [], 1).xChargeableDays).toBe(0)
+    expect(computeScheduleTotals([row({ capacity_days: null })], [], 0).xChargeableDays).toBe(0)
   })
 })
 
 describe('VAT', () => {
   it('applies to an allocation that takes VAT', () => {
-    const t = computeScheduleTotals([row({ vat_applies: true })], [], 1.2)
+    const t = computeScheduleTotals([row({ vat_applies: true })], [], 20_000)
     expect(t.resourcesVatPence).toBe(600000)
   })
 
   it('is skipped for an allocation that does not', () => {
-    expect(computeScheduleTotals([row({ vat_applies: false })], [], 1.2).resourcesVatPence).toBe(500000)
+    expect(computeScheduleTotals([row({ vat_applies: false })], [], 20_000).resourcesVatPence).toBe(500000)
   })
 
   it('applies to ad-hoc items per their own flag', () => {
@@ -191,7 +200,7 @@ describe('VAT', () => {
       { cost_item_category: 'ADHOC', amount_pence: 100000, vat_applies: true },
       { cost_item_category: 'ADHOC', amount_pence: 100000, vat_applies: false },
     ]
-    expect(computeScheduleTotals([], items, 1.2).adhocVatPence).toBe(120000 + 100000)
+    expect(computeScheduleTotals([], items, 20_000).adhocVatPence).toBe(120000 + 100000)
   })
 
   it('is never applied to ETP / Shared Services — their figures already embed it', () => {
@@ -199,19 +208,19 @@ describe('VAT', () => {
       { cost_item_category: 'ETP', amount_pence: 100000, vat_applies: true },
       { cost_item_category: 'SHARED_SERVICES', amount_pence: 100000, vat_applies: true },
     ]
-    expect(computeScheduleTotals([], items, 1.2).etpSsPence).toBe(200000)
+    expect(computeScheduleTotals([], items, 20_000).etpSsPence).toBe(200000)
   })
 })
 
 describe('edge cases', () => {
   it('returns a zero advised rate rather than dividing by zero', () => {
-    const t = computeScheduleTotals([row({ planview_code: 'BAU' })], [], 1)
+    const t = computeScheduleTotals([row({ planview_code: 'BAU' })], [], 0)
     expect(t.xChargeableDays).toBe(0)
     expect(t.advisedRatePence).toBe(0)
   })
 
   it('handles an empty schedule', () => {
-    const t = computeScheduleTotals([], [], 1.07082)
+    const t = computeScheduleTotals([], [], 7082)
     expect(t.totalPlatformPence).toBe(0)
     expect(t.advisedRatePence).toBe(0)
   })

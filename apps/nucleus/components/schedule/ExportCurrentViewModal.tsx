@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import type { VatRateMilliPct } from '@plato/schema'
 import { X, Copy, Check } from 'lucide-react'
 import { costCellDecoration, formatDaysTotal, formatMoney } from '@/lib/schedule/ui'
 import {
@@ -52,7 +53,8 @@ export interface ExportCurrentViewModalProps {
   costItems: ExportCostItem[]
   /** The page's isUnfiltered — cost items show only then, as on the page. */
   includeCostItems: boolean
-  vatPct: number
+  /** The period's VAT rate in thousandths of a percent (7082 for 7.082%). */
+  vatRate: VatRateMilliPct
   /** Team filter value ('all'/'no-team' already normalised to null by the caller). */
   activeTeamFilter: string | null
   periodName: string
@@ -65,7 +67,7 @@ export function ExportCurrentViewModal({
   rows,
   costItems,
   includeCostItems,
-  vatPct,
+  vatRate,
   activeTeamFilter,
   periodName,
   workingDays,
@@ -77,8 +79,8 @@ export function ExportCurrentViewModal({
   const sortedRows = useMemo(() => sortExportRows(rows, sort.col, sort.dir), [rows, sort])
 
   const view = useMemo(
-    () => buildCopyView(sortedRows, costItems, { activeTeamFilter, includeCostItems, vatPct }),
-    [sortedRows, costItems, activeTeamFilter, includeCostItems, vatPct],
+    () => buildCopyView(sortedRows, costItems, { activeTeamFilter, includeCostItems, vatRate }),
+    [sortedRows, costItems, activeTeamFilter, includeCostItems, vatRate],
   )
 
   if (!open) return null

@@ -11,11 +11,12 @@
 // Rows are [planview, utilisation %, capacity days, day rate pence,
 // vat_applies, supplier, location], location in the database's own lower case.
 
+import { vatRateMilliPct } from '@plato/schema'
 import type { TotalsCostItem } from '../../scheduleTotals'
 import type { LocatedAllocation } from './q4Fy2526'
 
 export const Q2_VAT_UPLIFT_PERCENT = 7.082
-export const Q2_VAT_MULTIPLIER = parseFloat((1 + Q2_VAT_UPLIFT_PERCENT / 100).toFixed(5))
+export const Q2_VAT_RATE = vatRateMilliPct(Q2_VAT_UPLIFT_PERCENT)
 
 type RawRow = [string, number, number, number, number, string, string]
 

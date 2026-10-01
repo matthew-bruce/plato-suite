@@ -701,7 +701,7 @@ describe('sumChargeableDays', () => {
     ]
 
     const fromSumChargeableDays = sumChargeableDays(groupOf(mixed), null)
-    const fromXChargeableDays = computeScheduleTotals(mixed, [], 1).xChargeableDays
+    const fromXChargeableDays = computeScheduleTotals(mixed, [], 0).xChargeableDays
 
     expect(fromSumChargeableDays).toBeCloseTo(fromXChargeableDays, 10)
     // Concretely: (32*0.9) + (20*1.0) = 28.8 + 20 = 48.8. F_Gov/BAU/NPC excluded.

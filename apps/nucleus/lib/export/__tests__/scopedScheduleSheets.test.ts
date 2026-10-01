@@ -15,7 +15,8 @@ import {
 } from '../scheduleVariantRows'
 import type { VariantAllocationRow } from '../scheduleVariantRows'
 
-const VAT = 1.07082
+/** 7.082% as the integer rate the sheets are built with. */
+const VAT = 7082
 const BLENDED = 60_500
 
 const PLUTO_ROWS = SCOPED_SHEET_FIXTURE.filter((r) =>
@@ -49,7 +50,7 @@ function buildSupplierSheet() {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 10 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
+    vatRate: VAT,
   })
   return { ws, result }
 }
@@ -352,7 +353,7 @@ describe('Supplier Schedule — an all-NPC supplier totals zero', () => {
       periodName: 'Q3 FY 26/27',
       dateRange: '01 Oct 2026 – 31 Dec 2026',
       exportedAt: 'Exported 15 Sep 2026 at 09:00',
-      vatMultiplier: VAT,
+      vatRate: VAT,
     })
     return { ws, result }
   }
@@ -407,7 +408,7 @@ describe('Supplier Schedule — a mixed supplier counts only the costed rows', (
     const ws = wb.addWorksheet('M')
     const result = buildSupplierScheduleSheet({
       ws, rows, supplierName: 'Mixed', periodName: 'Q3 FY 26/27',
-      dateRange: '01 Oct 2026 – 31 Dec 2026', exportedAt: 'x', vatMultiplier: VAT,
+      dateRange: '01 Oct 2026 – 31 Dec 2026', exportedAt: 'x', vatRate: VAT,
     })
 
     const [pr, fgov, bau, npc] = [0, 1, 2, 3].map((i) => result.firstDataRow + i)
@@ -793,7 +794,7 @@ describe('Supplier Schedule is deliberately NOT prorated by team', () => {
       periodName: 'Q3 FY 26/27',
       dateRange: '01 Oct 2026 – 31 Dec 2026',
       exportedAt: 'Exported 10 Sep 2026 at 09:00',
-      vatMultiplier: VAT,
+      vatRate: VAT,
     })
     return { ws, result, rows }
   }
@@ -903,7 +904,7 @@ function buildVatSupplierSheet(rows: VariantAllocationRow[]) {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 11 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
+    vatRate: VAT,
   })
   return { ws, result, rows }
 }
@@ -1151,7 +1152,7 @@ function buildColourSheet(colour: string | null, supplierName = 'Capgemini') {
     periodName: 'Q3 FY 26/27',
     dateRange: '01 Oct 2026 – 31 Dec 2026',
     exportedAt: 'Exported 11 Sep 2026 at 09:00',
-    vatMultiplier: VAT,
+    vatRate: VAT,
     supplierColour: colour,
   })
   return { ws, result }

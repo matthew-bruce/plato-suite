@@ -42,17 +42,6 @@ export function workingDaysBetween(startISO: string, endISO: string): number {
   return days
 }
 
-// VAT total for an allocation. Internal supplier rows do not attract
-// irrecoverable VAT — only external suppliers do.
-export function computeVatTotalPence(
-  basePence: number,
-  vatUpliftPercent: number,
-  isInternal: boolean,
-): number {
-  if (isInternal) return basePence
-  return Math.round(basePence * (1 + vatUpliftPercent / 100))
-}
-
 // Short quarter label e.g. "Q4 FY 25/26" → "Q4 25/26"
 export function shortQuarterLabel(periodName: string): string {
   return periodName.replace(/\s*FY\s*/i, ' ').replace(/\s+/g, ' ').trim()
