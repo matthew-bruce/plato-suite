@@ -24,6 +24,8 @@ import {
   type GroupMode,
   type ViewMode,
   STATUS_LABELS,
+  barLabel,
+  bookedDaysLine,
   buildGroups,
   buildQuarterSpans,
   countHidden,
@@ -32,16 +34,20 @@ import {
   formatLongDate,
   formatMonthLabel,
   gapGeometry,
+  headerSplitPositions,
   insetSegmentPosition,
+  isBandedQuarter,
   percentOf,
+  quarterBands,
   renderedGroupNames,
   resolveAvatarColours,
   segmentGeometry,
-  segmentLabel,
+  segmentJoins,
   segmentTouchInsets,
   supplierStripe,
   supplierTint,
   toggleTeamSelection,
+  unscheduledTooltip,
   weekLinePositions,
 } from '@/lib/resource-timeline/presentation'
 import { buildStandaloneHtml } from '@/lib/resource-timeline/exportHtml'
@@ -66,6 +72,8 @@ interface TooltipState {
   y: number
   name: string
   sub: string
+  /** Second neutral line under `sub` — the days-bought line on scheduled pieces. */
+  detail?: string | null
   rows: { label: string; value: string }[]
   flag: string | null
 }
@@ -316,7 +324,16 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
       label.style.display = ''
       if (dates) dates.style.display = ''
 
-      const width = bar.clientWidth
+      // A bar's label sits on its first piece but may run across the pieces
+      // joined to it, so fit against the whole bar, not just the first piece.
+      let width = bar.clientWidth
+      for (
+        let next = bar.nextElementSibling;
+        next instanceof HTMLElement && next.classList.contains(styles.joinPrev!);
+        next = next.nextElementSibling
+      ) {
+        width += next.clientWidth
+      }
       if (width < 34) {
         label.style.display = 'none'
         continue
@@ -339,6 +356,18 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
 
   const showSegmentTooltip = useCallback(
     (event: React.MouseEvent, resource: TimelineResource, segment: TimelineSegment) => {
+      if (segment.unscheduled) {
+        setTooltip({
+          x: event.clientX,
+          y: event.clientY,
+          name: resource.name,
+          sub: unscheduledTooltip(segment),
+          rows: [],
+          flag: null,
+        })
+        return
+      }
+
       const rows: { label: string; value: string }[] = []
       if (segment.realStart) rows.push({ label: 'From', value: formatLongDate(segment.start) })
       if (segment.realEnd) rows.push({ label: 'To', value: formatLongDate(segment.end) })
@@ -365,6 +394,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
         y: event.clientY,
         name: resource.name,
         sub: `${supplierNameOf(data, segment.supplier)}${segment.code === 'NPC' ? ' · Hypercare' : ''}`,
+        detail: bookedDaysLine(segment.bookedDays),
         rows,
         flag,
       })
@@ -401,6 +431,11 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
     [data.windowStart, data.windowEnd],
   )
 
+  const bands = useMemo(
+    () => quarterBands(data.windowStart, data.windowEnd),
+    [data.windowStart, data.windowEnd],
+  )
+
   const quarterSpans = useMemo(
     () =>
       buildQuarterSpans(
@@ -412,13 +447,16 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
     [data.months, data.granularWindowStart, data.coarsePeriodName, data.granularPeriodName],
   )
 
+  const headerSplits = useMemo(() => headerSplitPositions(quarterSpans), [quarterSpans])
+
   return (
     <div className={styles.page} style={cssVars}>
       <div className={styles.titleRow}>
         <h1 className={styles.title}>Resource Timeline</h1>
         <p className={styles.subtitle}>
           {visible.length} of {data.resources.length} resources · {data.coarsePeriodName} –{' '}
-          {data.granularPeriodName} · supplier coverage derived from booked days
+          {data.granularPeriodName} · supplier coverage derived from{' '}
+          {data.source === 'legacy' ? 'booked days' : 'engagements'}
         </p>
       </div>
 
@@ -649,10 +687,15 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                 )}
               </div>
               <div className={styles.quarterRow}>
+                {/* Rendered before the cells so it never becomes :last-child
+                    and takes the last cell's border rule away. */}
+                <HeaderSplits positions={headerSplits} />
                 {quarterSpans.map((span) => (
                   <div
                     key={span.label}
-                    className={styles.quarterCell}
+                    className={`${styles.quarterCell} ${
+                      span.months[0] && isBandedQuarter(span.months[0]) ? styles.quarterCellBanded : ''
+                    }`}
                     style={{ flex: span.months.length }}
                   >
                     {span.label}
@@ -660,6 +703,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                 ))}
               </div>
               <div className={styles.monthRow}>
+                <HeaderSplits positions={headerSplits} />
                 {data.months.map((month) => (
                   <div key={month} className={styles.monthCell}>
                     {formatMonthLabel(month)}
@@ -774,6 +818,7 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                         onClick={() => toggleGroup(group.name)}
                         aria-hidden="true"
                       >
+                        <QuarterBands bands={bands} />
                         <WeekLines positions={weekLines} />
                         <ColumnLines count={monthCount} />
                       </div>
@@ -783,8 +828,10 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                           activeSuppliers.has(s.supplier),
                         )
                         const touchInsets = segmentTouchInsets(segments)
+                        const joins = segmentJoins(segments)
                         return (
                           <div key={resource.resourceId} className={styles.resRightRow}>
+                            <QuarterBands bands={bands} />
                             <WeekLines positions={weekLines} />
                             <ColumnLines count={monthCount} />
                             <div className={styles.track} />
@@ -823,14 +870,15 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                                 touchInsets[index]!,
                               )
                               const colour = supplierColours.get(segment.supplier) ?? '#8F9495'
-                              const { text, dates } = segmentLabel(segment)
+                              const label = barLabel(segments, index)
+                              const join = joins[index]!
 
                               return (
                                 <div
                                   key={`${segment.supplier}-${segment.code}-${segment.start}`}
                                   className={`${styles.seg} ${segment.code === 'NPC' ? styles.hyper : ''} ${
                                     segment.tentative ? styles.tentative : ''
-                                  }`}
+                                  } ${join.joinsPrevious ? styles.joinPrev : ''} ${join.joinsNext ? styles.joinNext : ''}`}
                                   style={
                                     {
                                       left,
@@ -844,11 +892,32 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                                   onMouseMove={moveTooltip}
                                   onMouseLeave={hideTooltip}
                                 >
-                                  <span className={styles.segLabel}>
-                                    {text}
-                                    {dates && <span className={styles.segDates}>{dates}</span>}
-                                  </span>
+                                  {label && (
+                                    <span className={styles.segLabel}>
+                                      {label.text}
+                                      {label.dates && <span className={styles.segDates}>{label.dates}</span>}
+                                    </span>
+                                  )}
                                 </div>
+                              )
+                            })}
+
+                            {/* Unscheduled marker: dotted underline spanning
+                                exactly the unscheduled piece, inside the row's
+                                existing bottom padding — the bar is unchanged. */}
+                            {segments.map((segment, index) => {
+                              if (!segment.unscheduled) return null
+                              const { left, width } = insetSegmentPosition(
+                                segmentGeometry(segment, data.windowStart, data.windowEnd),
+                                touchInsets[index]!,
+                              )
+                              return (
+                                <div
+                                  key={`unscheduled-${segment.supplier}-${segment.start}`}
+                                  className={styles.unscheduledMarker}
+                                  style={{ left, width }}
+                                  aria-hidden="true"
+                                />
                               )
                             })}
 
@@ -930,6 +999,34 @@ function WeekLines({ positions }: { positions: number[] }) {
   )
 }
 
+/* Alternating quarter band (Q1/Q3 of each financial year) — the first layer
+   in each row, so grid lines and bars always draw over it. */
+function QuarterBands({ bands }: { bands: { left: number; width: number }[] }) {
+  return (
+    <>
+      {bands.map((band) => (
+        <div
+          key={band.left}
+          className={styles.quarterBand}
+          style={{ left: `${band.left}%`, width: `${band.width}%` }}
+          aria-hidden="true"
+        />
+      ))}
+    </>
+  )
+}
+
+/* 3px page-background split at each quarter boundary — header rows only. */
+function HeaderSplits({ positions }: { positions: number[] }) {
+  return (
+    <>
+      {positions.map((left) => (
+        <div key={left} className={styles.headerSplit} style={{ left: `${left}%` }} aria-hidden="true" />
+      ))}
+    </>
+  )
+}
+
 function Tooltip({ state }: { state: TooltipState }) {
   // Flip before the viewport edge rather than after, so the tooltip never
   // forces the page to scroll to show itself.
@@ -940,6 +1037,7 @@ function Tooltip({ state }: { state: TooltipState }) {
     <div className={styles.tooltip} style={{ left, top }} role="tooltip">
       <div className={styles.ttName}>{state.name}</div>
       {state.sub && <div className={styles.ttSub}>{state.sub}</div>}
+      {state.detail && <div className={styles.ttSub}>{state.detail}</div>}
       {state.rows.map((row) => (
         <div key={row.label} className={styles.ttRow}>
           <span>{row.label}</span>

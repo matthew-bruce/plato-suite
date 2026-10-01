@@ -364,6 +364,7 @@
    that's reserved for the month row below it. Owns the header box's rounded
    top corners, since it's now the topmost row. */
 .quarterRow {
+  position: relative;
   display: flex;
   height: 20px;
   background: var(--rmg-color-grey-4);
@@ -387,12 +388,33 @@
   border-right: none;
 }
 
+/* Banded quarter (Q1/Q3 of the financial year) — same tint as its band in
+   the track below. */
+.quarterCellBanded {
+  background: var(--rmg-color-tint-neutral);
+}
+
+/* 3px split in the page background colour at each quarter boundary, in the
+   quarter and month header rows only — never in the track. Absolutely
+   positioned and centred on the boundary, so no column moves. */
+.headerSplit {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--rmg-color-surface-light);
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* Pastel tint (§ RMG palette) rather than plain white — this is the row that
    should read as a distinct, detailed header band. Yellow is unused
    elsewhere on this page: supplier identity uses blue/purple/orange/navy,
    and tint-red is reserved for the today line/label, so a red-tinted month
    row would compete with it rather than sit quietly behind it. */
 .monthRow {
+  position: relative;
   display: flex;
   height: 26px;
   background: var(--rmg-color-tint-yellow);
@@ -445,7 +467,8 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
+  width: 2px;
+  margin-left: -1px;
   background: var(--rmg-color-red);
   z-index: 15;
   pointer-events: none;
@@ -677,6 +700,16 @@
   transition: height 150ms ease, opacity 130ms ease;
 }
 
+/* Alternating quarter band — the first child of each track row, so the grid
+   lines and bars drawn after it always sit on top. */
+.quarterBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--rmg-color-tint-neutral);
+  pointer-events: none;
+}
+
 .colLines {
   position: absolute;
   inset: 0;
@@ -760,6 +793,39 @@
   );
 }
 
+/* Pieces of one continuous bar (same engagement, touching): square inner
+   corners, no accent or outline on the joined edge. Only the bar's outer
+   ends are rounded, and only its first piece carries the accent. */
+.seg.joinPrev {
+  border-left-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(0, 0, 0, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+    inset -1px 0 0 rgba(0, 0, 0, 0.04);
+}
+
+.seg.joinNext {
+  /* The bar's label lives on its first piece and may run on across the
+     pieces joined to it (see fitLabels), so let it out and keep it above
+     them. */
+  overflow: visible;
+  z-index: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(0, 0, 0, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04),
+    inset 1px 0 0 rgba(0, 0, 0, 0.04);
+}
+
+.seg.joinPrev.joinNext {
+  box-shadow:
+    inset 0 1px 0 rgba(0, 0, 0, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+
 .seg:hover {
   filter: brightness(0.96);
   z-index: 20;
@@ -775,6 +841,10 @@
   letter-spacing: 0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.seg.joinNext .segLabel {
+  flex-shrink: 0;
 }
 
 .segDates {
@@ -796,6 +866,20 @@
     transparent 6px
   );
   z-index: 5;
+}
+
+/* Unscheduled — on the platform (inside an engagement) with no schedule row
+   for the period. A 2px dotted line 3px below the bar's bottom edge: .seg
+   ends 6px above the row's bottom, so the line sits 1px above it, entirely
+   inside the existing padding. Square ends, no radius. Never changes the
+   bar itself or the row's height. */
+.unscheduledMarker {
+  position: absolute;
+  bottom: 1px;
+  height: 0;
+  border-top: 2px dotted var(--rmg-color-text-light);
+  border-radius: 0;
+  pointer-events: none;
 }
 
 .flagDot {

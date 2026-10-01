@@ -48,6 +48,7 @@ export type {
   TransitionStatus,
   CoverageGap,
   IsoDate,
+  BookedDays,
 } from './types/resourceTimeline'
 
 export {

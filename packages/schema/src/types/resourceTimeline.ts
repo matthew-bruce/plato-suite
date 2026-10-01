@@ -8,13 +8,14 @@
 
 import type { CoverageGap } from '../lib/resource-timeline/deriveSegments'
 import type {
+  BookedDays,
   IsoDate,
   TimelineSegment,
   TransitionCategory,
   TransitionStatus,
 } from '../lib/resource-timeline/types'
 
-export type { CoverageGap, IsoDate, TimelineSegment, TransitionCategory, TransitionStatus }
+export type { BookedDays, CoverageGap, IsoDate, TimelineSegment, TransitionCategory, TransitionStatus }
 
 export interface TimelineTeam {
   teamName: string
@@ -54,6 +55,13 @@ export interface TimelineResource {
    * is showing it for review. See lib/resource-timeline/presentation.ts.
    */
   hiddenFromTimeline: boolean
+  /**
+   * Suppliers of the engagements that intersect the visible window, in
+   * chronological order with consecutive repeats collapsed. Set by the
+   * engagement engine only; drives the avatar split colour. Absent on legacy
+   * output, where the avatar falls back to the segments.
+   */
+  windowSuppliers?: string[]
 }
 
 export interface ResourceTimelineData {
@@ -76,4 +84,9 @@ export interface ResourceTimelineData {
    * different lengths.
    */
   granularWindowStart: IsoDate
+  /**
+   * Which engine built this dataset. Drives copy only (the subtitle). Absent
+   * on data built before the dual-running switch existed.
+   */
+  source?: 'engagements' | 'legacy'
 }

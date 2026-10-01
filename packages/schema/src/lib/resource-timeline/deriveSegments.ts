@@ -523,7 +523,7 @@ export function deriveGaps(
 
 /* ── Classification ────────────────────────────────────────────────── */
 
-const CATEGORY_LABELS: Record<string, string> = {
+export const CATEGORY_LABELS: Record<string, string> = {
   transitioned: 'Transitioned to TCS',
   signed_tbc: 'Signed with TCS — start date TBC',
   established: 'Established at TCS (no CG history)',

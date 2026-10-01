@@ -61,6 +61,10 @@
   --rmg-color-tint-green:  #C1E3C1;
   --rmg-color-tint-red:    #F8E7E7;
   --rmg-color-tint-success: #E0EDD6;
+  /* Neutral tint: a faint translucent grey that reads as a light band over
+     white and a slightly deeper one over grey surfaces, so one token can mark
+     the same thing on both (first use: Resource Timeline quarter bands). */
+  --rmg-color-tint-neutral: rgba(64, 64, 68, 0.05);
 
   /* ----------------------------------------------------------
      COLOURS — Surface / utility

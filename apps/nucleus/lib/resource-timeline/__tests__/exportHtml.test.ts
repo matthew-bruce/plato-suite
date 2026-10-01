@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { ResourceTimelineData, TimelineResource } from '@plato/schema'
 import { buildStandaloneHtml } from '../exportHtml'
+import { unscheduledTooltip } from '../presentation'
 
 function resource(overrides: Partial<TimelineResource> = {}): TimelineResource {
   return {
@@ -227,12 +228,12 @@ describe('buildStandaloneHtml', () => {
 
   it('insets adjacent segments in the export the same way as the live page, and leaves a lone one alone', () => {
     const html = buildStandaloneHtml(data(), OPTIONS)
-    expect(html).toContain('"touchInsetPx":2')
+    expect(html).toContain('"touchInsetPx":3')
 
     // Run the export's own inlined touchInsets() rather than re-implementing it.
     const source = html.slice(html.indexOf('function nextDay('), html.indexOf('function fmtShort('))
     const touchInsets = new Function('DATA', 'DAY', `${source}; return touchInsets;`)(
-      { touchInsetPx: 2 },
+      { touchInsetPx: 3 },
       86_400_000,
     ) as (segs: { start: string; end: string }[]) => { left: number; right: number }[]
 
@@ -242,10 +243,133 @@ describe('buildStandaloneHtml', () => {
         { start: '2026-10-01', end: '2026-12-31' },
       ]),
     ).toEqual([
-      { left: 0, right: 2 },
-      { left: 2, right: 0 },
+      { left: 0, right: 3 },
+      { left: 0, right: 0 },
     ])
     expect(touchInsets([{ start: '2026-07-01', end: '2026-09-30' }])).toEqual([{ left: 0, right: 0 }])
+  })
+
+  it('keeps pieces of one engagement touching in the export — no inset between them', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    const source = html.slice(html.indexOf('function nextDay('), html.indexOf('function fmtShort('))
+    const touchInsets = new Function('DATA', 'DAY', `${source}; return touchInsets;`)(
+      { touchInsetPx: 3 },
+      86_400_000,
+    ) as (segs: { start: string; end: string; engagementId?: string }[]) => { left: number; right: number }[]
+
+    expect(
+      touchInsets([
+        { start: '2026-09-08', end: '2026-09-30', engagementId: 'e1' },
+        { start: '2026-10-01', end: '2026-12-31', engagementId: 'e1' },
+      ]),
+    ).toEqual([
+      { left: 0, right: 0 },
+      { left: 0, right: 0 },
+    ])
+    expect(
+      touchInsets([
+        { start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' },
+        { start: '2026-10-01', end: '2026-12-31', engagementId: 'e2' },
+      ]),
+    ).toEqual([
+      { left: 0, right: 3 },
+      { left: 0, right: 0 },
+    ])
+  })
+
+  it('renders the unscheduled marker and its tooltip from the engine output alone', () => {
+    const unscheduled = resource({
+      segments: [
+        {
+          supplier: 'TCS',
+          code: 'REG',
+          start: '2026-09-08',
+          end: '2026-09-30',
+          realStart: true,
+          realEnd: false,
+          tentative: false,
+          flag: null,
+          commercialStartMismatch: null,
+          engagementId: 'e1',
+          unscheduled: true,
+        },
+      ],
+      gaps: [],
+    })
+    const html = buildStandaloneHtml(data({ resources: [unscheduled] }), OPTIONS)
+
+    // The piece travels in the embedded data; the runtime draws the marker.
+    expect(html).toContain('"unscheduled":true')
+    expect(html).toContain("if (s.unscheduled) bars += '<div class=\"unscheduled-marker\"")
+    expect(html).toMatch(/\.unscheduled-marker\{[^}]*border-top:2px dotted var\(--rmg-color-text-light\)/)
+
+    const source = html.slice(html.indexOf('function fmtShort('), html.indexOf('function disciplineOf('))
+    const tip = new Function(`${source}; return unscheduledTip;`)() as (s: { start: string; end: string }) => string
+    // Identical to the live page's tooltip text.
+    expect(tip({ start: '2026-09-08', end: '2026-09-30' })).toBe(
+      unscheduledTooltip({ start: '2026-09-08', end: '2026-09-30' }),
+    )
+  })
+
+  it('carries the quarter band, header split, banded quarter cell and 2px red today line', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    // Q2 + Q3 window: one band (Q3), one split at the 3-of-6-month boundary.
+    expect(html).toMatch(/"quarterBands":\[\{"left":[\d.]+,"width":[\d.]+\}\]/)
+    expect(html).toContain('"headerSplits":[50]')
+    expect(html).toContain('"label":"Q3 FY 26/27","monthCount":3,"banded":true')
+    expect(html).toContain('"label":"Q2 FY 26/27","monthCount":3,"banded":false')
+    expect(html).toMatch(/\.quarter-band\{[^}]*background:var\(--rmg-color-tint-neutral\)/)
+    expect(html).toMatch(/\.header-split\{[^}]*width:3px[^}]*background:var\(--rmg-color-surface-light\)/)
+    expect(html).toMatch(/\.today-line\{[^}]*width:2px[^}]*background:var\(--rmg-color-red\)/)
+  })
+
+  it('joins pieces of one engagement in the export: one accent, one label for the whole bar', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    const source = html.slice(html.indexOf('function nextDay('), html.indexOf('function fmtShort('))
+    const fns = new Function('DATA', 'DAY', `${source}; return { segJoins: segJoins, barEnd: barEnd };`)(
+      { touchInsetPx: 3 },
+      86_400_000,
+    ) as {
+      segJoins: (s: { start: string; end: string; engagementId?: string }[]) => { prev: boolean; next: boolean }[]
+      barEnd: (s: { start: string; end: string; engagementId?: string }, all: { start: string; end: string; engagementId?: string }[]) => { end: string }
+    }
+    const pieces = [
+      { start: '2026-07-01', end: '2026-09-30', engagementId: 'e1' },
+      { start: '2026-10-01', end: '2026-10-30', engagementId: 'e1' },
+    ]
+    expect(fns.segJoins(pieces)).toEqual([
+      { prev: false, next: true },
+      { prev: true, next: false },
+    ])
+    expect(fns.barEnd(pieces[0]!, pieces).end).toBe('2026-10-30')
+  })
+
+  it('bakes the tooltip days line into scheduled pieces only', () => {
+    const scheduled = {
+      supplier: 'TCS',
+      code: 'REG' as const,
+      start: '2026-10-01',
+      end: '2026-12-31',
+      realStart: true,
+      realEnd: false,
+      tentative: false,
+      flag: null,
+      commercialStartMismatch: null,
+      engagementId: 'e1',
+      bookedDays: [
+        { unit: 'month' as const, start: '2026-10-01', days: 5 },
+        { unit: 'month' as const, start: '2026-11-01', days: 5 },
+        { unit: 'month' as const, start: '2026-12-01', days: 4 },
+      ],
+    }
+    const html = buildStandaloneHtml(data({ resources: [resource({ segments: [scheduled], gaps: [] })] }), OPTIONS)
+    expect(html).toContain('"daysLine":"Oct 5d · Nov 5d · Dec 4d"')
+    expect(html).toContain("' data-tip-detail=\"' + esc(s.daysLine)")
+  })
+
+  it('splits the avatar from windowSuppliers when present', () => {
+    const html = buildStandaloneHtml(data(), OPTIONS)
+    expect(html).toContain('r.windowSuppliers !== undefined')
   })
 
   it('records when the snapshot was taken so it cannot be mistaken for live', () => {

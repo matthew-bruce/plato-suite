@@ -19,9 +19,13 @@ import { CATEGORY_ORDER, type ResourceTimelineData } from '@plato/schema'
 import {
   SEGMENT_TOUCH_INSET_PX,
   STATUS_LABELS,
+  bookedDaysLine,
   buildQuarterSpans,
   disciplineRank,
   formatMonthLabel,
+  headerSplitPositions,
+  isBandedQuarter,
+  quarterBands,
   supplierStripe,
   supplierTint,
   weekLinePositions,
@@ -107,6 +111,13 @@ export function buildStandaloneHtml(
       ? data.resources.filter((r) => !r.hiddenFromTimeline)
       : data.resources
 
+  const spans = buildQuarterSpans(
+    data.months,
+    data.granularWindowStart,
+    data.coarsePeriodName,
+    data.granularPeriodName,
+  )
+
   const payload = {
     windowStart: data.windowStart,
     windowEnd: data.windowEnd,
@@ -114,17 +125,28 @@ export function buildStandaloneHtml(
     // Precomputed here (not re-derived in the vanilla-JS runtime below) so
     // the export's quarter row can never disagree with the live page's —
     // one source of truth for the split, reused rather than duplicated.
-    quarters: buildQuarterSpans(
-      data.months,
-      data.granularWindowStart,
-      data.coarsePeriodName,
-      data.granularPeriodName,
-    ).map((span) => ({ label: span.label, monthCount: span.months.length })),
+    quarters: spans.map((span) => ({
+      label: span.label,
+      monthCount: span.months.length,
+      banded: span.months[0] !== undefined && isBandedQuarter(span.months[0]),
+    })),
+    // Quarter bands (track) and header splits, precomputed from the same
+    // presentation helpers the live page uses.
+    quarterBands: quarterBands(data.windowStart, data.windowEnd),
+    headerSplits: headerSplitPositions(spans),
     // Precomputed for the same reason as `quarters` — one source of truth
     // for the real-calendar-week split (round 7), reused rather than
     // reimplemented in the vanilla-JS runtime below.
     weekLines: weekLinePositions(data.windowStart, data.windowEnd),
-    resources: exportedResources,
+    // Each scheduled piece carries its tooltip days line pre-formatted, so the
+    // file shows exactly the live page's text without re-deriving it.
+    resources: exportedResources.map((r) => ({
+      ...r,
+      segments: r.segments.map((seg) => {
+        const daysLine = seg.unscheduled ? null : bookedDaysLine(seg.bookedDays)
+        return daysLine ? { ...seg, daysLine } : seg
+      }),
+    })),
     suppliers: data.suppliers,
     // Team chip options: still every team in the full dataset, not just those
     // with a surviving member after the Presentation-view bake — the same
@@ -240,6 +262,7 @@ ${EXPORT_CSS}
 <div class="tooltip" id="tt" hidden>
   <div class="tt-name" id="tt-name"></div>
   <div class="tt-sub" id="tt-sub"></div>
+  <div class="tt-sub" id="tt-detail" hidden></div>
   <div id="tt-rows"></div>
   <div class="tt-flag" id="tt-flag" hidden></div>
 </div>
@@ -266,6 +289,7 @@ const EXPORT_CSS = `
   --rmg-color-text-heading:#2A2A2D; --rmg-color-text-body:#333333; --rmg-color-text-light:#666666;
   --rmg-color-green-contrast:#008A00;
   --rmg-color-tint-yellow:#FEEB87;
+  --rmg-color-tint-neutral:rgba(64,64,68,0.05);
   --rmg-font-body:"PF DINText Std","Helvetica Neue",Arial,sans-serif;
   --rmg-font-display:"RM First Class",Georgia,serif;
   --rmg-radius-xs:4px; --rmg-radius-s:8px; --rmg-radius-m:12px; --rmg-radius-xl:100px;
@@ -351,19 +375,21 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 /* Structural label row — same quiet weight as the "Team / Resource" spacer
    label, just dark rather than muted grey-1. Owns the header box's rounded
    top corners, since it's now the topmost row. */
-.quarter-row{display:flex;height:20px;background:var(--rmg-color-grey-4);border:1px solid var(--rmg-color-grey-3);border-radius:var(--rmg-radius-s) var(--rmg-radius-s) 0 0}
+.quarter-row{position:relative;display:flex;height:20px;background:var(--rmg-color-grey-4);border:1px solid var(--rmg-color-grey-3);border-radius:var(--rmg-radius-s) var(--rmg-radius-s) 0 0}
 .quarter-cell{display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--rmg-color-text-heading);border-right:1px solid var(--rmg-color-grey-3)}
 .quarter-cell:last-child{border-right:none}
+.quarter-cell.banded{background:var(--rmg-color-tint-neutral)}
+.header-split{position:absolute;top:-1px;bottom:-1px;width:3px;margin-left:-1.5px;background:var(--rmg-color-surface-light);pointer-events:none;z-index:1}
 /* Pastel tint, not plain white — the detailed axis, distinct from the
    quarter row above it. Yellow: unused elsewhere (supplier identity uses
    blue/purple/orange/navy; tint-red is reserved for the today line/label). */
-.month-row{display:flex;height:26px;background:var(--rmg-color-tint-yellow);border-left:1px solid var(--rmg-color-grey-3);border-right:1px solid var(--rmg-color-grey-3)}
+.month-row{position:relative;display:flex;height:26px;background:var(--rmg-color-tint-yellow);border-left:1px solid var(--rmg-color-grey-3);border-right:1px solid var(--rmg-color-grey-3)}
 .month-cell{flex:1;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--rmg-color-text-heading);border-right:1px solid var(--rmg-color-grey-3)}
 .month-cell:last-child{border-right:none}
 .gantt-wrap{display:flex;margin:0 24px 40px;background:#fff;border-radius:0 0 var(--rmg-radius-m) var(--rmg-radius-m);box-shadow:0 4px 56px rgba(0,0,0,.08);border:1px solid var(--rmg-color-grey-3);position:relative}
 #left-col{width:var(--left-col);flex-shrink:0;border-right:1px solid var(--rmg-color-grey-3)}
 #right-col{flex:1;min-width:0;position:relative}
-.today-line{position:absolute;top:0;bottom:0;width:1px;background:var(--rmg-color-red);z-index:15;pointer-events:none}
+.today-line{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--rmg-color-red);z-index:15;pointer-events:none}
 .group-block{border-bottom:1px solid var(--rmg-color-grey-3)}
 .group-block:last-child{border-bottom:none}
 .group-left-header{height:36px;display:flex;align-items:center;padding:0 10px 0 8px;gap:8px;background:var(--rmg-color-grey-4);cursor:pointer;user-select:none;border-bottom:1px solid var(--rmg-color-grey-2)}
@@ -394,10 +420,16 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .seg{position:absolute;top:6px;bottom:6px;border-radius:6px;border-left:4px solid var(--sc);background:var(--sct);display:flex;align-items:center;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
 .seg.hyper{background-image:repeating-linear-gradient(45deg,var(--sc2) 0 5px,var(--sct) 5px 10px)}
 .seg.tentative{border-left-style:dashed;background-image:repeating-linear-gradient(135deg,var(--sct) 0 6px,#fff 6px 12px)}
+.quarter-band{position:absolute;top:0;bottom:0;background:var(--rmg-color-tint-neutral);pointer-events:none}
+.seg.join-prev{border-left-width:0;border-top-left-radius:0;border-bottom-left-radius:0;box-shadow:inset 0 1px 0 rgba(0,0,0,.04),inset 0 -1px 0 rgba(0,0,0,.04),inset -1px 0 0 rgba(0,0,0,.04)}
+.seg.join-next{overflow:visible;z-index:1;border-top-right-radius:0;border-bottom-right-radius:0;box-shadow:inset 0 1px 0 rgba(0,0,0,.04),inset 0 -1px 0 rgba(0,0,0,.04),inset 1px 0 0 rgba(0,0,0,.04)}
+.seg.join-prev.join-next{box-shadow:inset 0 1px 0 rgba(0,0,0,.04),inset 0 -1px 0 rgba(0,0,0,.04)}
 .seg:hover{filter:brightness(.96);z-index:20;box-shadow:0 0 0 1.5px var(--sc)}
 .seg-label{font-size:9.5px;font-weight:700;color:var(--sc);white-space:nowrap;padding:0 7px;letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis}
+.seg.join-next .seg-label{flex-shrink:0}
 .seg-label .dates{font-weight:500;opacity:.75;margin-left:5px}
 .gap-marker{position:absolute;top:50%;height:2px;transform:translateY(-1px);background:repeating-linear-gradient(90deg,var(--rmg-color-red) 0,var(--rmg-color-red) 3px,transparent 3px,transparent 6px);z-index:5}
+.unscheduled-marker{position:absolute;bottom:1px;height:0;border-top:2px dotted var(--rmg-color-text-light);border-radius:0;pointer-events:none}
 .flag-dot{position:absolute;top:2px;width:6px;height:6px;border-radius:50%;background:var(--rmg-color-red);border:1.5px solid #fff;z-index:21}
 .tooltip{position:fixed;z-index:9999;background:#fff;border:1px solid var(--rmg-color-grey-2);border-radius:var(--rmg-radius-s);padding:10px 13px;pointer-events:none;max-width:270px;box-shadow:0 4px 56px rgba(0,0,0,.08)}
 .tt-name{font-size:12px;font-weight:700;color:var(--rmg-color-text-heading)}
@@ -456,21 +488,42 @@ function pctAfter(iso){ return pctMs(Date.parse(iso.slice(0,10) + 'T00:00:00Z') 
 // Mirrors segmentTouchInsets() in presentation.ts. Computed at render time
 // because it depends on which suppliers are toggled on.
 function nextDay(iso){ return new Date(Date.parse(iso.slice(0,10) + 'T00:00:00Z') + DAY).toISOString().slice(0,10); }
+// Mirrors segmentTouchInsets() / segmentJoins() in presentation.ts. Pieces of
+// one engagement are one bar; only the end of a bar followed later on the row
+// by a separate bar is inset (segments with no engagementId are each a bar).
+function sameEngagement(a, b){ return a.engagementId !== undefined && a.engagementId === b.engagementId; }
+function continuesInto(s, segs){
+  return segs.filter(function(o){ return o !== s && sameEngagement(o, s) && o.start.slice(0,10) === nextDay(s.end); })[0];
+}
 function touchInsets(segs){
-  var starts = {}, afterEnds = {};
-  segs.forEach(function(s){ starts[s.start.slice(0,10)] = true; afterEnds[nextDay(s.end)] = true; });
+  return segs.map(function(s){
+    var later = segs.some(function(o){ return o !== s && !sameEngagement(o, s) && o.start.slice(0,10) > s.end.slice(0,10); });
+    return { left: 0, right: later && !continuesInto(s, segs) ? DATA.touchInsetPx : 0 };
+  });
+}
+function segJoins(segs){
   return segs.map(function(s){
     return {
-      left: afterEnds[s.start.slice(0,10)] ? DATA.touchInsetPx : 0,
-      right: starts[nextDay(s.end)] ? DATA.touchInsetPx : 0
+      prev: segs.some(function(o){ return o !== s && sameEngagement(o, s) && nextDay(o.end) === s.start.slice(0,10); }),
+      next: !!continuesInto(s, segs)
     };
   });
+}
+// Mirrors barLabel(): the first piece is labelled for the whole bar.
+function barEnd(s, segs){
+  var last = s, n;
+  while ((n = continuesInto(last, segs))) last = n;
+  return last;
 }
 function fmtShort(iso){
   return new Date(iso.slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
 }
 function fmtLong(iso){
   return new Date(iso.slice(0,10) + 'T00:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit',timeZone:'UTC'});
+}
+// Mirrors unscheduledTooltip() in presentation.ts.
+function unscheduledTip(s){
+  return 'Unscheduled · ' + fmtShort(s.start) + ' – ' + fmtLong(s.end) + ' · on the platform, no schedule row';
 }
 function disciplineOf(r){ return r.discipline || UNASSIGNED_DISCIPLINE; }
 function rankOf(r){ var d = disciplineOf(r); return d in DATA.rankTable ? DATA.rankTable[d] : 5; }
@@ -481,10 +534,13 @@ function palette(sup){ return DATA.palette[sup] || {name:sup,colour:'#8F9495',ti
 // chronologically first segment's supplier to the last's) for two or more.
 // Segments arrive pre-sorted by deriveSegments, so first/last here is
 // genuinely chronological, the same guarantee the React version relies on.
+// Engagement-engine output carries windowSuppliers and is used when present.
 function avatarColour(r){
-  var segs = r.segments;
-  if (!segs.length) return {mode:'solid', colour:'#8F9495'};
-  var from = segs[0].supplier, to = segs[segs.length-1].supplier;
+  var sups = r.windowSuppliers !== undefined
+    ? r.windowSuppliers
+    : r.segments.map(function(s){ return s.supplier; });
+  if (!sups.length) return {mode:'solid', colour:'#8F9495'};
+  var from = sups[0], to = sups[sups.length-1];
   if (from === to) return {mode:'solid', colour:palette(from).colour};
   return {mode:'split', fromColour:palette(from).colour, toColour:palette(to).colour};
 }
@@ -548,6 +604,22 @@ function colLines(){
   var out = '';
   for (var i = 0; i < DATA.months.length; i++) out += '<div class="col-line"></div>';
   return '<div class="col-lines">' + out + '</div>';
+}
+
+function quarterBands(){
+  var out = '';
+  for (var i = 0; i < DATA.quarterBands.length; i++) {
+    var b = DATA.quarterBands[i];
+    out += '<div class="quarter-band" style="left:' + b.left + '%;width:' + b.width + '%"></div>';
+  }
+  return out;
+}
+function headerSplits(){
+  var out = '';
+  for (var i = 0; i < DATA.headerSplits.length; i++) {
+    out += '<div class="header-split" style="left:' + DATA.headerSplits[i] + '%"></div>';
+  }
+  return out;
 }
 
 function weekLines(){
@@ -628,10 +700,10 @@ function render(){
     lb.innerHTML = lh;
     left.appendChild(lb);
 
-    var rh = '<div class="group-right-header" data-g="' + esc(name) + '">' + weekLines() + colLines() + '</div>';
+    var rh = '<div class="group-right-header" data-g="' + esc(name) + '">' + quarterBands() + weekLines() + colLines() + '</div>';
     members.forEach(function(r){
       var segs = r.segments.filter(function(s){ return state.activeSuppliers.has(s.supplier); });
-      var bars = weekLines() + colLines() + '<div class="track"></div>';
+      var bars = quarterBands() + weekLines() + colLines() + '<div class="track"></div>';
 
       (r.gaps || []).forEach(function(g){
         var a = pctAfter(g.start), b = pct(g.end);
@@ -640,6 +712,7 @@ function render(){
       });
 
       var insets = touchInsets(segs);
+      var joins = segJoins(segs);
       segs.forEach(function(s, i){
         var p = palette(s.supplier);
         var a = pct(s.start), w = Math.max(pctAfter(s.end) - a, 0.6);
@@ -647,20 +720,27 @@ function render(){
         var pos = (ins.left || ins.right)
           ? 'left:calc(' + a + '% + ' + ins.left + 'px);width:calc(' + w + '% - ' + (ins.left + ins.right) + 'px)'
           : 'left:' + a + '%;width:' + w + '%';
-        var lab = segLabel(s);
-        var cls = 'seg' + (s.code === 'NPC' ? ' hyper' : '') + (s.tentative ? ' tentative' : '');
+        var j = joins[i];
+        var last = barEnd(s, segs);
+        var lab = j.prev ? null : segLabel({ code: s.code, supplier: s.supplier, start: s.start, end: last.end, realStart: s.realStart, realEnd: last.realEnd });
+        var cls = 'seg' + (s.code === 'NPC' ? ' hyper' : '') + (s.tentative ? ' tentative' : '') +
+          (j.prev ? ' join-prev' : '') + (j.next ? ' join-next' : '');
         var flag = s.flag || (s.commercialStartMismatch ? 'Recorded commercial start differs from booked days'
                   : (s.tentative ? 'Tentative — subject to confirmation' : ''));
         bars += '<div class="' + cls + '" style="' + pos + ';--sc:' + p.colour +
           ';--sct:' + p.tint + ';--sc2:' + p.stripe + '"' +
           ' data-tip-name="' + esc(r.name) + '"' +
-          ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"' +
+          (s.unscheduled
+            ? ' data-tip-unscheduled="1" data-tip-sub="' + esc(unscheduledTip(s)) + '"'
+            : ' data-tip-sub="' + esc(p.name + (s.code === 'NPC' ? ' · Hypercare' : '')) + '"' +
+              (s.daysLine ? ' data-tip-detail="' + esc(s.daysLine) + '"' : '')) +
           ' data-tip-from="' + (s.realStart ? esc(fmtLong(s.start)) : '') + '"' +
           ' data-tip-to="' + (s.realEnd ? esc(fmtLong(s.end)) : '') + '"' +
           ' data-tip-flag="' + esc(flag) + '">' +
-          '<span class="seg-label">' + esc(lab.text) +
-          (lab.dates ? '<span class="dates">' + esc(lab.dates) + '</span>' : '') + '</span></div>';
+          (lab ? '<span class="seg-label">' + esc(lab.text) +
+            (lab.dates ? '<span class="dates">' + esc(lab.dates) + '</span>' : '') + '</span>' : '') + '</div>';
         if (flag) bars += '<div class="flag-dot" style="left:calc(' + a + '% + 4px)"></div>';
+        if (s.unscheduled) bars += '<div class="unscheduled-marker" style="' + pos + '"></div>';
       });
 
       rh += '<div class="res-right-row">' + bars + '</div>';
@@ -728,7 +808,9 @@ function fitLabels(){
     if (!label) return;
     var dates = label.querySelector('.dates');
     label.style.display = ''; if (dates) dates.style.display = '';
+    // Fit against the whole bar: the label may run across joined pieces.
     var w = seg.clientWidth;
+    for (var n = seg.nextElementSibling; n && n.classList.contains('join-prev'); n = n.nextElementSibling) w += n.clientWidth;
     if (w < 34) { label.style.display = 'none'; return; }
     if (dates && label.scrollWidth > w - 10) dates.style.display = 'none';
     if (label.scrollWidth > w - 10) label.style.display = 'none';
@@ -774,11 +856,16 @@ function attachTooltips(){
       var sub = el.getAttribute('data-tip-sub') || '';
       var subEl = document.getElementById('tt-sub');
       subEl.textContent = sub; subEl.hidden = !sub;
+      var detail = el.getAttribute('data-tip-detail') || '';
+      var detailEl = document.getElementById('tt-detail');
+      detailEl.textContent = detail; detailEl.hidden = !detail;
 
       var rows = '';
       var gap = el.getAttribute('data-tip-gap');
       if (gap) {
         rows = '<div class="tt-row"><span>Coverage gap</span><b>' + esc(gap) + '</b></div>';
+      } else if (el.getAttribute('data-tip-unscheduled')) {
+        rows = '';
       } else {
         var from = el.getAttribute('data-tip-from'), to = el.getAttribute('data-tip-to');
         if (from) rows += '<div class="tt-row"><span>From</span><b>' + esc(from) + '</b></div>';
@@ -862,13 +949,14 @@ function syncTeamChips(){
   document.getElementById('allTeamsBtn').classList.toggle('inactive', !allActive);
 }
 function buildMonthRow(){
-  document.getElementById('monthRow').innerHTML = DATA.months.map(function(m){
+  // Splits first, so none becomes :last-child and strips the last cell's border rule.
+  document.getElementById('monthRow').innerHTML = headerSplits() + DATA.months.map(function(m){
     return '<div class="month-cell">' + esc(m.label) + '</div>';
   }).join('');
 }
 function buildQuarterRow(){
-  document.getElementById('quarterRow').innerHTML = DATA.quarters.map(function(q){
-    return '<div class="quarter-cell" style="flex:' + q.monthCount + '">' + esc(q.label) + '</div>';
+  document.getElementById('quarterRow').innerHTML = headerSplits() + DATA.quarters.map(function(q){
+    return '<div class="quarter-cell' + (q.banded ? ' banded' : '') + '" style="flex:' + q.monthCount + '">' + esc(q.label) + '</div>';
   }).join('');
 }
 function buildSecondary(){

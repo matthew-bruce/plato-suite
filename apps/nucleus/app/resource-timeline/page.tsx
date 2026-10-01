@@ -7,8 +7,16 @@ export const metadata: Metadata = { title: NAV_LABELS.resourceTimeline }
 
 export const dynamic = 'force-dynamic'
 
-export default async function ResourceTimelinePage() {
-  const data = await getResourceTimelineData()
+type SearchParams = Promise<{ engine?: string | string[] }>
+
+/**
+ * Engine switch for the dual-running phase (ADR-035): the native engagement
+ * engine renders by default; ?engine=legacy renders the translator path from
+ * the same fetched rows, for side-by-side checks without a redeploy.
+ */
+export default async function ResourceTimelinePage({ searchParams }: { searchParams: SearchParams }) {
+  const { engine } = await searchParams
+  const data = await getResourceTimelineData(engine === 'legacy' ? 'legacy' : 'engagements')
 
   if (!data || data.resources.length === 0) {
     return (
