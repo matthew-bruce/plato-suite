@@ -1374,7 +1374,7 @@ function KpiStrip({
             </span>
           </>
         }
-        sub="Allocations · chargeable days"
+        sub="People incl. vacant · chargeable days"
         accent="#8F9495"
       />
     </div>
@@ -1989,7 +1989,7 @@ function ScheduleTable({
             <BandTotal label="+VAT" value={formatMoney(footer.vatPence)} blur={isPrivate} />
           </div>
           <div style={{ gridColumn: 14 }}>
-            <BandTotal label="Confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
+            <BandTotal label="Rows confirmed" value={`${footerConfirmed.confirmed}/${footerConfirmed.total}`} />
           </div>
         </div>
         {activeTeamFilter && (
