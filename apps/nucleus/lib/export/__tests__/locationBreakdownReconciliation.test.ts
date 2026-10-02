@@ -5,13 +5,13 @@ import { LOCATION_BUCKETS, locationBucket } from '../../schedule/ui'
 import {
   Q4_ALLOCATIONS,
   Q4_COST_ITEMS,
-  Q4_VAT_MULTIPLIER,
+  Q4_VAT_RATE,
   Q4_EXPECTED,
 } from '../../schedule/__tests__/fixtures/q4Fy2526'
 import {
   Q2_ALLOCATIONS,
   Q2_COST_ITEMS,
-  Q2_VAT_MULTIPLIER,
+  Q2_VAT_RATE,
   Q2_EXPECTED,
 } from '../../schedule/__tests__/fixtures/q2Fy2627'
 import type { LocatedAllocation } from '../../schedule/__tests__/fixtures/q4Fy2526'
@@ -60,14 +60,14 @@ const PERIODS = [
     label: 'Q4 FY 25/26',
     allocations: Q4_ALLOCATIONS,
     costItems: Q4_COST_ITEMS,
-    vat: Q4_VAT_MULTIPLIER,
+    vat: Q4_VAT_RATE,
     expected: Q4_EXPECTED,
   },
   {
     label: 'Q2 FY 26/27',
     allocations: Q2_ALLOCATIONS,
     costItems: Q2_COST_ITEMS,
-    vat: Q2_VAT_MULTIPLIER,
+    vat: Q2_VAT_RATE,
     expected: Q2_EXPECTED,
   },
 ] as const

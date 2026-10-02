@@ -13,10 +13,11 @@
 // database's own lower case, so the fixture exercises the bucketing rather
 // than pre-applying it.
 
+import { vatRateMilliPct } from '@plato/schema'
 import type { TotalsAllocation, TotalsCostItem } from '../../scheduleTotals'
 
 export const Q4_VAT_UPLIFT_PERCENT = 7.082
-export const Q4_VAT_MULTIPLIER = parseFloat((1 + Q4_VAT_UPLIFT_PERCENT / 100).toFixed(5))
+export const Q4_VAT_RATE = vatRateMilliPct(Q4_VAT_UPLIFT_PERCENT)
 
 export interface LocatedAllocation extends TotalsAllocation {
   supplier_name: string | null

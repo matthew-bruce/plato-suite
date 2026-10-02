@@ -3,6 +3,7 @@
 
 import { getSupabaseServerComponentClient } from '../serverComponent'
 import { computeUnallocatedPct, selectDefaultPeriod } from '../utils/schedule'
+import { computeRowMoneyPence, vatRateMilliPct } from '../utils/money'
 import { resolveAppliedCostConfigurationByCode } from './costConfig'
 import type {
   SchedulePageData,
@@ -283,7 +284,9 @@ export async function getSchedulePageData(
     }
   }
 
-  const vatPct = costConfig?.vat_uplift_percent ?? 0
+  // The period's applied rate — frozen snapshot for a locked period — as an
+  // exact integer, so every row below is costed by the one money rule.
+  const vatRate = vatRateMilliPct(costConfig?.vat_uplift_percent ?? 0)
   const allocations: ScheduleAllocation[] = (
     (allocsData ?? []) as unknown as RawAllocationRow[]
   )
@@ -293,12 +296,16 @@ export async function getSchedulePageData(
       const utilisation = Number(row.utilisation_percent)
       const capacityDays =
         row.capacity_days === null ? null : Number(row.capacity_days)
-      const base =
-        capacityDays === null
-          ? 0
-          : Math.round(row.day_rate * capacityDays * (utilisation / 100))
       const vatApplies = row.vat_applies ?? true
-      const vat = vatApplies ? Math.round(base * (1 + vatPct / 100)) : base
+      const money = computeRowMoneyPence({
+        capacityDays: row.capacity_days,
+        dayRatePence: row.day_rate,
+        utilisationPercent: row.utilisation_percent,
+        vatApplies,
+        vatRateMilliPct: vatRate,
+      })
+      const base = money.basePence
+      const vat = money.incVatPence
       const teams =
         row.resource_id !== null
           ? (teamMap.get(row.resource_id) ?? [])

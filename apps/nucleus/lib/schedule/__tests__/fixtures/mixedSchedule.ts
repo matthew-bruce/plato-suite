@@ -7,10 +7,11 @@
 // (allocationBasePence / allocationVatPence), the same way the schedule query
 // derives them, rather than typed in by hand.
 
+import { vatRateMilliPct } from '@plato/schema'
 import { allocationBasePence, allocationVatPence } from '../../scheduleTotals'
 
-export const MIXED_VAT_PCT = 7.082
-const VAT_MULTIPLIER = 1 + MIXED_VAT_PCT / 100
+/** 7.082%, as the exact integer rate every money figure is built with. */
+export const MIXED_VAT_RATE = vatRateMilliPct(7.082)
 
 type Team = { teamId: string; teamName: string; capacitySplit: number }
 const team = (teamName: string, capacitySplit = 1): Team => ({ teamId: teamName.toLowerCase(), teamName, capacitySplit })
@@ -53,7 +54,7 @@ function row(
     is_chargeable,
     ...costed,
     base_total_pence: allocationBasePence(costed),
-    vat_total_pence: allocationVatPence(costed, VAT_MULTIPLIER),
+    vat_total_pence: allocationVatPence(costed, MIXED_VAT_RATE),
     teams,
   }
 }

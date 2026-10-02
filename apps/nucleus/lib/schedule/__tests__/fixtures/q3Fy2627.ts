@@ -23,10 +23,11 @@
 // vat_applies, supplier, location]. The location here is the page's — the
 // allocation's own value, which every row in this snapshot carries.
 
+import { vatRateMilliPct } from '@plato/schema'
 import type { TotalsAllocation, TotalsCostItem } from '../../scheduleTotals'
 
 export const VAT_UPLIFT_PERCENT = 7.082
-export const Q3_VAT_MULTIPLIER = parseFloat((1 + VAT_UPLIFT_PERCENT / 100).toFixed(5))
+export const Q3_VAT_RATE = vatRateMilliPct(VAT_UPLIFT_PERCENT)
 
 /** An allocation carrying the two columns the export's breakdown groups by. */
 export interface Q3Allocation extends TotalsAllocation {

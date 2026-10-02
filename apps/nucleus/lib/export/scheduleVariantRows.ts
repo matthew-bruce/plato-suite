@@ -13,6 +13,7 @@
 // This file used to say the opposite, and said it emphatically. See
 // supplierRowMoney for what that reasoning was and why it was reversed.
 
+import type { VatRateMilliPct } from '@plato/schema'
 import { isChargeableRow, isIncludedInBaseCost } from '../schedule/ui'
 import { allocationBasePence, allocationVatPence } from '../schedule/scheduleTotals'
 import { getCapacitySplit } from '../scheduleUtils'
@@ -138,7 +139,7 @@ export function teamSplitCell(teams: readonly TeamAssignmentRef[]): string {
 export function commercialCostPence(
   row: VariantAllocationRow,
   days: number,
-  vatMultiplier: number,
+  vatRate: VatRateMilliPct,
 ): number {
   return allocationVatPence(
     {
@@ -148,7 +149,7 @@ export function commercialCostPence(
       day_rate: row.day_rate,
       vat_applies: row.vat_applies,
     },
-    vatMultiplier,
+    vatRate,
   )
 }
 
@@ -281,7 +282,7 @@ export interface SupplierRowMoney {
  */
 export function supplierRowMoney(
   row: VariantAllocationRow,
-  vatMultiplier: number,
+  vatRate: VatRateMilliPct,
 ): SupplierRowMoney {
   // Unscoped: this file spans every team, so there is no team to prorate to
   // and proratedDays returns the resource's full period. Routed through the
@@ -294,7 +295,7 @@ export function supplierRowMoney(
     return { dayRatePence: 0, basePence: 0, vatPence: 0, totalPence: 0 }
   }
   const basePence = commercialBasePence(row, days)
-  const totalPence = commercialCostPence(row, days, vatMultiplier)
+  const totalPence = commercialCostPence(row, days, vatRate)
   return {
     dayRatePence: row.day_rate,
     basePence,

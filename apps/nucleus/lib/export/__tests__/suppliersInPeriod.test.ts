@@ -189,7 +189,7 @@ function buildMultiTabWorkbook(rows: VariantAllocationRow[]) {
       periodName: 'Q3 FY 26/27',
       dateRange: '01 Oct 2026 – 31 Dec 2026',
       exportedAt: 'Exported 11 Sep 2026 at 09:00',
-      vatMultiplier: 1.07082,
+      vatRate: 7082,
       supplierColour: supplier.colour,
     })
   })

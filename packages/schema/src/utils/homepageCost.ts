@@ -1,3 +1,4 @@
+import { computeRowMoneyPence, type VatRateMilliPct } from './money'
 import { isChargeableRow } from './planview'
 
 export interface HomepageCostRow {
@@ -23,7 +24,7 @@ export interface HomepageCostSummary {
  *  is_chargeable column. */
 export function summariseHomepageCost(
   rows: readonly HomepageCostRow[],
-  vatPct: number,
+  vatRate: VatRateMilliPct,
 ): HomepageCostSummary {
   const summary: HomepageCostSummary = {
     base_cost_pence: 0,
@@ -33,17 +34,21 @@ export function summariseHomepageCost(
     missingCapacity: 0,
   }
   for (const row of rows) {
-    const utilisation = Number(row.utilisation_percent)
-    const capacityDays = row.capacity_days === null ? null : Number(row.capacity_days)
-
     if (!row.planview_code) summary.missingPlanview++
-    if (capacityDays === null) summary.missingCapacity++
+    if (row.capacity_days === null) summary.missingCapacity++
 
-    const base =
-      capacityDays === null ? 0 : Math.round(row.day_rate * capacityDays * (utilisation / 100))
-    const vat = row.isInternal ? base : Math.round(base * (1 + vatPct / 100))
+    // The homepage's own VAT rule (internal supplier = no VAT, rather than the
+    // row's vat_applies) is unchanged; only the arithmetic is the shared rule.
+    const money = computeRowMoneyPence({
+      capacityDays: row.capacity_days,
+      dayRatePence: row.day_rate,
+      utilisationPercent: row.utilisation_percent,
+      vatApplies: !row.isInternal,
+      vatRateMilliPct: vatRate,
+    })
+    const vat = money.incVatPence
 
-    summary.base_cost_pence += base
+    summary.base_cost_pence += money.basePence
     summary.vat_cost_pence += vat
     if (isChargeableRow(row.planview_code)) summary.chargeable_cost_pence += vat
   }

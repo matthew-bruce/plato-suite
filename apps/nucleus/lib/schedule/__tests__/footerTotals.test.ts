@@ -8,26 +8,27 @@ import {
   MIXED_ALPHA_ROWS,
   MIXED_COST_ITEMS,
   MIXED_ROWS,
-  MIXED_VAT_PCT,
+  MIXED_VAT_RATE,
   type MixedRow,
 } from './fixtures/mixedSchedule'
 
-const UNFILTERED: FooterOptions = { activeTeamFilter: null, includeCostItems: true, vatPct: MIXED_VAT_PCT }
-const ALPHA: FooterOptions = { activeTeamFilter: 'Alpha', includeCostItems: false, vatPct: MIXED_VAT_PCT }
+const UNFILTERED: FooterOptions = { activeTeamFilter: null, includeCostItems: true, vatRate: MIXED_VAT_RATE }
+const ALPHA: FooterOptions = { activeTeamFilter: 'Alpha', includeCostItems: false, vatRate: MIXED_VAT_RATE }
 
-/** The footer's Base/+VAT exactly as SchedulePageClient computed them before
- *  this change — the cost figures must not move. */
-function previousFooterCost(rows: MixedRow[], options: FooterOptions) {
+/** The footer's Base/+VAT by the money rule, written out longhand: each row's
+ *  already-computed pence prorated to the team split WITHOUT rounding, cost
+ *  items added whole. Rounding happens only when the figure is displayed. */
+function expectedFooterCost(rows: MixedRow[], options: FooterOptions) {
   let basePence = 0
   let vatPence = 0
   for (const r of rows) {
     if (!isIncludedInBaseCost(r.planview_code)) continue
-    basePence += Math.round(r.base_total_pence * getCapacitySplit(r.teams, options.activeTeamFilter))
-    vatPence += Math.round(r.vat_total_pence * getCapacitySplit(r.teams, options.activeTeamFilter))
+    basePence += r.base_total_pence * getCapacitySplit(r.teams, options.activeTeamFilter)
+    vatPence += r.vat_total_pence * getCapacitySplit(r.teams, options.activeTeamFilter)
   }
   if (options.includeCostItems) {
     basePence += MIXED_COST_ITEMS.reduce((s, i) => s + i.amount_pence, 0)
-    vatPence += MIXED_COST_ITEMS.reduce((s, i) => s + calcCostItemVat(i.amount_pence, i.vat_applies, options.vatPct), 0)
+    vatPence += MIXED_COST_ITEMS.reduce((s, i) => s + calcCostItemVat(i.amount_pence, i.vat_applies, options.vatRate), 0)
   }
   return { basePence, vatPence }
 }
@@ -55,11 +56,11 @@ describe('footer Days — the sum of the displayed Days column', () => {
   })
 })
 
-describe('footer Base / +VAT — unchanged', () => {
-  it('matches the previous footer formula, unfiltered and team-filtered', () => {
+describe('footer Base / +VAT', () => {
+  it('prorates each row\'s pence and rounds nothing, unfiltered and team-filtered', () => {
     for (const [rows, options] of [[MIXED_ROWS, UNFILTERED], [MIXED_ALPHA_ROWS, ALPHA]] as const) {
       const { basePence, vatPence } = computeFooterTotals(rows, MIXED_COST_ITEMS, options)
-      expect({ basePence, vatPence }).toEqual(previousFooterCost([...rows], options))
+      expect({ basePence, vatPence }).toEqual(expectedFooterCost([...rows], options))
     }
   })
 

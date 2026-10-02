@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  allocationVatPence,
   computeScheduleTotals,
   computeTotalsByGroup,
   includedAllocations,
@@ -10,7 +11,7 @@ import { locationBucket, isIncludedInBaseCost, isCountedInHeadcount } from '../u
 import {
   Q3_ALLOCATIONS,
   Q3_COST_ITEMS,
-  Q3_VAT_MULTIPLIER,
+  Q3_VAT_RATE,
   Q3_EXPECTED,
 } from './fixtures/q3Fy2627'
 
@@ -38,14 +39,14 @@ function sumGroups(groups: Map<string, { vatPence: number; basePence: number; co
 }
 
 describe('Q3 FY 26/27 — the breakdown ties to the headline', () => {
-  const headline = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_MULTIPLIER)
-  const bySupplier = computeTotalsByGroup(Q3_ALLOCATIONS, (a) => a.supplier_name, Q3_VAT_MULTIPLIER)
+  const headline = computeScheduleTotals(Q3_ALLOCATIONS, Q3_COST_ITEMS, Q3_VAT_RATE)
+  const bySupplier = computeTotalsByGroup(Q3_ALLOCATIONS, (a) => a.supplier_name, Q3_VAT_RATE)
   const byLocation = computeTotalsByGroup(
     Q3_ALLOCATIONS,
     (a) => a.resource_location,
-    Q3_VAT_MULTIPLIER,
+    Q3_VAT_RATE,
   )
-  const byPlanview = computeTotalsByGroup(Q3_ALLOCATIONS, (a) => a.planview_code, Q3_VAT_MULTIPLIER)
+  const byPlanview = computeTotalsByGroup(Q3_ALLOCATIONS, (a) => a.planview_code, Q3_VAT_RATE)
 
   it('the supplier rows sum to the headline resource component, to the penny', () => {
     expect(sumGroups(bySupplier).vatPence).toBe(headline.resourcesVatPence)
@@ -68,10 +69,7 @@ describe('Q3 FY 26/27 — the breakdown ties to the headline', () => {
   it('Capgemini contributed £89,597 before and contributes nothing now', () => {
     expect(bySupplier.has('Capgemini')).toBe(false)
     const capgeminiUnfiltered = Q3_ALLOCATIONS.filter((a) => a.supplier_name === 'Capgemini').reduce(
-      (s, a) => {
-        const base = Math.round(a.day_rate * (a.capacity_days ?? 0) * (a.utilisation_percent / 100))
-        return s + (a.vat_applies ? Math.round(base * Q3_VAT_MULTIPLIER) : base)
-      },
+      (s, a) => s + allocationVatPence(a, Q3_VAT_RATE),
       0,
     )
     expect(gbp(capgeminiUnfiltered)).toBe(Q3_EXPECTED.capgeminiVatGbpBefore)
@@ -118,10 +116,7 @@ describe('Q3 FY 26/27 — the breakdown ties to the headline', () => {
   })
 
   it('the difference from the old breakdown is exactly the £89,597', () => {
-    const unfilteredVat = Q3_ALLOCATIONS.reduce((s, a) => {
-      const base = Math.round(a.day_rate * (a.capacity_days ?? 0) * (a.utilisation_percent / 100))
-      return s + (a.vat_applies ? Math.round(base * Q3_VAT_MULTIPLIER) : base)
-    }, 0)
+    const unfilteredVat = Q3_ALLOCATIONS.reduce((s, a) => s + allocationVatPence(a, Q3_VAT_RATE), 0)
     expect(gbp(unfilteredVat - sumGroups(bySupplier).vatPence)).toBe(Q3_EXPECTED.excludedRowsGbp)
   })
 
@@ -182,7 +177,7 @@ const SCHEDULE: Row[] = [
 ]
 
 describe('supplier and location breakdowns over a realistic schedule', () => {
-  const vat = 1
+  const vat = 0
   const headline = computeScheduleTotals(SCHEDULE, [], vat)
   const bySupplier = computeTotalsByGroup(SCHEDULE, (a) => a.supplier_name, vat)
   const byLocation = computeTotalsByGroup(SCHEDULE, (a) => a.resource_location, vat)

@@ -87,8 +87,8 @@ describe('key export formula cells are non-null and evaluate correctly', () => {
 
     for (let i = 0; i < cells.perRowChargeable.length; i++) {
       expect(formulaAt(workbook, cells.perRowChargeable[i])).toMatch(/^IF\(E\d+="PR","Yes","No"\)$/)
-      expect(formulaAt(workbook, cells.perRowTotal[i])).toMatch(/^\(H\d+\*I\d+\)\*J\d+$/)
-      expect(formulaAt(workbook, cells.perRowVat[i])).toMatch(/^L\d+\*\$I\$\d+$/)
+      expect(formulaAt(workbook, cells.perRowTotal[i])).toMatch(/^ROUND\(\(H\d+\*I\d+\)\*J\d+,2\)$/)
+      expect(formulaAt(workbook, cells.perRowVat[i])).toMatch(/^ROUND\(L\d+\*\$I\$\d+,2\)$/)
     }
   })
 

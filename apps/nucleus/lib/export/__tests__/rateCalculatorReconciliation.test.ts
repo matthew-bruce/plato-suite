@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { buildPlatformTotalFormula } from '../platformTotalFormula'
-import { evaluateFormula } from './helpers/evaluateSheetFormula'
+import { evaluateFormula, excelRound } from './helpers/evaluateSheetFormula'
 import type { Grid } from './helpers/evaluateSheetFormula'
 import { computeScheduleTotals } from '../../schedule/scheduleTotals'
 import {
   Q3_ALLOCATIONS,
   Q3_COST_ITEMS,
-  Q3_VAT_MULTIPLIER,
+  Q3_VAT_RATE,
   Q3_EXPECTED,
 } from '../../schedule/__tests__/fixtures/q3Fy2627'
 
@@ -24,11 +24,20 @@ import {
    data and checks all three land on the page's own figure.
 ══════════════════════════════════════════════════════════════════════ */
 
-const vat = Q3_VAT_MULTIPLIER
+const vat = Q3_VAT_RATE
+/** The multiplier cell the Rate Calculator sheet's +VAT formulas read. */
+const vatMultiplier = (100_000 + vat) / 100_000
 
-/** Cost in pounds, as the sheets' own =(H*I)*J formula computes it. */
+const excelRound2 = (x: number): number => excelRound(x, 2)
+
+/** Base in pounds, as the sheet's =ROUND((H*I)*J,2) computes it. */
 function rowBaseGbp(a: (typeof Q3_ALLOCATIONS)[number]): number {
-  return (a.utilisation_percent / 100) * (a.capacity_days ?? 0) * (a.day_rate / 100)
+  return excelRound2((a.utilisation_percent / 100) * (a.capacity_days ?? 0) * (a.day_rate / 100))
+}
+
+/** +VAT in pounds, as the sheet's =ROUND(L*$I$vat,2) computes it. */
+function withVatGbp(baseGbp: number): number {
+  return excelRound2(baseGbp * vatMultiplier)
 }
 
 /**
@@ -54,7 +63,7 @@ function buildRateCalculatorSheet() {
     grid.set(`E${row}`, a.planview_code ?? '')
     // Zero-cost rows are written as an em dash, not a number.
     grid.set(`L${row}`, isZeroCost ? '—' : base)
-    grid.set(`M${row}`, isZeroCost ? '—' : a.vat_applies ? base * vat : base)
+    grid.set(`M${row}`, isZeroCost ? '—' : a.vat_applies ? withVatGbp(base) : base)
     row++
   }
   const lastResourceRow = row - 1
@@ -64,7 +73,7 @@ function buildRateCalculatorSheet() {
   for (const item of Q3_COST_ITEMS) {
     const amount = item.amount_pence / 100
     grid.set(`L${row}`, amount)
-    grid.set(`M${row}`, item.vat_applies ? amount * vat : amount)
+    grid.set(`M${row}`, item.vat_applies ? withVatGbp(amount) : amount)
     row++
   }
   const lastAdhocRow = row - 1
@@ -93,7 +102,7 @@ function buildRawDataSheet() {
     const base = rowBaseGbp(a)
     grid.set(`E${row}`, a.planview_code ?? '')
     grid.set(`L${row}`, base)
-    grid.set(`M${row}`, a.vat_applies ? base * vat : base)
+    grid.set(`M${row}`, a.vat_applies ? withVatGbp(base) : base)
     row++
   }
   const lastAllocRow = row - 1
@@ -104,7 +113,7 @@ function buildRawDataSheet() {
     grid.set(`L${row}`, amount)
     grid.set(
       `M${row}`,
-      item.cost_item_category === 'ADHOC' && item.vat_applies ? amount * vat : amount,
+      item.cost_item_category === 'ADHOC' && item.vat_applies ? withVatGbp(amount) : amount,
     )
     row++
   }
@@ -141,19 +150,13 @@ describe('Q3 FY 26/27 — all three tabs agree with the live page', () => {
     expect(Math.round(rawDataGbp)).toBe(Q3_EXPECTED.totalPlatformGbp)
   })
 
-  // The two formula tabs compute each row in pounds as a float; the Summary
-  // rounds each row to the penny, as the page does. Over ~100 rows that leaves
-  // a few pence of drift between the two conventions (7p on this data) — far
-  // inside the whole pounds all three are displayed in, but real, so this
-  // pins the size of it rather than pretending it is zero.
-  it('the three agree with each other to within pennies, and to the same pound', () => {
-    expect(Math.abs(rateCalcGbp - summaryGbp)).toBeLessThan(0.5)
-    expect(Math.abs(rawDataGbp - summaryGbp)).toBeLessThan(0.5)
-    // The two formula tabs share one convention, so they should be identical.
-    expect(rateCalcGbp).toBeCloseTo(rawDataGbp, 6)
-    // What actually reaches the reader is the rounded figure, and that is equal.
-    expect(Math.round(rateCalcGbp)).toBe(Math.round(summaryGbp))
-    expect(Math.round(rawDataGbp)).toBe(Math.round(summaryGbp))
+  // Every tab rounds each row to the penny — base, then VAT — exactly as
+  // computeRowMoneyPence does, so the three agree to the penny. (Before the
+  // money rule, the formula tabs summed unrounded floats and drifted 7p.)
+  it('the three agree with each other to the penny', () => {
+    const pence = (gbp: number) => Math.round(gbp * 100)
+    expect(pence(rateCalcGbp)).toBe(pence(summaryGbp))
+    expect(pence(rawDataGbp)).toBe(pence(summaryGbp))
   })
 
   it('the Advised Rate that follows from each is the page\'s', () => {

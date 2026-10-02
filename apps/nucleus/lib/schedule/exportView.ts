@@ -83,7 +83,7 @@ export function buildCopyView(
         kind: 'costItem',
         item,
         basePence: item.amount_pence,
-        vatPence: calcCostItemVat(item.amount_pence, item.vat_applies, options.vatPct),
+        vatPence: calcCostItemVat(item.amount_pence, item.vat_applies, options.vatRate),
       }))
     : []
   return {

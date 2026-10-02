@@ -83,13 +83,14 @@ describe('computeRecoveryVariance', () => {
    applied rate £605.
    ══════════════════════════════════════════════════════════════════════ */
 describe('periodRecoveryVariance — advised rate unrounded', () => {
-  const TOTAL_PLATFORM_PENCE = 289_244_237
+  // Total Platform Cost under the money rule (docs/decisions/036-money-rounding.md).
+  const TOTAL_PLATFORM_PENCE = 289_244_243
   const PR_DAYS = 4_920
   const APPLIED_RATE_PENCE = 60_500
 
-  it('reproduces the live Q3 FY 26/27 variance of £84,157.63', () => {
+  it('reproduces the live Q3 FY 26/27 variance of £84,157.57', () => {
     const v = periodRecoveryVariance(APPLIED_RATE_PENCE, TOTAL_PLATFORM_PENCE, PR_DAYS)
-    expect(v.totalVariance).toBeCloseTo(84_157.63, 2)
+    expect(v.totalVariance).toBeCloseTo(84_157.57, 2)
     expect(v.direction).toBe('surplus')
   })
 

@@ -4,6 +4,7 @@
 
 // Relative imports: this module is unit-tested and vitest runs without the
 // Next.js path alias.
+import type { VatRateMilliPct } from '@plato/schema'
 import { getCapacitySplit } from '../scheduleUtils'
 import { calcCostItemVat } from './costItems'
 import { isIncludedInBaseCost, sumFilteredDays } from './ui'
@@ -35,7 +36,8 @@ export interface FooterOptions {
   /** Cost items belong to no resource/team, so they only count when the view
    *  is otherwise unfiltered — the page passes its `isUnfiltered` here. */
   includeCostItems: boolean
-  vatPct: number
+  /** The period's VAT rate in thousandths of a percent (7082 for 7.082%). */
+  vatRate: VatRateMilliPct
 }
 
 export interface RowDisplayFigures {
@@ -46,14 +48,16 @@ export interface RowDisplayFigures {
   countsTowardCost: boolean
 }
 
-/** One allocation row's Days / Base / +VAT exactly as its cells display them:
- *  prorated to the active team's capacity split, money rounded per row. */
+/** One allocation row's Days / Base / +VAT as its cells display them, prorated
+ *  to the active team's capacity split. The row's already-computed pence are
+ *  prorated and NOT rounded here — rounding happens only at display, so a
+ *  team-filtered total can differ from the unfiltered one by pennies. */
 export function rowDisplayFigures(row: FooterRow, activeTeamFilter: string | null): RowDisplayFigures {
   const split = getCapacitySplit(row.teams ?? [], activeTeamFilter)
   return {
     days: (row.capacity_days ?? 0) * split,
-    basePence: Math.round((row.base_total_pence ?? 0) * split),
-    vatPence: Math.round((row.vat_total_pence ?? 0) * split),
+    basePence: (row.base_total_pence ?? 0) * split,
+    vatPence: (row.vat_total_pence ?? 0) * split,
     countsTowardCost: isIncludedInBaseCost(row.planview_code),
   }
 }
@@ -78,7 +82,7 @@ export function computeFooterTotals(
   if (options.includeCostItems) {
     for (const item of costItems) {
       basePence += item.amount_pence
-      vatPence += calcCostItemVat(item.amount_pence, item.vat_applies, options.vatPct)
+      vatPence += calcCostItemVat(item.amount_pence, item.vat_applies, options.vatRate)
     }
   }
   return {

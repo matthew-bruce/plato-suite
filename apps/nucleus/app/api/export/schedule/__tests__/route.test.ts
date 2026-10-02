@@ -21,12 +21,20 @@ import { fakeSupabase, type FakeTables } from './fakeSupabase'
 
 const supabaseState: { tables: FakeTables } = { tables: {} }
 
+/** Every period the route asked for an applied cost configuration for. */
+const appliedConfigCalls: Array<{ period_id: string; locked: boolean; period_start_date: string }> = []
+
 vi.mock('@plato/schema/server', () => ({
   getSupabaseServerComponentClient: async () => fakeSupabase(supabaseState.tables).client,
-  resolveCostConfigurationByCode: async () => ({
-    vat_uplift_percent: 7.082,
-    blended_day_rate_override: 60_500,
-  }),
+  // The snapshot-aware resolver, as the Schedule page uses: a locked period
+  // must be priced at its frozen VAT rate, never today's.
+  resolveAppliedCostConfigurationByCode: async (
+    _platformCode: string,
+    period: { period_id: string; locked: boolean; period_start_date: string },
+  ) => {
+    appliedConfigCalls.push(period)
+    return { vat_uplift_percent: '7.08200', blended_day_rate_override: 60_500 }
+  },
 }))
 
 const { GET } = await import('@/app/api/export/schedule/route')
@@ -181,6 +189,16 @@ describe('GET /api/export/schedule — shared guards', () => {
     supabaseState.tables.periods = []
     const res = await GET(url({ periodId: PERIOD_ID, variant: 'team-schedule', teamId: TEAM_PLUTO }))
     expect(res.status).toBe(404)
+  })
+
+  it('prices the period from its applied config — a locked period from its frozen snapshot', async () => {
+    supabaseState.tables.periods = [{ ...PERIOD, locked: true }]
+    appliedConfigCalls.length = 0
+    const res = await GET(url({ periodId: PERIOD_ID, variant: 'rate-calculator' }))
+    expect(res.status).toBe(200)
+    expect(appliedConfigCalls).toEqual([
+      { period_id: PERIOD_ID, locked: true, period_start_date: PERIOD.period_start_date },
+    ])
   })
 
   it('still builds the unscoped variants', async () => {

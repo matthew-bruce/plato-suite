@@ -45,7 +45,7 @@ export interface RecoveryVariance {
  * The Recovery variance card's figure, from the page's own totals. The advised
  * rate goes in UNROUNDED — rounding it to whole pence first and then
  * multiplying by thousands of days compounds the rounding error (Q3 FY 26/27:
- * £84,181.20 instead of £84,157.63). Round only for display.
+ * £84,181.20 instead of £84,157.57). Round only for display.
  *
  * @param appliedRatePence the applied blended rate, integer pence per day.
  * @param totalPlatformPence Total Platform Cost inc. ETP & SS, pence.

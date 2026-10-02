@@ -18,7 +18,8 @@ import {
 } from '../scheduleVariantRows'
 import type { VariantAllocationRow, TeamAssignmentRef } from '../scheduleVariantRows'
 
-const VAT = 1.07082
+/** 7.082% as the integer rate (thousandths of a percent). */
+const VAT = 7082
 const BLENDED_RATE = 60_500 // £605.00/day in pence
 
 const PLUTO: TeamAssignmentRef = { teamId: 't-pluto', teamName: 'Pluto', capacitySplit: 0.5 }

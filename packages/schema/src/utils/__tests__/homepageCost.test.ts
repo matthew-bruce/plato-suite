@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { summariseHomepageCost, type HomepageCostRow } from '../homepageCost'
 import { isChargeableRow } from '../planview'
 
-const VAT_PCT = 7.082
+const VAT_RATE = 7082 // 7.082%, in thousandths of a percent
 
 type Row = HomepageCostRow & { label: string; is_chargeable: boolean }
 
@@ -22,7 +22,7 @@ const ROWS: Row[] = [
 
 describe('summariseHomepageCost', () => {
   it('the homepage Chargeable £ ignores the stale is_chargeable flag', () => {
-    const summary = summariseHomepageCost(ROWS, VAT_PCT)
+    const summary = summariseHomepageCost(ROWS, VAT_RATE)
     // PR rows only: 3,212,460 + 1,284,984. The stale F_Gov row's 1,177,902
     // would have been added when this read the stored column.
     expect(summary.chargeable_cost_pence).toBe(4_497_444)
@@ -30,7 +30,7 @@ describe('summariseHomepageCost', () => {
 
   it('derives chargeability from planview_code for every row', () => {
     for (const r of ROWS) {
-      const alone = summariseHomepageCost([r], VAT_PCT)
+      const alone = summariseHomepageCost([r], VAT_RATE)
       const expected = isChargeableRow(r.planview_code) ? alone.vat_cost_pence : 0
       expect(alone.chargeable_cost_pence, r.label).toBe(expected)
     }
@@ -39,7 +39,7 @@ describe('summariseHomepageCost', () => {
   it('leaves base, VAT and the data-quality counts as they were', () => {
     const summary = summariseHomepageCost(
       [...ROWS, row('No code', null, 5, 10_000, false), row('No days', 'PR', null, 10_000, true)],
-      VAT_PCT,
+      VAT_RATE,
     )
     expect(summary.base_cost_pence).toBe(3_000_000 + 1_100_000 + 0 + 450_000 + 1_200_000 + 50_000 + 0)
     expect(summary.missingPlanview).toBe(1)
@@ -48,6 +48,6 @@ describe('summariseHomepageCost', () => {
 
   it('internal (Royal Mail Group) rows carry no VAT', () => {
     const internal = row('Internal PR', 'PR', 10, 30_000, true, true)
-    expect(summariseHomepageCost([internal], VAT_PCT).vat_cost_pence).toBe(300_000)
+    expect(summariseHomepageCost([internal], VAT_RATE).vat_cost_pence).toBe(300_000)
   })
 })

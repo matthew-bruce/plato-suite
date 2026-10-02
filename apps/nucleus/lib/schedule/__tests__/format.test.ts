@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   formatMoneyPence,
   workingDaysBetween,
-  computeVatTotalPence,
   shortQuarterLabel,
 } from '../format'
 
@@ -48,20 +47,6 @@ describe('workingDaysBetween', () => {
 
   it('returns 0 for invalid ranges', () => {
     expect(workingDaysBetween('2025-03-31', '2025-01-01')).toBe(0)
-  })
-})
-
-describe('computeVatTotalPence', () => {
-  it('returns base unchanged for internal supplier rows', () => {
-    expect(computeVatTotalPence(100_000, 7.082, true)).toBe(100_000)
-  })
-
-  it('applies VAT uplift for external supplier rows', () => {
-    expect(computeVatTotalPence(100_000, 7.082, false)).toBe(107_082)
-  })
-
-  it('handles zero uplift', () => {
-    expect(computeVatTotalPence(50_000, 0, false)).toBe(50_000)
   })
 })
 
