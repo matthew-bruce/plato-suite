@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // updateTeamAssignments now delegates the soft-delete + insert to a single
 // atomic Postgres function via supabase.rpc('update_team_assignments', ...)
 // (migration 017) so a failed insert can never leave a committed delete
-// behind. Validation (splits must sum to 100) still happens client-side
-// before any RPC call.
+// behind. Validation (splits may not exceed 100) still happens before any RPC
+// call; under 100 is allowed.
 
 let rpcResult: unknown
 
@@ -25,15 +25,22 @@ beforeEach(() => {
 })
 
 describe('updateTeamAssignments', () => {
-  it('rejects if real splits do not sum to 100', async () => {
+  it('accepts real splits under 100 — a part-time team split is valid', async () => {
     const result = await updateTeamAssignments('res-1', 'period-1', [
       { teamId: 'team-a', capacitySplit: 60 },
       { teamId: 'team-b', capacitySplit: 30 },
     ])
 
-    expect(result.success).toBe(false)
-    expect(result.error).toContain('100')
-    expect(rpcMock).not.toHaveBeenCalled()
+    expect(result.success).toBe(true)
+    expect(rpcMock).toHaveBeenCalledWith('update_team_assignments', {
+      p_resource_id: 'res-1',
+      p_period_id: 'period-1',
+      p_allocation_id: null,
+      p_assignments: [
+        { team_id: 'team-a', capacity_split: 60 },
+        { team_id: 'team-b', capacity_split: 30 },
+      ],
+    })
   })
 
   it('replaces existing assignments correctly (named resource path)', async () => {
@@ -151,9 +158,7 @@ describe('updateTeamAssignments', () => {
   // percent scale used by the UI and divides by 100 before the RPC call
   // (schedule-wizard.ts). The invariant that actually matters is: SUM(capacity_split)
   // across active (deleted_at IS NULL) resource_team_assignments rows for a
-  // given resource_id + period must never exceed 1.00. The existing
-  // "rejects if real splits do not sum to 100" test above only proves
-  // inequality (90 !== 100) is caught; these tests specifically target the
+  // given resource_id + period must never exceed 1.00. These tests target the
   // over-allocation case and prove the RPC is never reached when the incoming
   // write would push the period total over 100% (i.e. capacity_split > 1.00).
   describe('capacity_split integrity — never exceeds 1.00 (100%) for a resource+period', () => {

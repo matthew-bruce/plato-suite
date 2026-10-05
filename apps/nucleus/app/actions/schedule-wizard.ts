@@ -293,8 +293,11 @@ export async function updateTeamAssignments(
   const realAssignments = assignments.filter((a) => a.teamId !== '')
   const total = realAssignments.reduce((s, a) => s + a.capacitySplit, 0)
 
-  if (realAssignments.length > 0 && total !== 100) {
-    return { success: false, error: `Capacity splits must sum to 100 (got ${total})` }
+  // Over 100% is never valid. Under 100% is: a person can be part-time on
+  // teams, and the Schedule shows the unallocated remainder. Edit Teams still
+  // asks for exactly 100% before it saves; the add/assign wizard accepts less.
+  if (total > 100) {
+    return { success: false, error: `Team splits can't add up to more than 100% (got ${total}%)` }
   }
 
   const supabase = await getSupabaseServerComponentClient()
