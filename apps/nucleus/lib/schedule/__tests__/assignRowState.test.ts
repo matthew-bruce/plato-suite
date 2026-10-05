@@ -3,6 +3,7 @@ import type { TeamAssignment } from '@plato/schema'
 import {
   applyAssignToRow,
   applyUnassignToRow,
+  patchRow,
   savedTeamAssignments,
   teamEditSeatId,
   type SeatRowState,
@@ -163,5 +164,35 @@ describe('Edit Teams after an assign opens in person mode', () => {
     const assigned = applyAssignToRow(vacantSeat(), { resourceId: 'res-1', resourceName: 'P', teams: [CYGNUS] })
     const vacant = applyUnassignToRow(assigned)
     expect(teamEditSeatId(editTeamsTargetFor(vacant))).toBe('alloc-1')
+  })
+})
+
+describe('patchRow — the row is patched, not the page re-fetched', () => {
+  const rows = [
+    { allocation_id: 'a1', resource_id: null as string | null },
+    { allocation_id: 'a2', resource_id: null as string | null },
+    { allocation_id: 'a3', resource_id: 'res-9' as string | null },
+  ]
+
+  it('replaces only the matching row', () => {
+    const next = patchRow(rows, 'a2', (r) => ({ ...r, resource_id: 'res-1' }))
+    expect(next.map((r) => r.resource_id)).toEqual([null, 'res-1', 'res-9'])
+  })
+
+  it('returns every other row as the same object, so nothing else re-renders', () => {
+    const next = patchRow(rows, 'a2', (r) => ({ ...r, resource_id: 'res-1' }))
+    expect(next[0]).toBe(rows[0])
+    expect(next[2]).toBe(rows[2])
+    expect(next[1]).not.toBe(rows[1])
+  })
+
+  it('keeps the order and length', () => {
+    const next = patchRow(rows, 'a2', (r) => r)
+    expect(next.map((r) => r.allocation_id)).toEqual(['a1', 'a2', 'a3'])
+  })
+
+  it('changes nothing when no row matches', () => {
+    const next = patchRow(rows, 'missing', (r) => ({ ...r, resource_id: 'x' }))
+    expect(next).toEqual(rows)
   })
 })

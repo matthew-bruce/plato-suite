@@ -216,4 +216,32 @@ describe('updateTeamAssignments', () => {
       expect(rpcMock).not.toHaveBeenCalled()
     })
   })
+
+  // ── Role already filled (migration 040) ──────────────────────────────────
+
+  it('flags roleAlreadyFilled when the RPC raises the RFILL code', async () => {
+    rpcResult = {
+      data: null,
+      error: {
+        code: 'RFILL',
+        message: "This role already has a person assigned. Edit the person's team assignments instead.",
+      },
+    }
+    const result = await updateTeamAssignments(null, 'period-1', [], 'alloc-1')
+    expect(result.success).toBe(false)
+    expect(result.roleAlreadyFilled).toBe(true)
+  })
+
+  it('detects it by code, not text: the same message under another code is an ordinary failure', async () => {
+    rpcResult = {
+      data: null,
+      error: {
+        code: 'P0001',
+        message: "This role already has a person assigned. Edit the person's team assignments instead.",
+      },
+    }
+    const result = await updateTeamAssignments(null, 'period-1', [], 'alloc-1')
+    expect(result.success).toBe(false)
+    expect(result.roleAlreadyFilled).toBe(false)
+  })
 })

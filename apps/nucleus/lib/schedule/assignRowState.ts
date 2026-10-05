@@ -78,6 +78,19 @@ export function savedTeamAssignments(
 }
 
 /**
+ * `rows` with only the row for `allocationId` replaced by `update(row)` —
+ * every other row is returned as the same object, so nothing else on the
+ * page re-renders or moves.
+ */
+export function patchRow<T extends { allocation_id: string }>(
+  rows: readonly T[],
+  allocationId: string,
+  update: (row: T) => T,
+): T[] {
+  return rows.map((row) => (row.allocation_id === allocationId ? update(row) : row))
+}
+
+/**
  * The seat id Edit Teams reads and writes by — or `undefined` in person mode.
  * A row with a person is always edited by resource_id; only a genuinely
  * vacant seat is edited by its allocation id.

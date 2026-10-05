@@ -192,6 +192,15 @@ export interface AddResourceWizardProps {
    *  "Connect and…" options), which soft-delete one row and rewrite another —
    *  the parent should re-fetch to reflect the merged state. */
   onConflictResolved?: () => void
+  /** "Connect and use vacant seat details" filled the vacant role
+   *  (`allocationId`) and removed the person's other row
+   *  (`supersededAllocationId`). When given, the parent patches just those
+   *  rows instead of onConflictResolved's full re-fetch. */
+  onConnectedToVacancy?: (
+    allocationId: string,
+    supersededAllocationId: string,
+    resourceLocation: ResourceLocation,
+  ) => void
   onClose: () => void
   onSuccess: (data: WizardSuccessPayload) => void
 }
@@ -278,6 +287,7 @@ export function AddResourceWizard({
   assignMode,
   onAssignSuccess,
   onConflictResolved,
+  onConnectedToVacancy,
   onClose,
   onSuccess,
 }: AddResourceWizardProps) {
@@ -1029,7 +1039,11 @@ export function AddResourceWizard({
       return
     }
     setConflictDialog(null)
-    onConflictResolved?.()
+    if (onConnectedToVacancy) {
+      onConnectedToVacancy(assignMode.allocationId, supersededId, form.resourceLocation)
+    } else {
+      onConflictResolved?.()
+    }
     onClose()
   }
 

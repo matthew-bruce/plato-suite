@@ -54,6 +54,7 @@ import {
   setAllocationMonthlyDays,
   clearAllocationMonthlyDays,
 } from '@/app/actions/schedule'
+import { getRoleAssignment } from '@/app/actions/schedule-wizard'
 import {
   getPeriodMonths,
   calculateWorkingDaysInMonth,
@@ -80,7 +81,7 @@ import { decideRateUpsert, type ExistingCostConfigRow } from '@/lib/rates/upsert
 import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { computeFooterTotals } from '@/lib/schedule/footerTotals'
-import { applyAssignToRow, applyUnassignToRow } from '@/lib/schedule/assignRowState'
+import { applyAssignToRow, applyUnassignToRow, patchRow, type AssignedPerson } from '@/lib/schedule/assignRowState'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
@@ -819,6 +820,56 @@ export function SchedulePageClient({ data }: Props) {
     setEditTeamsTarget({ allocationId, resourceId, resourceName, currentTeams })
   }
 
+  /**
+   * Edit Teams found its role filled by someone else (it re-read the role
+   * itself). Patch only that row and reopen the modal on the person — no
+   * page re-fetch, so scroll position, collapsed groups and filters stay put.
+   */
+  function handleRoleFilled(
+    allocationId: string,
+    person: AssignedPerson & { teams: TeamAssignment[] },
+    message: string,
+  ) {
+    setLocalAllocations((prev) => patchRow(prev, allocationId, (a) => applyAssignToRow(a, person)))
+    setEditTeamsTarget({
+      allocationId,
+      resourceId: person.resourceId,
+      resourceName: person.resourceName ?? '',
+      currentTeams: person.teams,
+      notice: message,
+    })
+  }
+
+  /**
+   * "Connect and use vacant seat details" filled the vacant role with a person
+   * who already had another row this period, and removed that other row. Re-read
+   * just the filled role and patch it, and drop the removed row, so Edit Teams
+   * can never open on a stale vacant row. Falls back to a page re-fetch only if
+   * the re-read fails.
+   */
+  async function handleConnectedToVacancy(
+    allocationId: string,
+    supersededAllocationId: string,
+    resourceLocation: ResourceLocation,
+  ): Promise<void> {
+    const fresh = await getRoleAssignment(allocationId, period.period_id).catch(() => null)
+    if (!fresh?.success || !fresh.snapshot.resourceId) {
+      router.refresh()
+      return
+    }
+    const { resourceId, resourceName, teams } = fresh.snapshot
+    setLocalAllocations((prev) =>
+      patchRow(
+        prev.filter((a) => a.allocation_id !== supersededAllocationId),
+        allocationId,
+        (a) => ({
+          ...applyAssignToRow(a, { resourceId, resourceName, teams }),
+          resource_location: resourceLocation,
+        }),
+      ),
+    )
+  }
+
   function handleEditTeamsSave(allocationId: string, newTeams: TeamAssignment[]) {
     const teams = newTeams as unknown as Allocation['teams']
     const unallocatedPct = computeUnallocatedPct(newTeams)
@@ -1218,6 +1269,7 @@ export function SchedulePageClient({ data }: Props) {
       assignMode={assignWizardTarget ?? undefined}
       onAssignSuccess={handleAssignSuccess}
       onConflictResolved={() => router.refresh()}
+      onConnectedToVacancy={handleConnectedToVacancy}
       onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
@@ -1226,6 +1278,7 @@ export function SchedulePageClient({ data }: Props) {
         target={editTeamsTarget}
         periodId={period.period_id}
         onSave={handleEditTeamsSave}
+        onRoleFilled={handleRoleFilled}
         onClose={() => setEditTeamsTarget(null)}
       />
     )}

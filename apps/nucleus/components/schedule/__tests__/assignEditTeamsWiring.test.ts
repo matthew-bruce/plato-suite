@@ -71,3 +71,45 @@ describe('AddResourceWizard reports the teams it saved', () => {
     expect(wizard).not.toMatch(/\n\s+await updateTeamAssignments\(/)
   })
 })
+
+describe('Edit Teams on a role someone else has just filled', () => {
+  const save = functionBody(modal, 'async function handleSave()', 'const overlay')
+  const roleFilled = functionBody(page, 'function handleRoleFilled(', 'async function handleConnectedToVacancy(')
+  const connected = functionBody(page, 'async function handleConnectedToVacancy(', 'function handleEditTeamsSave(')
+
+  it('detects the case by the action\'s flag (set from the error code), not by message text', () => {
+    expect(save).toContain('if (result.roleAlreadyFilled)')
+    for (const source of [modal, page, wizard, read('../../app/actions/schedule-wizard.ts')]) {
+      expect(source).not.toContain('already has a person assigned')
+    }
+  })
+
+  it('re-reads just the one role through recoverFromRoleFilled', () => {
+    expect(save).toContain('recoverFromRoleFilled(')
+    expect(save).toContain('getRoleAssignment(target.allocationId, periodId)')
+  })
+
+  it('hands a patched outcome to the page, and shows the fallback message otherwise', () => {
+    expect(save).toContain("if (outcome.kind === 'patched')")
+    expect(save).toContain('onRoleFilled(target.allocationId, outcome.person, outcome.message)')
+    expect(save).toContain('setSubmitError(outcome.message)')
+  })
+
+  it('the page patches only that row and reopens the modal on the person, without a re-fetch', () => {
+    expect(roleFilled).toContain('patchRow(prev, allocationId, (a) => applyAssignToRow(a, person))')
+    expect(roleFilled).toContain('resourceId: person.resourceId')
+    expect(roleFilled).toContain('notice: message')
+    expect(roleFilled).not.toContain('router.refresh')
+  })
+
+  it('the modal shows the notice in its existing message slot', () => {
+    expect(modal).toContain('{submitError ?? target.notice}')
+  })
+
+  it('"Connect and use vacant seat details" patches the filled role and drops the removed row', () => {
+    expect(wizard).toContain('onConnectedToVacancy(assignMode.allocationId, supersededId, form.resourceLocation)')
+    expect(connected).toContain('getRoleAssignment(allocationId, period.period_id)')
+    expect(connected).toContain('prev.filter((a) => a.allocation_id !== supersededAllocationId)')
+    expect(connected).toContain('applyAssignToRow(a, { resourceId, resourceName, teams })')
+  })
+})

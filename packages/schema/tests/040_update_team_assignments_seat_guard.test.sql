@@ -25,6 +25,7 @@ declare
   v_team             uuid;
   v_raised           boolean := false;
   v_message          text;
+  v_state            text;
   v_count            int;
   v_seat_rows_before int;
 begin
@@ -68,13 +69,18 @@ begin
   exception when others then
     v_raised := true;
     v_message := sqlerrm;
+    v_state := sqlstate;
   end;
 
   if not v_raised then
     raise exception 'FAIL: seat mode on an assigned seat did not raise';
   end if;
-  if v_message not like '%already has a resource assigned%' then
-    raise exception 'FAIL: raised the wrong error: %', v_message;
+  -- The page detects this case by SQLSTATE, so the code is the contract.
+  if v_state <> 'RFILL' then
+    raise exception 'FAIL: raised SQLSTATE % (%), expected RFILL', v_state, v_message;
+  end if;
+  if v_message <> 'This role already has a person assigned. Edit the person''s team assignments instead.' then
+    raise exception 'FAIL: unexpected message: %', v_message;
   end if;
 
   select count(*) into v_count
@@ -83,7 +89,7 @@ begin
   if v_count <> v_seat_rows_before then
     raise exception 'FAIL: seat rows on the assigned seat changed (% -> %)', v_seat_rows_before, v_count;
   end if;
-  raise notice 'PASS: seat mode on an assigned seat raises and writes nothing';
+  raise notice 'PASS: seat mode on an assigned seat raises RFILL and writes nothing';
 
   -- 2. Seat mode on a VACANT seat behaves as before ------------------------
   perform public.update_team_assignments(

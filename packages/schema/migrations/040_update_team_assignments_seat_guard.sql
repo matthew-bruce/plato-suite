@@ -16,7 +16,11 @@
 -- guard against any caller holding stale state.
 --
 -- Change: in seat mode, lock the seat (SELECT ... FOR UPDATE) and raise if its
--- resource_id is set. The lock stops a concurrent assign from slipping in
+-- resource_id is set. The error carries a dedicated SQLSTATE, RFILL ("role
+-- filled"), so callers detect it by code, never by message text: the Schedule
+-- page matches error.code === 'RFILL' (apps/nucleus/lib/schedule/roleFilled.ts)
+-- and then re-reads the role. The message itself is plain English, because
+-- it can reach a user — the Schedule calls these rows "roles", not seats. The lock stops a concurrent assign from slipping in
 -- between the check and the insert. Everything else is unchanged: a
 -- genuinely vacant seat behaves exactly as before, as does the person mode.
 -- A seat id that matches no allocation also behaves exactly as before (the
@@ -25,7 +29,9 @@
 -- Numbered 040: 039 (resource_engagements.email) was applied to the live DB
 -- on 2026-10-05 without a file in this folder.
 --
--- ROLLBACK — restore the previous definition (as live on 2026-10-05):
+-- ROLLBACK — restore the previous definition (as live on 2026-10-05). It has
+-- no guard, so nothing raises RFILL afterwards; the Schedule page's RFILL
+-- handling then simply never triggers and needs no change:
 --
 --   CREATE OR REPLACE FUNCTION public.update_team_assignments(
 --     p_resource_id uuid, p_period_id uuid, p_allocation_id uuid, p_assignments jsonb
@@ -81,9 +87,9 @@ begin
 
     if v_seat_resource_id is not null then
       raise exception
-        'Allocation % already has a resource assigned; edit its team assignments by resource, not by seat',
-        p_allocation_id
-        using errcode = 'P0001';
+        'This role already has a person assigned. Edit the person''s team assignments instead.'
+        using errcode = 'RFILL',
+              detail  = format('allocation_id=%s resource_id=%s', p_allocation_id, v_seat_resource_id);
     end if;
 
     update public.resource_team_assignments
