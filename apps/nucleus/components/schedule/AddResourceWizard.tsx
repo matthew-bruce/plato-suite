@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { ResourceLocation, PlanviewCode } from '@plato/schema'
+import type { ResourceLocation, PlanviewCode, TeamAssignment } from '@plato/schema'
 import {
   searchResources,
   fetchWizardData,
@@ -47,6 +47,7 @@ import {
 } from '@/lib/schedule/rateConflict'
 import type { RateConflict } from '@/lib/schedule/rateConflict'
 import { suggestDiscipline } from '@/lib/schedule/disciplineMatch'
+import { savedTeamAssignments } from '@/lib/schedule/assignRowState'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -177,6 +178,10 @@ export interface AddResourceWizardProps {
     allocationId: string,
     resourceId: string | null,
     resourceName: string | null,
+    /** The team assignments just saved for the seat (vacant) or the person
+     *  (assigned), so the row shows them without a re-fetch. `undefined` when
+     *  the team save failed and the caller should re-fetch instead. */
+    teams: TeamAssignment[] | undefined,
     /** Figures the assign changed on the seat — a rate settled from a
      *  role-vs-resource difference, or the starting figures entered for a new
      *  person. The caller renders the row without re-fetching, so anything
@@ -683,9 +688,14 @@ export function AddResourceWizard({
         const teamAssignments = teamRows
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
-        await updateTeamAssignments(null, periodId, teamAssignments, allocationId)
+        const teamResult = await updateTeamAssignments(null, periodId, teamAssignments, allocationId)
         setIsSubmitting(false)
-        onAssignSuccess?.(allocationId, null, null)
+        onAssignSuccess?.(
+          allocationId,
+          null,
+          null,
+          teamResult.success ? savedTeamAssignments(teamAssignments, teams) : undefined,
+        )
         onClose()
         return
       }
@@ -723,12 +733,13 @@ export function AddResourceWizard({
         // Always call updateTeamAssignments: it DELETEs existing rows first,
         // then INSERTs new ones. This clears stale assignments even when
         // the user picks "No Team" or skips, avoiding unique constraint violations.
-        await updateTeamAssignments(selectedResource.resource_id, periodId, teamAssignments)
+        const teamResult = await updateTeamAssignments(selectedResource.resource_id, periodId, teamAssignments)
         setIsSubmitting(false)
         onAssignSuccess?.(
           allocationId,
           selectedResource.resource_id,
           selectedResource.resource_name,
+          teamResult.success ? savedTeamAssignments(teamAssignments, teams) : undefined,
           appliedRate === undefined ? undefined : { dayRate: appliedRate },
         )
         onClose()
@@ -800,13 +811,19 @@ export function AddResourceWizard({
           .filter((r) => r.teamId !== '')
           .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
         // Always call updateTeamAssignments — clears any pre-existing rows before inserting.
-        await updateTeamAssignments(insertResult.resourceId, periodId, teamAssignments)
+        const teamResult = await updateTeamAssignments(insertResult.resourceId, periodId, teamAssignments)
         setIsSubmitting(false)
-        onAssignSuccess?.(allocationId, insertResult.resourceId, form.roleTitle, {
-          dayRate: typedRate,
-          capacityDays: newCapacity,
-          monthlyDays: isMonthlyMode ? monthValues : undefined,
-        })
+        onAssignSuccess?.(
+          allocationId,
+          insertResult.resourceId,
+          form.roleTitle,
+          teamResult.success ? savedTeamAssignments(teamAssignments, teams) : undefined,
+          {
+            dayRate: typedRate,
+            capacityDays: newCapacity,
+            monthlyDays: isMonthlyMode ? monthValues : undefined,
+          },
+        )
         onClose()
         return
       }

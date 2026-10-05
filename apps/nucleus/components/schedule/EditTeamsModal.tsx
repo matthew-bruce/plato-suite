@@ -9,6 +9,7 @@ import {
 } from '@/app/actions/schedule-wizard'
 import type { TeamOption } from '@/app/actions/schedule-wizard'
 import type { TeamAssignment } from '@plato/schema'
+import { teamEditSeatId } from '@/lib/schedule/assignRowState'
 
 const ACTIVE_RED = '#DA202A'
 const HEADER_BG = '#2A2A2D'
@@ -40,7 +41,9 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
     setSubmitError(null)
     Promise.all([
       fetchWizardData(),
-      getTeamAssignments(target.resourceId, periodId, target.resourceId ? undefined : target.allocationId),
+      // Person mode whenever the row has a person; only a vacant seat is
+      // read and written by its allocation id.
+      getTeamAssignments(target.resourceId, periodId, teamEditSeatId(target)),
     ])
       .then(([wizardData, fetched]) => {
         setTeams(wizardData.teams)
@@ -74,7 +77,7 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
       target.resourceId,
       periodId,
       realAssignments.map((a) => ({ teamId: a.teamId, capacitySplit: a.split })),
-      target.resourceId ? undefined : target.allocationId,
+      teamEditSeatId(target),
     )
     setIsSubmitting(false)
     if (!result.success) {
