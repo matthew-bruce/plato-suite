@@ -1502,7 +1502,7 @@ export function AddResourceWizard({
           newRow={
             isAssignMode && assignMode
               ? {
-                  heading: 'Vacant seat',
+                  heading: 'Vacant role',
                   roleTitle: assignMode.roleTitle || '—',
                   capacityDays: assignMode.capacityDays ?? null,
                   dayRate: assignMode.dayRate ?? 0,
@@ -1913,7 +1913,7 @@ function ConflictDialog({
               Connect and keep existing details
             </button>
             <button type="button" style={btnNeutral} disabled={isSubmitting} onClick={onUseVacant}>
-              Connect and use vacant seat details
+              Connect and use vacant role details
             </button>
           </>
         )}
