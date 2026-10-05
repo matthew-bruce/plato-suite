@@ -1,8 +1,9 @@
 'use server'
 
 import { getSupabaseServerComponentClient } from '@plato/schema/server'
-import type { ResourceLocation, PlanviewCode } from '@plato/schema'
+import type { ResourceLocation, PlanviewCode, TeamAssignment } from '@plato/schema'
 import { deriveIsChargeable } from '../../lib/schedule/ui'
+import { isRoleAlreadyFilledError, type RoleAssignmentSnapshot } from '../../lib/schedule/roleFilled'
 
 export interface ResourceSearchResult {
   resource_id: string
@@ -282,7 +283,13 @@ export async function updateTeamAssignments(
   periodId: string,
   assignments: Array<{ teamId: string; capacitySplit: number }>,
   allocationId?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean
+  error?: string
+  /** The vacant role was given a person before this write landed
+   *  (migration 040's RFILL refusal) — re-read the role and retry by person. */
+  roleAlreadyFilled?: boolean
+}> {
   const realAssignments = assignments.filter((a) => a.teamId !== '')
   const total = realAssignments.reduce((s, a) => s + a.capacitySplit, 0)
 
@@ -306,10 +313,76 @@ export async function updateTeamAssignments(
   })
 
   if (error) {
-    return { success: false, error: error.message }
+    return { success: false, error: error.message, roleAlreadyFilled: isRoleAlreadyFilledError(error) }
   }
 
   return { success: true }
+}
+
+/**
+ * One role's current person and teams, read fresh — so the Schedule page can
+ * patch just that row when its copy has gone stale, rather than re-fetching
+ * the whole page. Teams are the person's when the role has one, otherwise the
+ * vacant role's own.
+ */
+export async function getRoleAssignment(
+  allocationId: string,
+  periodId: string,
+): Promise<{ success: true; snapshot: RoleAssignmentSnapshot } | { success: false; error: string }> {
+  const supabase = await getSupabaseServerComponentClient()
+
+  type RawRole = {
+    resource_id: string | null
+    resources: { resource_name: string | null } | { resource_name: string | null }[] | null
+  }
+  const { data: role, error: roleErr } = await supabase
+    .from('resource_period_allocations')
+    .select('resource_id, resources:resource_id!left ( resource_name )')
+    .eq('allocation_id', allocationId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (roleErr) return { success: false, error: roleErr.message }
+  if (!role) return { success: false, error: 'Role not found' }
+
+  const { resource_id: resourceId, resources } = role as unknown as RawRole
+
+  type RawTeamRow = {
+    team_id: string
+    capacity_split: number | string
+    teams: { team_name: string } | { team_name: string }[] | null
+  }
+  const teamQuery = resourceId
+    ? supabase
+        .from('resource_team_assignments')
+        .select('team_id, capacity_split, teams:team_id ( team_name )')
+        .eq('resource_id', resourceId)
+        .eq('period_id', periodId)
+        .is('deleted_at', null)
+    : supabase
+        .from('resource_team_assignments')
+        .select('team_id, capacity_split, teams:team_id ( team_name )')
+        .eq('allocation_id', allocationId)
+        .is('resource_id', null)
+        .is('deleted_at', null)
+
+  const { data: teamData, error: teamErr } = await teamQuery
+  if (teamErr) return { success: false, error: teamErr.message }
+
+  const teams: TeamAssignment[] = ((teamData ?? []) as unknown as RawTeamRow[]).map((r) => ({
+    teamId: r.team_id,
+    teamName: pickOne(r.teams)?.team_name ?? '',
+    capacitySplit: Number(r.capacity_split),
+  }))
+
+  return {
+    success: true,
+    snapshot: {
+      resourceId,
+      resourceName: pickOne(resources)?.resource_name ?? null,
+      teams,
+    },
+  }
 }
 
 export interface CreateAllocationParams {

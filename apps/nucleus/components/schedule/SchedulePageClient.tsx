@@ -54,6 +54,7 @@ import {
   setAllocationMonthlyDays,
   clearAllocationMonthlyDays,
 } from '@/app/actions/schedule'
+import { getRoleAssignment } from '@/app/actions/schedule-wizard'
 import {
   getPeriodMonths,
   calculateWorkingDaysInMonth,
@@ -80,6 +81,7 @@ import { decideRateUpsert, type ExistingCostConfigRow } from '@/lib/rates/upsert
 import { ConfirmDialog } from '../rates/ConfirmDialog'
 import { calcCostItemVat } from '@/lib/schedule/costItems'
 import { computeFooterTotals } from '@/lib/schedule/footerTotals'
+import { applyAssignToRow, applyUnassignToRow, patchRow, type AssignedPerson } from '@/lib/schedule/assignRowState'
 import { highlightMatch } from '@/lib/schedule/highlightMatch'
 import { getCapacitySplit } from '@/lib/scheduleUtils'
 import {
@@ -751,14 +753,21 @@ export function SchedulePageClient({ data }: Props) {
 
   function handleAssignSuccess(
     allocationId: string,
-    _resourceId: string | null,
+    resourceId: string | null,
     resourceName: string | null,
+    teams: TeamAssignment[] | undefined,
     figures?: { dayRate?: number; capacityDays?: number; monthlyDays?: Record<string, number> },
   ): void {
     setLocalAllocations((prev) =>
       prev.map((a) => {
         if (a.allocation_id !== allocationId) return a
-        const next = { ...a, resource_name: resourceName }
+        // The row's identity and teams move with the assign, not just its
+        // name: a row left with resource_id = null opens Edit Teams in
+        // vacant-seat mode and writes a seat-keyed team row onto a seat that
+        // now has a person (see lib/schedule/assignRowState).
+        const next = resourceId
+          ? applyAssignToRow(a, { resourceId, resourceName, teams })
+          : applyUnassignToRow(a, teams)
         // The assign changed figures on the seat — a settled rate, or the
         // starting figures entered for a new person — so the row and
         // everything derived from it move with them rather than waiting for a
@@ -775,6 +784,9 @@ export function SchedulePageClient({ data }: Props) {
         return { ...updated, ...rowTotals(updated, vatRate) }
       }),
     )
+    // The team save failed, so the page cannot know which teams the row has
+    // now — fetch them rather than show a guess.
+    if (teams === undefined) router.refresh()
   }
 
   function handleOpenAssignWizard(allocationId: string, roleTitle: string, supplierId: string | null, supplierName: string | null, resourceLocation: ResourceLocation | null, seat?: { capacityDays: number | null; dayRate: number; teamNames: string[] }): void {
@@ -782,15 +794,17 @@ export function SchedulePageClient({ data }: Props) {
   }
 
   async function handleUnassignResource(allocationId: string): Promise<void> {
-    const target = localAllocations.find((a) => a.allocation_id === allocationId)
-    const prevName = target?.resource_name ?? null
+    const previous = localAllocations.find((a) => a.allocation_id === allocationId)
+    // resource_id is cleared too, so Edit Teams treats the row as the vacant
+    // seat it now is. Teams stay: the person's team rows are re-keyed onto the
+    // seat by unassignResourceFromAllocation.
     setLocalAllocations((prev) =>
-      prev.map((a) => a.allocation_id === allocationId ? { ...a, resource_name: null } : a),
+      prev.map((a) => a.allocation_id === allocationId ? applyUnassignToRow(a) : a),
     )
     const result = await unassignResourceFromAllocation(allocationId)
-    if (!result.success) {
+    if (!result.success && previous) {
       setLocalAllocations((prev) =>
-        prev.map((a) => a.allocation_id === allocationId ? { ...a, resource_name: prevName } : a),
+        prev.map((a) => a.allocation_id === allocationId ? previous : a),
       )
     }
   }
@@ -804,6 +818,56 @@ export function SchedulePageClient({ data }: Props) {
     currentTeams: TeamAssignment[],
   ) {
     setEditTeamsTarget({ allocationId, resourceId, resourceName, currentTeams })
+  }
+
+  /**
+   * Edit Teams found its role filled by someone else (it re-read the role
+   * itself). Patch only that row and reopen the modal on the person — no
+   * page re-fetch, so scroll position, collapsed groups and filters stay put.
+   */
+  function handleRoleFilled(
+    allocationId: string,
+    person: AssignedPerson & { teams: TeamAssignment[] },
+    message: string,
+  ) {
+    setLocalAllocations((prev) => patchRow(prev, allocationId, (a) => applyAssignToRow(a, person)))
+    setEditTeamsTarget({
+      allocationId,
+      resourceId: person.resourceId,
+      resourceName: person.resourceName ?? '',
+      currentTeams: person.teams,
+      notice: message,
+    })
+  }
+
+  /**
+   * "Connect and use vacant seat details" filled the vacant role with a person
+   * who already had another row this period, and removed that other row. Re-read
+   * just the filled role and patch it, and drop the removed row, so Edit Teams
+   * can never open on a stale vacant row. Falls back to a page re-fetch only if
+   * the re-read fails.
+   */
+  async function handleConnectedToVacancy(
+    allocationId: string,
+    supersededAllocationId: string,
+    resourceLocation: ResourceLocation,
+  ): Promise<void> {
+    const fresh = await getRoleAssignment(allocationId, period.period_id).catch(() => null)
+    if (!fresh?.success || !fresh.snapshot.resourceId) {
+      router.refresh()
+      return
+    }
+    const { resourceId, resourceName, teams } = fresh.snapshot
+    setLocalAllocations((prev) =>
+      patchRow(
+        prev.filter((a) => a.allocation_id !== supersededAllocationId),
+        allocationId,
+        (a) => ({
+          ...applyAssignToRow(a, { resourceId, resourceName, teams }),
+          resource_location: resourceLocation,
+        }),
+      ),
+    )
   }
 
   function handleEditTeamsSave(allocationId: string, newTeams: TeamAssignment[]) {
@@ -1205,6 +1269,7 @@ export function SchedulePageClient({ data }: Props) {
       assignMode={assignWizardTarget ?? undefined}
       onAssignSuccess={handleAssignSuccess}
       onConflictResolved={() => router.refresh()}
+      onConnectedToVacancy={handleConnectedToVacancy}
       onClose={() => { setWizardOpen(false); setWizardSupplier(null); setAssignWizardTarget(null) }}
       onSuccess={handleWizardSuccess}
     />
@@ -1213,6 +1278,7 @@ export function SchedulePageClient({ data }: Props) {
         target={editTeamsTarget}
         periodId={period.period_id}
         onSave={handleEditTeamsSave}
+        onRoleFilled={handleRoleFilled}
         onClose={() => setEditTeamsTarget(null)}
       />
     )}

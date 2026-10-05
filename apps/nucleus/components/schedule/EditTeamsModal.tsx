@@ -4,11 +4,14 @@ import { useState, useEffect } from 'react'
 import { TeamAssignmentBuilder } from './TeamAssignmentBuilder'
 import {
   fetchWizardData,
+  getRoleAssignment,
   getTeamAssignments,
   updateTeamAssignments,
 } from '@/app/actions/schedule-wizard'
 import type { TeamOption } from '@/app/actions/schedule-wizard'
 import type { TeamAssignment } from '@plato/schema'
+import { teamEditSeatId } from '@/lib/schedule/assignRowState'
+import { recoverFromRoleFilled, type RoleFilledOutcome } from '@/lib/schedule/roleFilled'
 
 const ACTIVE_RED = '#DA202A'
 const HEADER_BG = '#2A2A2D'
@@ -19,16 +22,26 @@ export interface EditTeamsTarget {
   resourceId: string | null
   resourceName: string
   currentTeams: TeamAssignment[]
+  /** Shown in the message slot when the modal has just been moved onto the
+   *  person who filled this role while it was open (see lib/schedule/roleFilled). */
+  notice?: string
 }
 
 interface EditTeamsModalProps {
   target: EditTeamsTarget
   periodId: string
   onSave: (allocationId: string, newTeams: TeamAssignment[]) => void
+  /** The role was filled by someone else while this was open: patch that one
+   *  row and reopen the modal on the person, showing `message`. */
+  onRoleFilled: (
+    allocationId: string,
+    person: Extract<RoleFilledOutcome, { kind: 'patched' }>['person'],
+    message: string,
+  ) => void
   onClose: () => void
 }
 
-export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsModalProps) {
+export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose }: EditTeamsModalProps) {
   const [teams, setTeams] = useState<TeamOption[]>([])
   const [assignments, setAssignments] = useState<Array<{ teamId: string; split: number }>>([])
   const [loading, setLoading] = useState(true)
@@ -40,7 +53,9 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
     setSubmitError(null)
     Promise.all([
       fetchWizardData(),
-      getTeamAssignments(target.resourceId, periodId, target.resourceId ? undefined : target.allocationId),
+      // Person mode whenever the row has a person; only a vacant seat is
+      // read and written by its allocation id.
+      getTeamAssignments(target.resourceId, periodId, teamEditSeatId(target)),
     ])
       .then(([wizardData, fetched]) => {
         setTeams(wizardData.teams)
@@ -74,8 +89,23 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
       target.resourceId,
       periodId,
       realAssignments.map((a) => ({ teamId: a.teamId, capacitySplit: a.split })),
-      target.resourceId ? undefined : target.allocationId,
+      teamEditSeatId(target),
     )
+    if (result.roleAlreadyFilled) {
+      // Someone assigned a person to this role after the page loaded. Nothing
+      // was saved; re-read just this role and move onto the person.
+      const outcome = await recoverFromRoleFilled(async () => {
+        const fresh = await getRoleAssignment(target.allocationId, periodId)
+        return fresh.success ? fresh.snapshot : null
+      })
+      setIsSubmitting(false)
+      if (outcome.kind === 'patched') {
+        onRoleFilled(target.allocationId, outcome.person, outcome.message)
+      } else {
+        setSubmitError(outcome.message)
+      }
+      return
+    }
     setIsSubmitting(false)
     if (!result.success) {
       setSubmitError(result.error ?? 'Something went wrong. Please try again.')
@@ -223,8 +253,8 @@ export function EditTeamsModal({ target, periodId, onSave, onClose }: EditTeamsM
           }}
         >
           <div>
-            {submitError && (
-              <span style={{ fontSize: 12, color: ACTIVE_RED }}>{submitError}</span>
+            {(submitError ?? target.notice) && (
+              <span style={{ fontSize: 12, color: ACTIVE_RED }}>{submitError ?? target.notice}</span>
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
