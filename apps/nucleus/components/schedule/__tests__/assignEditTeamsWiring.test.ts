@@ -63,8 +63,13 @@ describe('EditTeamsModal picks person or seat mode from the target', () => {
 
 describe('AddResourceWizard reports the teams it saved', () => {
   it('passes them on every assign-mode success — vacant, existing person, new person', () => {
+    // Vacant and new person write the editor's rows directly.
     const calls = wizard.match(/teamResult\.success \? savedTeamAssignments\(teamAssignments, teams\) : undefined/g)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(2)
+    // An existing person goes through the confirmed write decision
+    // (lib/schedule/assignTeams) — written rows, or the unchanged teams.
+    expect(wizard).toContain('teamResult.success ? savedTeamAssignments(decision.assignments, teams) : undefined')
+    expect(wizard).toContain('decision.teams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split }))')
   })
 
   it('checks each team save rather than discarding its result', () => {

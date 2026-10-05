@@ -48,6 +48,23 @@ import {
 import type { RateConflict } from '@/lib/schedule/rateConflict'
 import { suggestDiscipline } from '@/lib/schedule/disciplineMatch'
 import { savedTeamAssignments } from '@/lib/schedule/assignRowState'
+import {
+  canSkipTeams,
+  clearsRoleTeamsBeforeAssign,
+  decideTeamWrite,
+  describeSelection,
+  emptySelectionWarning,
+  isTeamSelectionConfirmed,
+  isTeamTotalAllowed,
+  normaliseSelection,
+  requiresTeamConfirmation,
+  resolveAssignTeamPrefill,
+  selectionSignature,
+  teamReferenceLines,
+  type NamedTeamSplit,
+  type TeamSplit,
+} from '@/lib/schedule/assignTeams'
+import { TeamAssignmentBuilder } from './TeamAssignmentBuilder'
 
 /* ── Constants ──────────────────────────────────────────── */
 
@@ -317,8 +334,19 @@ export function AddResourceWizard({
   const [newPersonDisciplineId, setNewPersonDisciplineId] = useState('')
   const [suggestedDisciplineId, setSuggestedDisciplineId] = useState<string | null>(null)
 
-  // Multi-team builder rows
+  // Multi-team builder rows. The editor (TeamAssignmentBuilder, shared with
+  // Edit Teams) only reads its value on mount, so anything that replaces the
+  // rows from outside goes through replaceTeamRows, which remounts it.
   const [teamRows, setTeamRows] = useState<TeamRow[]>([{ id: nextRowId(), teamId: '', pct: 100 }])
+  const [teamEditorKey, setTeamEditorKey] = useState(0)
+
+  // Assign mode, existing person (see lib/schedule/assignTeams): the vacant
+  // role's own teams, the person's current teams this period, and the exact
+  // selection the user confirmed on the Confirm step. Team rows belong to the
+  // person and the period, so nothing about them is assumed.
+  const [roleTeams, setRoleTeams] = useState<NamedTeamSplit[]>([])
+  const [personTeams, setPersonTeams] = useState<NamedTeamSplit[]>([])
+  const [confirmedTeamSignature, setConfirmedTeamSignature] = useState<string | null>(null)
 
   const defaultForm = useCallback(
     (): FormState => ({
@@ -373,7 +401,7 @@ export function AddResourceWizard({
         if (activeTeamFilter !== 'all') {
           const match = t.find((x) => x.team_name === activeTeamFilter)
           if (match) {
-            setTeamRows([{ id: nextRowId(), teamId: match.team_id, pct: 100 }])
+            replaceTeamRows([{ teamId: match.team_id, split: 100 }])
           }
         }
       })
@@ -389,8 +417,9 @@ export function AddResourceWizard({
     setForm((prev) => ({ ...prev, resourceLocation: assignMode.resourceLocation ?? 'onshore' }))
     getTeamAssignments(null, periodId, assignMode.allocationId)
       .then((rows) => {
+        setRoleTeams(rows.map((r) => ({ teamId: r.teamId, teamName: r.teamName, split: r.split })))
         if (rows.length > 0) {
-          setTeamRows(rows.map((r) => ({ id: nextRowId(), teamId: r.teamId, pct: r.split })))
+          replaceTeamRows(rows.map((r) => ({ teamId: r.teamId, split: r.split })))
         }
       })
       .catch(() => {})
@@ -407,7 +436,10 @@ export function AddResourceWizard({
       setIsSearching(false)
       setSelectedResource(null)
       setIsCheckingDuplicate(false)
-      setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
+      replaceTeamRows([{ teamId: '', split: 100 }])
+      setRoleTeams([])
+      setPersonTeams([])
+      setConfirmedTeamSignature(null)
       setDuplicateAdvisory(null)
       setSubmitError(null)
       setConflictDialog(null)
@@ -487,6 +519,37 @@ export function AddResourceWizard({
     setIsCheckingDuplicate(false)
 
     if (isAssignMode) {
+      // The person's teams this period decide how the Team(s) step behaves,
+      // so they are read before it opens — never assumed to be none. The
+      // role's are re-read alongside, in case the open-time load is still in
+      // flight.
+      let current: NamedTeamSplit[]
+      let role: NamedTeamSplit[]
+      setIsCheckingDuplicate(true)
+      try {
+        const [personRows, roleRows] = await Promise.all([
+          getTeamAssignments(r.resource_id, periodId),
+          getTeamAssignments(null, periodId, assignMode!.allocationId),
+        ])
+        current = personRows.map((t) => ({ teamId: t.teamId, teamName: t.teamName, split: t.split }))
+        role = roleRows.map((t) => ({ teamId: t.teamId, teamName: t.teamName, split: t.split }))
+      } catch {
+        setIsCheckingDuplicate(false)
+        setSubmitError(`Could not load ${r.resource_name}'s teams. Please try again.`)
+        return
+      }
+      setIsCheckingDuplicate(false)
+      setSubmitError(null)
+      setPersonTeams(current)
+      setRoleTeams(role)
+      setConfirmedTeamSignature(null)
+      replaceTeamRows(
+        resolveAssignTeamPrefill({
+          personTeams: current,
+          roleTeams: role,
+          filterTeamId: activeFilterTeamId(),
+        }),
+      )
       setSelectedResource(r)
       setMode('existing')
       // Does this person's own rate disagree with what the vacant role was
@@ -513,8 +576,29 @@ export function AddResourceWizard({
     setStep(2)
   }
 
+  /** A brand-new person, or leaving the role vacant: no one's existing teams
+   *  are involved, so the editor goes back to the role's own (case A). */
+  function resetToRoleTeams() {
+    setPersonTeams([])
+    setConfirmedTeamSignature(null)
+    replaceTeamRows(
+      resolveAssignTeamPrefill({
+        personTeams: [],
+        roleTeams,
+        filterTeamId: activeFilterTeamId(),
+      }),
+    )
+  }
+
+  /** The page's active team filter as a team id, if it names a real team. */
+  function activeFilterTeamId(): string | null {
+    if (activeTeamFilter === 'all') return null
+    return teams.find((t) => t.team_name === activeTeamFilter)?.team_id ?? null
+  }
+
   function addAsNew(name: string) {
     if (isAssignMode) {
+      resetToRoleTeams()
       setMode('new')
       setSelectedResource(null)
       // A brand-new person carries no recorded rate, so the role's own rate
@@ -544,6 +628,7 @@ export function AddResourceWizard({
 
   function skipToTbc() {
     if (isAssignMode) {
+      resetToRoleTeams()
       setMode('tbc')
       setSelectedResource(null)
       // Leaving the seat vacant changes no rate.
@@ -610,21 +695,16 @@ export function AddResourceWizard({
     }))
   }
 
-  // Team builder handlers
-  function addTeamRow() {
-    setTeamRows((prev) => [...prev, { id: nextRowId(), teamId: '', pct: 0 }])
+  // Team editor plumbing. The shared editor reports every edit through
+  // handleTeamsChange; replaceTeamRows loads a new set from outside and
+  // remounts the editor so it shows them.
+  function handleTeamsChange(assignments: Array<{ teamId: string; split: number }>) {
+    setTeamRows(assignments.map((a) => ({ id: nextRowId(), teamId: a.teamId, pct: a.split })))
   }
 
-  function removeTeamRow(id: string) {
-    setTeamRows((prev) => prev.filter((r) => r.id !== id))
-  }
-
-  function updateTeamRow(id: string, field: 'teamId' | 'pct', value: string | number) {
-    setTeamRows((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, [field]: field === 'pct' ? Number(value) : value } : r,
-      ),
-    )
+  function replaceTeamRows(rows: TeamSplit[]) {
+    setTeamRows(rows.map((r) => ({ id: nextRowId(), teamId: r.teamId, pct: r.split })))
+    setTeamEditorKey((k) => k + 1)
   }
 
   /* ── Monthly capacity entry ─────────────────────────────── */
@@ -711,10 +791,52 @@ export function AddResourceWizard({
       }
 
       if (mode === 'existing' && selectedResource) {
+        // Decide the team write before touching anything: a person who
+        // already has teams this period must have confirmed this exact
+        // selection (lib/schedule/assignTeams).
+        const decision = decideTeamWrite({
+          personTeams,
+          roleTeams,
+          selection: teamSplits,
+          confirmedSignature: confirmedTeamSignature,
+        })
+        if (decision.kind === 'needs-confirmation') {
+          setIsSubmitting(false)
+          setSubmitError('Confirm the teams first.')
+          return
+        }
+
+        // The assign moves the role's own team rows onto the person. For a
+        // person who already has teams that would add teams nobody confirmed,
+        // or fail outright on a team both sides share — so the role's rows are
+        // cleared first. Everything kept from them is in the confirmed
+        // selection, and they are put back if the assign fails.
+        const clearRoleTeams = clearsRoleTeamsBeforeAssign(personTeams, roleTeams)
+        if (clearRoleTeams) {
+          const cleared = await updateTeamAssignments(null, periodId, [], allocationId)
+          if (!cleared.success) {
+            setIsSubmitting(false)
+            setSubmitError(cleared.error ?? 'Something went wrong. Please try again.')
+            return
+          }
+        }
+
         const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
         if (!result.success) {
+          let message = result.error ?? 'Something went wrong. Please try again.'
+          if (clearRoleTeams) {
+            const restored = await updateTeamAssignments(
+              null,
+              periodId,
+              roleTeams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split })),
+              allocationId,
+            )
+            if (!restored.success) {
+              message = "The assignment failed and the role's teams could not be put back. Reload the page to see the latest."
+            }
+          }
           setIsSubmitting(false)
-          setSubmitError(result.error ?? 'Something went wrong. Please try again.')
+          setSubmitError(message)
           return
         }
 
@@ -737,19 +859,29 @@ export function AddResourceWizard({
           appliedRate = targetRate
         }
 
-        const teamAssignments = teamRows
-          .filter((r) => r.teamId !== '')
-          .map((r) => ({ teamId: r.teamId, capacitySplit: r.pct }))
-        // Always call updateTeamAssignments: it DELETEs existing rows first,
-        // then INSERTs new ones. This clears stale assignments even when
-        // the user picks "No Team" or skips, avoiding unique constraint violations.
-        const teamResult = await updateTeamAssignments(selectedResource.resource_id, periodId, teamAssignments)
+        // updateTeamAssignments replaces ALL of the person's team rows for the
+        // period, so it only runs when the confirmed selection differs from
+        // what the person now holds.
+        let savedTeams: TeamAssignment[] | undefined
+        if (decision.kind === 'write') {
+          const teamResult = await updateTeamAssignments(
+            selectedResource.resource_id,
+            periodId,
+            decision.assignments,
+          )
+          savedTeams = teamResult.success ? savedTeamAssignments(decision.assignments, teams) : undefined
+        } else {
+          savedTeams = savedTeamAssignments(
+            decision.teams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split })),
+            teams,
+          )
+        }
         setIsSubmitting(false)
         onAssignSuccess?.(
           allocationId,
           selectedResource.resource_id,
           selectedResource.resource_name,
-          teamResult.success ? savedTeamAssignments(teamAssignments, teams) : undefined,
+          savedTeams,
           appliedRate === undefined ? undefined : { dayRate: appliedRate },
         )
         onClose()
@@ -1153,7 +1285,13 @@ export function AddResourceWizard({
 
   const fieldWrap: React.CSSProperties = { marginBottom: 14 }
 
-  const teamTotal = teamRows.reduce((s, r) => s + r.pct, 0)
+  const teamSplits: TeamSplit[] = teamRows.map((r) => ({ teamId: r.teamId, split: r.pct }))
+  // Over 100% blocks; a total under 100% is allowed (a part-time split).
+  const teamsOverLimit = !isTeamTotalAllowed(teamSplits)
+  // Assigning someone who already has teams this period: the result has to be
+  // confirmed on the Confirm step, and skipping is not offered.
+  const confirmsTeams = isAssignMode && mode === 'existing' && requiresTeamConfirmation(personTeams)
+  const teamConfirmPending = confirmsTeams && !isTeamSelectionConfirmed(teamSplits, confirmedTeamSignature)
   const roleTitleRequired = mode !== 'edit-teams' && !form.roleTitle.trim()
   const newPersonInvalid =
     mode === 'new' &&
@@ -1162,14 +1300,14 @@ export function AddResourceWizard({
       : !isValidPersonName(newPersonName, form.roleTitle))
   const nextDisabled = step === 2 && (
     isAssignMode
-      ? (teamTotal !== 100 || newPersonInvalid)
-      : (roleTitleRequired || teamTotal !== 100 || newPersonInvalid)
+      ? (teamsOverLimit || newPersonInvalid)
+      : (roleTitleRequired || teamsOverLimit || newPersonInvalid)
   )
   const submitLabel = mode === 'edit-teams' ? 'Save changes' : 'Add to schedule'
   // A rate difference put to the user has to be answered before the assign
   // can complete — picking one silently is exactly what this avoids.
   const rateChoicePending = isAssignMode && rateConflict !== null && chosenDayRate === null
-  const submitDisabled = isSubmitting || rateChoicePending
+  const submitDisabled = isSubmitting || rateChoicePending || teamConfirmPending
 
   return (
     // No onClick here: an accidental outside click used to close this modal
@@ -1228,6 +1366,12 @@ export function AddResourceWizard({
                 <p style={{ margin: '2px 0 0', fontSize: 11, color: INACTIVE_GREY }}>
                   Will be assigned to: {assignMode!.roleTitle || '—'}
                 </p>
+                {mode === 'existing' && selectedResource &&
+                  teamReferenceLines(selectedResource.resource_name, personTeams, roleTeams).map((line) => (
+                    <p key={line} style={{ margin: '2px 0 0', fontSize: 11, color: INACTIVE_GREY }}>
+                      {line}
+                    </p>
+                  ))}
                 {mode === 'new' && newPersonInvalid && (
                   <p style={{ margin: '6px 0 0', fontSize: 12, color: ACTIVE_RED }}>
                     Enter the person&apos;s name
@@ -1348,21 +1492,23 @@ export function AddResourceWizard({
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Team(s)</label>
-                <TeamBuilder
-                  rows={teamRows}
+                <TeamAssignmentBuilder
+                  key={teamEditorKey}
+                  value={teamSplits}
+                  onChange={handleTeamsChange}
                   teams={teams}
-                  total={teamTotal}
-                  onAdd={addTeamRow}
-                  onRemove={removeTeamRow}
-                  onChange={updateTeamRow}
-                  selectStyle={selectStyle}
+                  totalRule="max"
+                  actionLabel="continue"
                 />
               </div>
 
+              {/* Skipping would be an assumption for someone who already has
+                  teams this period, so it is only offered when they have none. */}
+              {(mode !== 'existing' || canSkipTeams(personTeams)) && (
               <button
                 type="button"
                 onClick={() => {
-                  setTeamRows([{ id: nextRowId(), teamId: '', pct: 100 }])
+                  replaceTeamRows([{ teamId: '', split: 100 }])
                   setStep(3)
                 }}
                 style={{
@@ -1378,6 +1524,7 @@ export function AddResourceWizard({
               >
                 Skip team assignment
               </button>
+              )}
             </div>
           )}
           {step === 2 && !isAssignMode && (
@@ -1387,16 +1534,14 @@ export function AddResourceWizard({
               form={form}
               suppliers={suppliers}
               teams={teams}
-              teamRows={teamRows}
-              teamTotal={teamTotal}
+              teamEditorKey={teamEditorKey}
+              teamSplits={teamSplits}
               duplicateAdvisory={duplicateAdvisory}
               personName={newPersonName}
               personNameInvalid={newPersonInvalid}
               onPersonNameChange={setNewPersonName}
               onSupplierChange={handleSupplierChange}
-              onAddTeamRow={addTeamRow}
-              onRemoveTeamRow={removeTeamRow}
-              onTeamRowChange={updateTeamRow}
+              onTeamsChange={handleTeamsChange}
               onFormChange={(key, val) => setForm((prev) => ({ ...prev, [key]: val }))}
               onChangeResource={() => setStep(1)}
               canEnterMonthly={canEnterMonthly}
@@ -1441,6 +1586,20 @@ export function AddResourceWizard({
                   onChoose={setChosenDayRate}
                 />
               )}
+              {confirmsTeams && selectedResource && (
+                <TeamConfirm
+                  description={
+                    emptySelectionWarning(selectedResource.resource_name, personTeams, teamSplits) ??
+                    `${selectedResource.resource_name} will be on ${describeSelection(teamSplits, teams)} this period.`
+                  }
+                  personName={selectedResource.resource_name}
+                  isEmpty={normaliseSelection(teamSplits).length === 0}
+                  confirmed={!teamConfirmPending}
+                  onToggle={() =>
+                    setConfirmedTeamSignature(teamConfirmPending ? selectionSignature(teamSplits) : null)
+                  }
+                />
+              )}
             </>
           )}
         </div>
@@ -1483,7 +1642,13 @@ export function AddResourceWizard({
                 type="button"
                 onClick={() => handleSubmit()}
                 disabled={submitDisabled}
-                title={rateChoicePending ? 'Choose which day rate applies first' : undefined}
+                title={
+                  rateChoicePending
+                    ? 'Choose which day rate applies first'
+                    : teamConfirmPending
+                      ? 'Confirm the teams first'
+                      : undefined
+                }
                 style={submitDisabled ? btnDisabled : btnPrimary}
               >
                 {isSubmitting ? 'Saving…' : isAssignMode ? 'Assign' : submitLabel}
@@ -1540,6 +1705,75 @@ export function AddResourceWizard({
   )
 }
 
+/* ── Confirm-step choices ───────────────────────────────── */
+
+// The look of a decision the Confirm step puts to the user before Assign is
+// allowed: the day-rate choice and the team confirmation share it exactly.
+const CHOICE_BOX: React.CSSProperties = {
+  marginTop: 14,
+  background: '#FFF8ED',
+  border: '1px solid #FFD98A',
+  borderRadius: 8,
+  padding: '12px 14px',
+}
+const CHOICE_HEADING: React.CSSProperties = { margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: '#2A2A2D' }
+const CHOICE_BODY: React.CSSProperties = { margin: '0 0 10px', fontSize: 12, color: '#8A6100', lineHeight: 1.45 }
+
+function choiceOptionStyle(selected: boolean): React.CSSProperties {
+  return {
+    flex: '1 1 150px',
+    minWidth: 0,
+    textAlign: 'left',
+    borderRadius: 6,
+    padding: '8px 10px',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'var(--rmg-font-body)',
+    lineHeight: 1.35,
+    background: selected ? 'rgba(218,32,42,0.06)' : 'var(--rmg-color-white)',
+    border: selected ? `1.5px solid ${ACTIVE_RED}` : '1px solid #D0D0D0',
+    color: '#2A2A2D',
+  }
+}
+
+/**
+ * Assigning someone who already has teams this period: the teams they will
+ * end up with are put to the user, who has to confirm them — even when nothing
+ * changed. Assign stays disabled until they do, and editing the teams after
+ * confirming needs a fresh confirmation (see lib/schedule/assignTeams).
+ */
+function TeamConfirm({
+  description,
+  personName,
+  isEmpty,
+  confirmed,
+  onToggle,
+}: {
+  description: string
+  personName: string
+  isEmpty: boolean
+  confirmed: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div style={CHOICE_BOX}>
+      <p style={CHOICE_HEADING}>Confirm {personName}&apos;s teams</p>
+      <p style={CHOICE_BODY}>{description}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={confirmed}
+          style={choiceOptionStyle(confirmed)}
+        >
+          {isEmpty ? 'Confirm no team' : 'Confirm these teams'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ── Assign-mode rate choice ─────────────────────────────── */
 
 /**
@@ -1562,40 +1796,14 @@ function RateChoice({
 }) {
   const roleRate = resolveKeepRoleRate(conflict)
   const resourceRate = resolveUseResourceRate(conflict)
-
-  const optionBase: React.CSSProperties = {
-    flex: '1 1 150px',
-    minWidth: 0,
-    textAlign: 'left',
-    borderRadius: 6,
-    padding: '8px 10px',
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: 'pointer',
-    fontFamily: 'var(--rmg-font-body)',
-    lineHeight: 1.35,
-  }
-  const optionStyle = (selected: boolean): React.CSSProperties => ({
-    ...optionBase,
-    background: selected ? 'rgba(218,32,42,0.06)' : 'var(--rmg-color-white)',
-    border: selected ? `1.5px solid ${ACTIVE_RED}` : '1px solid #D0D0D0',
-    color: '#2A2A2D',
-  })
+  const optionStyle = choiceOptionStyle
 
   return (
-    <div
-      style={{
-        marginTop: 14,
-        background: '#FFF8ED',
-        border: '1px solid #FFD98A',
-        borderRadius: 8,
-        padding: '12px 14px',
-      }}
-    >
-      <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600, color: '#2A2A2D' }}>
+    <div style={CHOICE_BOX}>
+      <p style={CHOICE_HEADING}>
         Which day rate applies?
       </p>
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#8A6100', lineHeight: 1.45 }}>
+      <p style={CHOICE_BODY}>
         This role is budgeted at {formatMoneyPence(roleRate)}/day, but {resourceName}&apos;s
         own rate is {formatMoneyPence(resourceRate)}/day.
       </p>
@@ -1928,133 +2136,6 @@ function ConflictDialog({
   )
 }
 
-/* ── Team builder ───────────────────────────────────────── */
-
-function TeamBuilder({
-  rows,
-  teams,
-  total,
-  onAdd,
-  onRemove,
-  onChange,
-  selectStyle,
-}: {
-  rows: TeamRow[]
-  teams: TeamOption[]
-  total: number
-  onAdd: () => void
-  onRemove: (id: string) => void
-  onChange: (id: string, field: 'teamId' | 'pct', value: string | number) => void
-  selectStyle: React.CSSProperties
-}) {
-  const totalColour = total === 100 ? DONE_GREEN : total > 100 ? ACTIVE_RED : AMBER
-  const canRemove = rows.length > 1
-
-  return (
-    <div>
-      {rows.map((row) => (
-        <div
-          key={row.id}
-          style={{
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-            marginBottom: 8,
-          }}
-        >
-          <select
-            value={row.teamId}
-            onChange={(e) => onChange(row.id, 'teamId', e.target.value)}
-            style={{ ...selectStyle, flex: 1, marginBottom: 0 }}
-          >
-            <option value="">No Team</option>
-            {teams.map((t) => (
-              <option key={t.team_id} value={t.team_id}>
-                {t.team_name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={row.pct}
-            onChange={(e) => onChange(row.id, 'pct', e.target.value)}
-            style={{
-              ...selectStyle,
-              width: 72,
-              flex: 'none',
-              marginBottom: 0,
-              textAlign: 'right',
-            }}
-          />
-          <span style={{ fontSize: 13, color: '#404044', flexShrink: 0 }}>%</span>
-          {canRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(row.id)}
-              aria-label="Remove row"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: INACTIVE_GREY,
-                fontSize: 16,
-                lineHeight: 1,
-                padding: '4px',
-                flexShrink: 0,
-                fontFamily: 'var(--rmg-font-body)',
-              }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      ))}
-
-      <button
-        type="button"
-        onClick={onAdd}
-        style={{
-          background: 'transparent',
-          border: 'none',
-          fontSize: 12,
-          color: ACTIVE_RED,
-          cursor: 'pointer',
-          padding: '2px 0',
-          fontFamily: 'var(--rmg-font-body)',
-          fontWeight: 600,
-          textDecoration: 'none',
-          display: 'inline-block',
-          marginBottom: 8,
-        }}
-      >
-        + Add team
-      </button>
-
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 12,
-          color: totalColour,
-          fontWeight: 600,
-        }}
-      >
-        Total: {total}%
-        {total === 100 && <span>✓</span>}
-        {total !== 100 && (
-          <span style={{ fontWeight: 400, color: INACTIVE_GREY }}>
-            (must be 100% to continue)
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
 /* ── Step 1 body ────────────────────────────────────────── */
 
 function Step1Body({
@@ -2259,16 +2340,14 @@ function Step2Body({
   form,
   suppliers,
   teams,
-  teamRows,
-  teamTotal,
+  teamEditorKey,
+  teamSplits,
   duplicateAdvisory,
   personName,
   personNameInvalid,
   onPersonNameChange,
   onSupplierChange,
-  onAddTeamRow,
-  onRemoveTeamRow,
-  onTeamRowChange,
+  onTeamsChange,
   onFormChange,
   onChangeResource,
   canEnterMonthly,
@@ -2291,16 +2370,14 @@ function Step2Body({
   form: FormState
   suppliers: SupplierOption[]
   teams: TeamOption[]
-  teamRows: TeamRow[]
-  teamTotal: number
+  teamEditorKey: number
+  teamSplits: TeamSplit[]
   duplicateAdvisory: string | null
   personName: string
   personNameInvalid: boolean
   onPersonNameChange: (val: string) => void
   onSupplierChange: (id: string) => void
-  onAddTeamRow: () => void
-  onRemoveTeamRow: (id: string) => void
-  onTeamRowChange: (id: string, field: 'teamId' | 'pct', value: string | number) => void
+  onTeamsChange: (assignments: Array<{ teamId: string; split: number }>) => void
   onFormChange: (key: keyof FormState, val: string) => void
   onChangeResource: () => void
   canEnterMonthly: boolean
@@ -2452,14 +2529,13 @@ function Step2Body({
 
       <div style={fieldWrap}>
         <label style={labelStyle}>Team(s)</label>
-        <TeamBuilder
-          rows={teamRows}
+        <TeamAssignmentBuilder
+          key={teamEditorKey}
+          value={teamSplits}
+          onChange={onTeamsChange}
           teams={teams}
-          total={teamTotal}
-          onAdd={onAddTeamRow}
-          onRemove={onRemoveTeamRow}
-          onChange={onTeamRowChange}
-          selectStyle={selectStyle}
+          totalRule="max"
+          actionLabel="continue"
         />
       </div>
 

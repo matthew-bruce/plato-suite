@@ -20,13 +20,29 @@ function nextRowId() {
 }
 
 export interface TeamAssignmentBuilderProps {
-  /** Initial assignments — drives the first render only. */
+  /** Initial assignments — drives the first render only. Remount (change the
+   *  `key`) to load a different set. */
   value: Array<{ teamId: string; split: number }>
   onChange: (assignments: Array<{ teamId: string; split: number }>) => void
   teams: TeamOption[]
+  /**
+   * The total the surrounding form accepts. 'exact' (Edit Teams) needs 100%;
+   * 'max' (the add/assign wizard) accepts anything up to 100% — a part-time
+   * split is allowed — and only flags going over. Display only: the form
+   * itself enforces the rule.
+   */
+  totalRule?: 'exact' | 'max'
+  /** The action the total gates, for the hint text ("save", "continue"). */
+  actionLabel?: string
 }
 
-export function TeamAssignmentBuilder({ value, onChange, teams }: TeamAssignmentBuilderProps) {
+export function TeamAssignmentBuilder({
+  value,
+  onChange,
+  teams,
+  totalRule = 'exact',
+  actionLabel = 'save',
+}: TeamAssignmentBuilderProps) {
   const [rows, setRows] = useState<BuilderRow[]>(() =>
     value.length > 0
       ? value.map((v) => ({ id: nextRowId(), teamId: v.teamId, split: v.split }))
@@ -161,9 +177,14 @@ export function TeamAssignmentBuilder({ value, onChange, teams }: TeamAssignment
       >
         Total: {total}%
         {total === 100 && <span>✓</span>}
-        {total !== 100 && (
+        {totalRule === 'exact' && total !== 100 && (
           <span style={{ fontWeight: 400, color: INACTIVE_GREY }}>
-            (must be 100% to save)
+            (must be 100% to {actionLabel})
+          </span>
+        )}
+        {totalRule === 'max' && total > 100 && (
+          <span style={{ fontWeight: 400, color: INACTIVE_GREY }}>
+            (must be 100% or less to {actionLabel})
           </span>
         )}
       </div>
