@@ -25,6 +25,7 @@ import type {
 } from '@/app/actions/schedule-wizard'
 import {
   assignResourceToAllocation,
+  assignResourceWithTeams,
   unassignResourceFromAllocation,
   setAllocationMonthlyDays,
 } from '@/app/actions/schedule'
@@ -50,13 +51,12 @@ import { suggestDiscipline } from '@/lib/schedule/disciplineMatch'
 import { savedTeamAssignments } from '@/lib/schedule/assignRowState'
 import {
   canSkipTeams,
-  clearsRoleTeamsBeforeAssign,
-  decideTeamWrite,
   describeSelection,
   emptySelectionWarning,
   isTeamSelectionConfirmed,
   isTeamTotalAllowed,
   normaliseSelection,
+  planAssignTeams,
   requiresTeamConfirmation,
   resolveAssignTeamPrefill,
   selectionSignature,
@@ -791,52 +791,35 @@ export function AddResourceWizard({
       }
 
       if (mode === 'existing' && selectedResource) {
-        // Decide the team write before touching anything: a person who
-        // already has teams this period must have confirmed this exact
-        // selection (lib/schedule/assignTeams).
-        const decision = decideTeamWrite({
+        // Plan the teams before touching anything: a person who already has
+        // teams this period must have confirmed this exact selection
+        // (lib/schedule/assignTeams).
+        const plan = planAssignTeams({
           personTeams,
           roleTeams,
           selection: teamSplits,
           confirmedSignature: confirmedTeamSignature,
         })
-        if (decision.kind === 'needs-confirmation') {
+        if (plan.kind === 'needs-confirmation') {
           setIsSubmitting(false)
           setSubmitError('Confirm the teams first.')
           return
         }
 
-        // The assign moves the role's own team rows onto the person. For a
-        // person who already has teams that would add teams nobody confirmed,
-        // or fail outright on a team both sides share — so the role's rows are
-        // cleared first. Everything kept from them is in the confirmed
-        // selection, and they are put back if the assign fails.
-        const clearRoleTeams = clearsRoleTeamsBeforeAssign(personTeams, roleTeams)
-        if (clearRoleTeams) {
-          const cleared = await updateTeamAssignments(null, periodId, [], allocationId)
-          if (!cleared.success) {
-            setIsSubmitting(false)
-            setSubmitError(cleared.error ?? 'Something went wrong. Please try again.')
-            return
-          }
-        }
-
-        const result = await assignResourceToAllocation(allocationId, selectedResource.resource_id, form.resourceLocation)
+        // ONE atomic call puts the person into the role and sets their teams
+        // (migration 041). If it fails, nothing changed — so the error is
+        // shown and the wizard stays open. A role someone else filled first
+        // comes back as RFILL with a plain-English message.
+        const result = await assignResourceWithTeams(
+          allocationId,
+          selectedResource.resource_id,
+          periodId,
+          form.resourceLocation,
+          plan.assignments,
+        )
         if (!result.success) {
-          let message = result.error ?? 'Something went wrong. Please try again.'
-          if (clearRoleTeams) {
-            const restored = await updateTeamAssignments(
-              null,
-              periodId,
-              roleTeams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split })),
-              allocationId,
-            )
-            if (!restored.success) {
-              message = "The assignment failed and the role's teams could not be put back. Reload the page to see the latest."
-            }
-          }
           setIsSubmitting(false)
-          setSubmitError(message)
+          setSubmitError(result.error ?? 'Something went wrong. Please try again.')
           return
         }
 
@@ -859,23 +842,11 @@ export function AddResourceWizard({
           appliedRate = targetRate
         }
 
-        // updateTeamAssignments replaces ALL of the person's team rows for the
-        // period, so it only runs when the confirmed selection differs from
-        // what the person now holds.
-        let savedTeams: TeamAssignment[] | undefined
-        if (decision.kind === 'write') {
-          const teamResult = await updateTeamAssignments(
-            selectedResource.resource_id,
-            periodId,
-            decision.assignments,
-          )
-          savedTeams = teamResult.success ? savedTeamAssignments(decision.assignments, teams) : undefined
-        } else {
-          savedTeams = savedTeamAssignments(
-            decision.teams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split })),
-            teams,
-          )
-        }
+        // The teams were saved with the assign, so the page can show them now.
+        const savedTeams = savedTeamAssignments(
+          plan.resultingTeams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split })),
+          teams,
+        )
         setIsSubmitting(false)
         onAssignSuccess?.(
           allocationId,

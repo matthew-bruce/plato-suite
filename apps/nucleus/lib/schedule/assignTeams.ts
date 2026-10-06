@@ -142,6 +142,23 @@ export function emptySelectionWarning(
     : null
 }
 
+/**
+ * What Edit Teams allows. Any total from 0% to 100% saves — a person can be
+ * part-time on teams, or on none at all; only over 100% is blocked. Removing
+ * every team from someone who has some carries a plain-language line, shown
+ * before they press Save.
+ */
+export function editTeamsSaveCheck(input: {
+  personName: string
+  currentTeams: readonly TeamSplit[]
+  selection: readonly TeamSplit[]
+}): { canSave: boolean; warning: string | null } {
+  return {
+    canSave: isTeamTotalAllowed(input.selection),
+    warning: emptySelectionWarning(input.personName, input.currentTeams, input.selection),
+  }
+}
+
 /** Is the confirmation the user gave still for the selection on screen? */
 export function isTeamSelectionConfirmed(
   selection: readonly TeamSplit[],
@@ -150,64 +167,53 @@ export function isTeamSelectionConfirmed(
   return confirmedSignature !== null && confirmedSignature === selectionSignature(selection)
 }
 
-/**
- * The teams the person holds straight after the assign, before any team
- * write. The assign moves the role's own team rows onto the person — except
- * when the person already has teams: then the wizard clears the role's rows
- * first (see clearsRoleTeamsBeforeAssign), so they keep exactly their own.
- */
-export function teamsAfterAssign(
-  personTeams: readonly TeamSplit[],
-  roleTeams: readonly TeamSplit[],
-): TeamSplit[] {
-  return requiresTeamConfirmation(personTeams) ? [...personTeams] : [...roleTeams]
+/** One row of the assign RPC's p_assignments, split as a percentage. */
+export interface AssignTeamPayloadRow {
+  teamId: string
+  capacitySplit: number
 }
 
-/**
- * Whether the role's own team rows must be cleared before the assign.
- *
- * The assign moves them onto the person. When the person already has teams,
- * that move would either hand them a team nobody confirmed, or — when both
- * sides share a team — collide with the person's own row and fail the whole
- * assign. The confirmed selection already includes everything the user kept
- * from the role.
- */
-export function clearsRoleTeamsBeforeAssign(
-  personTeams: readonly TeamSplit[],
-  roleTeams: readonly TeamSplit[],
-): boolean {
-  return requiresTeamConfirmation(personTeams) && roleTeams.length > 0
-}
-
-export type TeamWriteDecision =
+export type AssignTeamsPlan =
   /** The person has teams and the selection on screen was not confirmed. */
   | { kind: 'needs-confirmation' }
-  /** The selection is what the person will already hold — write nothing. */
-  | { kind: 'unchanged'; teams: TeamSplit[] }
-  /** Replace the person's teams with exactly these rows. */
-  | { kind: 'write'; assignments: Array<{ teamId: string; capacitySplit: number }> }
+  /**
+   * Ready for the single atomic assign (migration 041).
+   *
+   * `assignments` is the RPC's p_assignments: `null` lets the role's own
+   * teams become the person's (as migration 028 did); an array — possibly
+   * empty, meaning "no team" — replaces the person's teams for the period
+   * with exactly those rows. `resultingTeams` is what the person holds after.
+   */
+  | { kind: 'assign'; assignments: AssignTeamPayloadRow[] | null; resultingTeams: TeamSplit[] }
 
 /**
- * What to write for the person once the assign has gone through. An empty
- * selection for someone who has teams is only ever written after the user
- * confirmed that exact (empty) selection.
+ * Everything the assign wizard sends for an existing person, in one call.
+ *
+ * - Person with teams this period: the confirmed selection, always — even
+ *   when it is empty or unchanged. NULL is never right here, because it would
+ *   hand them the role's teams on top of their own. Unconfirmed → no call.
+ * - Person with none: NULL when they keep the role's teams as they are, so
+ *   the role's rows simply move across. If the user changed them — edited a
+ *   split, picked other teams, or skipped — the edited selection is sent, so
+ *   the edit lands in the same transaction instead of a second save.
  */
-export function decideTeamWrite(input: {
+export function planAssignTeams(input: {
   personTeams: readonly TeamSplit[]
   roleTeams: readonly TeamSplit[]
   selection: readonly TeamSplit[]
   confirmedSignature: string | null
-}): TeamWriteDecision {
+}): AssignTeamsPlan {
   const { personTeams, roleTeams, selection, confirmedSignature } = input
-  if (requiresTeamConfirmation(personTeams) && !isTeamSelectionConfirmed(selection, confirmedSignature)) {
-    return { kind: 'needs-confirmation' }
+  const confirmedRows = normaliseSelection(selection)
+  const asPayload = (rows: TeamSplit[]): AssignTeamPayloadRow[] =>
+    rows.map((r) => ({ teamId: r.teamId, capacitySplit: r.split }))
+
+  if (requiresTeamConfirmation(personTeams)) {
+    if (!isTeamSelectionConfirmed(selection, confirmedSignature)) return { kind: 'needs-confirmation' }
+    return { kind: 'assign', assignments: asPayload(confirmedRows), resultingTeams: confirmedRows }
   }
-  const after = teamsAfterAssign(personTeams, roleTeams)
-  if (sameSelection(selection, after)) {
-    return { kind: 'unchanged', teams: normaliseSelection(after) }
+  if (sameSelection(selection, roleTeams)) {
+    return { kind: 'assign', assignments: null, resultingTeams: normaliseSelection(roleTeams) }
   }
-  return {
-    kind: 'write',
-    assignments: normaliseSelection(selection).map((r) => ({ teamId: r.teamId, capacitySplit: r.split })),
-  }
+  return { kind: 'assign', assignments: asPayload(confirmedRows), resultingTeams: confirmedRows }
 }

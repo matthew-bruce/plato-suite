@@ -249,4 +249,27 @@ describe('updateTeamAssignments', () => {
     expect(result.success).toBe(false)
     expect(result.roleAlreadyFilled).toBe(false)
   })
+
+  // ── 0–100% (Edit Teams and the wizard agree) ─────────────────────────────
+
+  it('accepts a single team at 50%', async () => {
+    const result = await updateTeamAssignments('res-1', 'period-1', [{ teamId: 'team-a', capacitySplit: 50 }])
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects 101%', async () => {
+    const result = await updateTeamAssignments('res-1', 'period-1', [
+      { teamId: 'team-a', capacitySplit: 51 },
+      { teamId: 'team-b', capacitySplit: 50 },
+    ])
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('101')
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects a split outside 0–100%', async () => {
+    const negative = await updateTeamAssignments('res-1', 'period-1', [{ teamId: 'team-a', capacitySplit: -10 }])
+    expect(negative.success).toBe(false)
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
 })

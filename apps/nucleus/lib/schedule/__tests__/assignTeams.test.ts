@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   canSkipTeams,
-  clearsRoleTeamsBeforeAssign,
-  decideTeamWrite,
   describeSelection,
+  editTeamsSaveCheck,
   emptySelectionWarning,
   isTeamSelectionConfirmed,
   isTeamTotalAllowed,
+  planAssignTeams,
   requiresTeamConfirmation,
   resolveAssignTeamPrefill,
   selectionSignature,
   teamReferenceLines,
-  teamsAfterAssign,
   type NamedTeamSplit,
 } from '../assignTeams'
 
@@ -102,7 +101,7 @@ describe('confirmation rule', () => {
   it('saving is impossible without confirmation — even when nothing changed', () => {
     const personTeams = [plain(cygnus())]
     expect(
-      decideTeamWrite({ personTeams, roleTeams: [], selection: personTeams, confirmedSignature: null }),
+      planAssignTeams({ personTeams, roleTeams: [], selection: personTeams, confirmedSignature: null }),
     ).toEqual({ kind: 'needs-confirmation' })
   })
 
@@ -120,15 +119,15 @@ describe('confirmation rule', () => {
     ).toBe(true)
   })
 
-  it('when the person has no teams, skipping writes nothing', () => {
+  it('when the person and the role have no teams, skipping sends NULL — nothing to move, nothing written', () => {
     expect(
-      decideTeamWrite({
+      planAssignTeams({
         personTeams: [],
         roleTeams: [],
         selection: [{ teamId: '', split: 100 }],
         confirmedSignature: null,
       }),
-    ).toEqual({ kind: 'unchanged', teams: [] })
+    ).toEqual({ kind: 'assign', assignments: null, resultingTeams: [] })
   })
 })
 
@@ -163,82 +162,88 @@ describe('emptySelectionWarning', () => {
   })
 })
 
-describe('decideTeamWrite', () => {
-  it('an empty selection is saved only after the explicit "no team" confirmation', () => {
+describe('planAssignTeams — the single assign call\'s p_assignments', () => {
+  it('person with teams: an empty selection is sent as [] only after the explicit "no team" confirmation', () => {
     const personTeams = [plain(cygnus())]
     const empty = [{ teamId: '', split: 100 }]
-    expect(decideTeamWrite({ personTeams, roleTeams: [], selection: empty, confirmedSignature: null })).toEqual({
+    expect(planAssignTeams({ personTeams, roleTeams: [], selection: empty, confirmedSignature: null })).toEqual({
       kind: 'needs-confirmation',
     })
     expect(
-      decideTeamWrite({ personTeams, roleTeams: [], selection: empty, confirmedSignature: selectionSignature(empty) }),
-    ).toEqual({ kind: 'write', assignments: [] })
+      planAssignTeams({ personTeams, roleTeams: [], selection: empty, confirmedSignature: selectionSignature(empty) }),
+    ).toEqual({ kind: 'assign', assignments: [], resultingTeams: [] })
   })
 
-  it('an unchanged, confirmed selection writes nothing', () => {
+  it('person with teams: an unchanged, confirmed selection is still sent — never NULL, which would add the role\'s teams', () => {
     const personTeams = [plain(cygnus(50)), plain(pluto(50))]
     const selection = [plain(pluto(50)), plain(cygnus(50))]
     expect(
-      decideTeamWrite({
-        personTeams,
-        roleTeams: [plain(orion())],
-        selection,
-        confirmedSignature: selectionSignature(selection),
-      }),
-    ).toEqual({ kind: 'unchanged', teams: [plain(cygnus(50)), plain(pluto(50))] })
-  })
-
-  it('a changed, confirmed selection writes exactly the confirmed rows', () => {
-    const personTeams = [plain(cygnus(100))]
-    const selection = [plain(cygnus(50)), { teamId: '', split: 0 }, plain(orion(50))]
-    expect(
-      decideTeamWrite({
+      planAssignTeams({
         personTeams,
         roleTeams: [plain(orion())],
         selection,
         confirmedSignature: selectionSignature(selection),
       }),
     ).toEqual({
-      kind: 'write',
+      kind: 'assign',
+      assignments: [
+        { teamId: 't-cygnus', capacitySplit: 50 },
+        { teamId: 't-pluto', capacitySplit: 50 },
+      ],
+      resultingTeams: [plain(cygnus(50)), plain(pluto(50))],
+    })
+  })
+
+  it('person with teams: a changed, confirmed selection sends exactly the confirmed rows', () => {
+    const personTeams = [plain(cygnus(100))]
+    const selection = [plain(cygnus(50)), { teamId: '', split: 0 }, plain(orion(50))]
+    const plan = planAssignTeams({
+      personTeams,
+      roleTeams: [plain(orion())],
+      selection,
+      confirmedSignature: selectionSignature(selection),
+    })
+    expect(plan).toEqual({
+      kind: 'assign',
       assignments: [
         { teamId: 't-cygnus', capacitySplit: 50 },
         { teamId: 't-orion', capacitySplit: 50 },
       ],
+      resultingTeams: [plain(cygnus(50)), plain(orion(50))],
     })
   })
 
-  it('a person with no teams keeping the role\'s teams writes nothing — the assign moves them across', () => {
+  it('person with no teams keeping the role\'s teams: NULL, so the role\'s teams become theirs', () => {
     const roleTeams = [plain(cygnus())]
     expect(
-      decideTeamWrite({ personTeams: [], roleTeams, selection: roleTeams, confirmedSignature: null }),
-    ).toEqual({ kind: 'unchanged', teams: roleTeams })
+      planAssignTeams({ personTeams: [], roleTeams, selection: roleTeams, confirmedSignature: null }),
+    ).toEqual({ kind: 'assign', assignments: null, resultingTeams: roleTeams })
   })
 
-  it('a person with no teams skipping a role\'s teams writes the empty selection, so none are moved across', () => {
+  it('person with no teams skipping the role\'s teams: [] — no team, in the same call', () => {
     expect(
-      decideTeamWrite({
+      planAssignTeams({
         personTeams: [],
         roleTeams: [plain(cygnus())],
         selection: [{ teamId: '', split: 100 }],
         confirmedSignature: null,
       }),
-    ).toEqual({ kind: 'write', assignments: [] })
-  })
-})
-
-describe('the role\'s own team rows around the assign', () => {
-  it('are cleared first only when the person already has teams and the role has some', () => {
-    expect(clearsRoleTeamsBeforeAssign([plain(cygnus())], [plain(cygnus())])).toBe(true)
-    expect(clearsRoleTeamsBeforeAssign([plain(cygnus())], [])).toBe(false)
-    expect(clearsRoleTeamsBeforeAssign([], [plain(cygnus())])).toBe(false)
+    ).toEqual({ kind: 'assign', assignments: [], resultingTeams: [] })
   })
 
-  it('so a person with teams keeps exactly their own until the confirmed write', () => {
-    expect(teamsAfterAssign([plain(cygnus())], [plain(pluto())])).toEqual([plain(cygnus())])
-  })
-
-  it('while a person with none receives the role\'s', () => {
-    expect(teamsAfterAssign([], [plain(pluto())])).toEqual([plain(pluto())])
+  it('person with no teams editing the role\'s teams: the edited selection, in the same call', () => {
+    expect(
+      planAssignTeams({
+        personTeams: [],
+        roleTeams: [plain(cygnus(100))],
+        selection: [plain(cygnus(50))],
+        confirmedSignature: null,
+      }),
+    ).toEqual({
+      kind: 'assign',
+      assignments: [{ teamId: 't-cygnus', capacitySplit: 50 }],
+      resultingTeams: [plain(cygnus(50))],
+    })
   })
 })
 
@@ -252,5 +257,38 @@ describe('describeSelection', () => {
     expect(describeSelection([plain(pluto(40)), { teamId: '', split: 0 }, plain(cygnus(60))], options)).toBe(
       'Cygnus 60%, Pluto 40%',
     )
+  })
+})
+
+describe('editTeamsSaveCheck — Edit Teams', () => {
+  const current = [plain(cygnus(100))]
+
+  it('allows exactly 50%', () => {
+    expect(editTeamsSaveCheck({ personName: 'Ann Lee', currentTeams: current, selection: [plain(cygnus(50))] })).toEqual({
+      canSave: true,
+      warning: null,
+    })
+  })
+
+  it('blocks 101%', () => {
+    expect(
+      editTeamsSaveCheck({
+        personName: 'Ann Lee',
+        currentTeams: current,
+        selection: [plain(cygnus(51)), plain(pluto(50))],
+      }).canSave,
+    ).toBe(false)
+  })
+
+  it('allows an empty selection and shows the "will have no team" line', () => {
+    expect(
+      editTeamsSaveCheck({ personName: 'Ann Lee', currentTeams: current, selection: [{ teamId: '', split: 100 }] }),
+    ).toEqual({ canSave: true, warning: 'Ann Lee will have no team this period.' })
+  })
+
+  it('shows no line when the person had no teams to lose', () => {
+    expect(
+      editTeamsSaveCheck({ personName: 'TBC', currentTeams: [], selection: [{ teamId: '', split: 100 }] }).warning,
+    ).toBeNull()
   })
 })

@@ -2,6 +2,9 @@
 
 import { getSupabaseServerComponentClient } from '@plato/schema/server'
 import type { ResourceLocation } from '@plato/schema'
+import type { AssignTeamPayloadRow } from '../../lib/schedule/assignTeams'
+import { assignResourceWithTeamsArgs } from '../../lib/schedule/assignTeamsPayload'
+import { isRoleAlreadyFilledError } from '../../lib/schedule/roleFilled'
 
 /**
  * Toggle the `locked` flag on a period. Locking makes the Platform Schedule
@@ -53,6 +56,39 @@ export async function assignResourceToAllocation(
   })
 
   if (error) return { success: false, error: error.message }
+  return { success: true }
+}
+
+/**
+ * Put a person into a vacant role and set their teams for the period, in ONE
+ * transaction (assign_resource_to_vacant_allocation_with_teams, migration
+ * 041). Any failure changes nothing.
+ *
+ * `assignments` is the plan from planAssignTeams (lib/schedule/assignTeams):
+ * `null` lets the role's own teams become the person's (as migration 028
+ * does); an array — `[]` meaning "no team" — replaces the person's teams for
+ * the period with exactly those rows. Splits are percentages.
+ *
+ * `roleAlreadyFilled` is set when someone else filled the role first (SQLSTATE
+ * RFILL), detected by code, never by message text.
+ */
+export async function assignResourceWithTeams(
+  allocationId: string,
+  resourceId: string,
+  periodId: string,
+  resourceLocation: ResourceLocation | null,
+  assignments: AssignTeamPayloadRow[] | null,
+): Promise<{ success: boolean; error?: string; roleAlreadyFilled?: boolean }> {
+  const supabase = await getSupabaseServerComponentClient()
+
+  const { error } = await supabase.rpc(
+    'assign_resource_to_vacant_allocation_with_teams',
+    assignResourceWithTeamsArgs(allocationId, resourceId, periodId, resourceLocation, assignments),
+  )
+
+  if (error) {
+    return { success: false, error: error.message, roleAlreadyFilled: isRoleAlreadyFilledError(error) }
+  }
   return { success: true }
 }
 
