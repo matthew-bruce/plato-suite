@@ -36,9 +36,15 @@ describe('one team editor for the wizard and Edit Teams', () => {
     expect(wizard.match(/totalRule="max"/g)).toHaveLength(2)
   })
 
-  it('Edit Teams still uses it with its existing exact-100% rule', () => {
+  it('Edit Teams uses it with the same up-to-100% rule and alert as the wizard', () => {
     expect(editTeams).toContain('<TeamAssignmentBuilder')
-    expect(editTeams).not.toContain('totalRule="max"')
+    expect(editTeams).toContain('totalRule="max"')
+  })
+
+  it('Edit Teams saves 0–100% and warns before removing every team, through editTeamsSaveCheck', () => {
+    expect(editTeams).toContain('editTeamsSaveCheck({')
+    expect(editTeams).toContain('const saveDisabled = isSubmitting || loading || !saveCheck.canSave')
+    expect(editTeams).not.toMatch(/total !== 100/)
   })
 
   it('the editor flags over 100% under the max rule, and only that', () => {
@@ -79,24 +85,31 @@ describe('the wizard goes through lib/schedule/assignTeams', () => {
     expect(wizard).toContain('const submitDisabled = isSubmitting || rateChoicePending || teamConfirmPending')
   })
 
-  it('decides the team write before assigning, and stops if it is unconfirmed', () => {
-    expect(existingSubmit.indexOf('decideTeamWrite({')).toBeLessThan(
-      existingSubmit.indexOf('assignResourceToAllocation('),
+  it('plans the teams before assigning, and stops if they are unconfirmed', () => {
+    expect(existingSubmit.indexOf('planAssignTeams({')).toBeLessThan(
+      existingSubmit.indexOf('assignResourceWithTeams('),
     )
-    expect(existingSubmit).toContain("if (decision.kind === 'needs-confirmation') {")
+    expect(existingSubmit).toContain("if (plan.kind === 'needs-confirmation') {")
   })
 
-  it('writes only a changed, confirmed selection', () => {
-    expect(existingSubmit).toContain("if (decision.kind === 'write') {")
-    expect(existingSubmit).toContain('decision.assignments,')
+  it('assigns the person and sets their teams in ONE call (migration 041)', () => {
+    expect(existingSubmit.match(/assignResourceWithTeams\(/g)).toHaveLength(1)
+    expect(existingSubmit).toContain('plan.assignments,')
     expect(existingSubmit).not.toContain('teamRows')
   })
 
-  it('clears the role\'s own team rows first when the person already has teams, and restores them on failure', () => {
-    expect(existingSubmit).toContain('clearsRoleTeamsBeforeAssign(personTeams, roleTeams)')
-    expect(existingSubmit.indexOf('updateTeamAssignments(null, periodId, [], allocationId)')).toBeLessThan(
-      existingSubmit.indexOf('assignResourceToAllocation('),
-    )
-    expect(existingSubmit).toContain('roleTeams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split }))')
+  it('the old clear-then-assign-then-restore path is gone', () => {
+    expect(existingSubmit).not.toContain('assignResourceToAllocation(')
+    expect(existingSubmit).not.toContain('updateTeamAssignments(')
+    expect(existingSubmit).not.toContain('clearsRoleTeamsBeforeAssign')
+    expect(existingSubmit).not.toContain('restored')
+    expect(wizard).not.toContain("the role's teams could not be put back")
+  })
+
+  it('a failed call changed nothing, so it shows the error and leaves the wizard open', () => {
+    const failure = between(existingSubmit, 'if (!result.success) {', '}')
+    expect(failure).toContain('setSubmitError(result.error')
+    expect(failure).toContain('return')
+    expect(failure).not.toContain('onClose')
   })
 })

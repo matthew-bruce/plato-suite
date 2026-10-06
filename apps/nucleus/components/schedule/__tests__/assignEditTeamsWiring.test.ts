@@ -66,10 +66,9 @@ describe('AddResourceWizard reports the teams it saved', () => {
     // Vacant and new person write the editor's rows directly.
     const calls = wizard.match(/teamResult\.success \? savedTeamAssignments\(teamAssignments, teams\) : undefined/g)
     expect(calls).toHaveLength(2)
-    // An existing person goes through the confirmed write decision
-    // (lib/schedule/assignTeams) — written rows, or the unchanged teams.
-    expect(wizard).toContain('teamResult.success ? savedTeamAssignments(decision.assignments, teams) : undefined')
-    expect(wizard).toContain('decision.teams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split }))')
+    // An existing person's teams are saved with the assign itself, in one
+    // call — so the page gets what that call wrote (lib/schedule/assignTeams).
+    expect(wizard).toContain('plan.resultingTeams.map((t) => ({ teamId: t.teamId, capacitySplit: t.split }))')
   })
 
   it('checks each team save rather than discarding its result', () => {
@@ -108,7 +107,8 @@ describe('Edit Teams on a role someone else has just filled', () => {
   })
 
   it('the modal shows the notice in its existing message slot', () => {
-    expect(modal).toContain('{submitError ?? target.notice}')
+    expect(modal).toContain('const footerMessage = submitError ?? saveCheck.warning ?? target.notice')
+    expect(modal).toContain('{footerMessage}')
   })
 
   it('"Connect and use vacant seat details" patches the filled role and drops the removed row', () => {

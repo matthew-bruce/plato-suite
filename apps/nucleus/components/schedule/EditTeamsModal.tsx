@@ -11,6 +11,7 @@ import {
 import type { TeamOption } from '@/app/actions/schedule-wizard'
 import type { TeamAssignment } from '@plato/schema'
 import { teamEditSeatId } from '@/lib/schedule/assignRowState'
+import { editTeamsSaveCheck, type TeamSplit } from '@/lib/schedule/assignTeams'
 import { recoverFromRoleFilled, type RoleFilledOutcome } from '@/lib/schedule/roleFilled'
 
 const ACTIVE_RED = '#DA202A'
@@ -44,6 +45,9 @@ interface EditTeamsModalProps {
 export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose }: EditTeamsModalProps) {
   const [teams, setTeams] = useState<TeamOption[]>([])
   const [assignments, setAssignments] = useState<Array<{ teamId: string; split: number }>>([])
+  // The person's teams as saved — what an empty selection would remove.
+  // Empty for a vacant role, which has no person to warn about.
+  const [currentTeams, setCurrentTeams] = useState<TeamSplit[]>([])
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -59,6 +63,9 @@ export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose
     ])
       .then(([wizardData, fetched]) => {
         setTeams(wizardData.teams)
+        setCurrentTeams(
+          target.resourceId ? fetched.map((a) => ({ teamId: a.teamId, split: a.split })) : [],
+        )
         if (fetched.length > 0) {
           setAssignments(fetched.map((a) => ({ teamId: a.teamId, split: a.split })))
         } else if (target.currentTeams.length > 0) {
@@ -78,8 +85,14 @@ export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.resourceId, target.allocationId, periodId])
 
-  const total = assignments.reduce((s, a) => s + a.split, 0)
-  const saveDisabled = isSubmitting || total !== 100
+  // 0–100% saves; only over 100% is blocked (lib/schedule/assignTeams).
+  const saveCheck = editTeamsSaveCheck({
+    personName: target.resourceName,
+    currentTeams,
+    selection: assignments,
+  })
+  const saveDisabled = isSubmitting || loading || !saveCheck.canSave
+  const footerMessage = submitError ?? saveCheck.warning ?? target.notice
 
   async function handleSave() {
     setIsSubmitting(true)
@@ -236,6 +249,7 @@ export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose
               value={assignments}
               onChange={setAssignments}
               teams={teams}
+              totalRule="max"
             />
           )}
         </div>
@@ -253,8 +267,8 @@ export function EditTeamsModal({ target, periodId, onSave, onRoleFilled, onClose
           }}
         >
           <div>
-            {(submitError ?? target.notice) && (
-              <span style={{ fontSize: 12, color: ACTIVE_RED }}>{submitError ?? target.notice}</span>
+            {footerMessage && (
+              <span style={{ fontSize: 12, color: ACTIVE_RED }}>{footerMessage}</span>
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
