@@ -686,13 +686,6 @@
 }
 
 /* §3C — transition state is styled text on the row, not a badge. */
-.statusTag {
-  font-size: 9px;
-  font-weight: 700;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
 .resRightRow {
   height: var(--row-h);
   position: relative;

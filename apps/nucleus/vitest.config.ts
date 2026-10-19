@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url'
  * existing suites resolve by relative path and are unaffected.
  */
 export default defineConfig({
+  // tsconfig keeps `jsx: preserve` for Next.js, which leaves JSX untransformed
+  // for Vite 8's oxc transform. Compiling it here (tests only) lets a test
+  // server-render a component with react-dom/server — no DOM library needed.
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./', import.meta.url)),

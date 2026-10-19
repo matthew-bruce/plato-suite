@@ -22,16 +22,6 @@ const TRANSITION_STATUSES: readonly TransitionStatus[] = [
   'overlap_risk',
 ]
 
-export const STATUS_LABELS: Record<TransitionStatus, { text: string; colour: string }> = {
-  mover: { text: 'CG → TCS', colour: 'var(--rmg-color-text-light)' },
-  mover_doj_tbc: { text: 'Signed · tentative', colour: 'var(--rmg-color-text-light)' },
-  joiner: { text: 'New TCS hire', colour: 'var(--rmg-color-green-contrast)' },
-  rolledoff: { text: 'Not moving', colour: 'var(--rmg-color-grey-1)' },
-  rolledoff_hypercare: { text: 'Hypercare only', colour: 'var(--rmg-color-grey-1)' },
-  overlap_risk: { text: '⚠ Overlap risk', colour: 'var(--rmg-color-red)' },
-  incumbent: { text: '', colour: '' },
-}
-
 /**
  * Role-taxonomy ordering for Team view: PO/delivery lead → analyst →
  * architect/scrum master → engineers → QA, alphabetical within a tier.

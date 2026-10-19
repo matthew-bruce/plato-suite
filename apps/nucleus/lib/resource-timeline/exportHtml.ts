@@ -11,14 +11,13 @@
 //
 // Grouping, filtering and collapse/expand all still work in the export because
 // none of them need a live connection — only the already-fetched data. The
-// tables that drive them (category order, role ranking, status labels) are
+// tables that drive them (category order, role ranking) are
 // injected from the shared presentation module rather than retyped, so there is
 // one source of truth for the rules and only the DOM-building differs.
 
 import { CATEGORY_ORDER, type ResourceTimelineData } from '@plato/schema'
 import {
   SEGMENT_TOUCH_INSET_PX,
-  STATUS_LABELS,
   bookedDaysLine,
   buildQuarterSpans,
   disciplineRank,
@@ -156,7 +155,6 @@ export function buildStandaloneHtml(
     teams: data.teams,
     disciplines: data.disciplines,
     categoryOrder: CATEGORY_ORDER,
-    statusLabels: STATUS_LABELS,
     rankTable: buildRankTable(data),
     palette: buildSupplierPalette(data),
     // Injected rather than retyped, like the tables above: the touch inset
@@ -409,7 +407,6 @@ body{background:var(--rmg-color-surface-light);color:var(--rmg-color-text-body);
 .res-sub{font-size:11px;color:var(--rmg-color-grey-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
 .res-pills{display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden;margin-top:2px}
 .team-pill{display:inline-flex;align-items:center;border-radius:var(--rmg-radius-xl);padding:2px 8px;background:#E4EDFA;color:#2A3B66;font-size:9px;font-weight:600;white-space:nowrap;flex-shrink:0}
-.status-tag{font-size:9px;font-weight:700;flex-shrink:0;white-space:nowrap}
 .res-right-row{height:var(--row-h);position:relative;border-bottom:1px solid var(--rmg-color-grey-4);transition:height .15s ease,opacity .13s ease}
 .col-lines{position:absolute;inset:0;display:flex;pointer-events:none}
 .col-line{flex:1;border-right:1px solid var(--rmg-color-grey-2)}
@@ -674,7 +671,6 @@ function render(){
       '<span class="group-count">' + members.length + ' resource' + (members.length === 1 ? '' : 's') + '</span></div>';
 
     members.forEach(function(r){
-      var st = DATA.statusLabels[r.status] || {text:'',colour:''};
       var sub;
       if (state.groupBy === 'team') {
         sub = '<div class="res-sub">' + esc(disciplineOf(r)) + '</div>';
@@ -691,7 +687,6 @@ function render(){
       var avClass = 'avatar' + (av.mode === 'split' ? ' avatar-split' : '');
       lh += '<div class="res-left-row"><div class="' + avClass + '" style="' + avStyle + '">' + esc(r.initials) + '</div>' +
         '<div class="res-text"><div class="res-name">' + esc(r.name) + '</div>' + sub + '</div>' +
-        (st.text ? '<span class="status-tag" style="color:' + esc(st.colour) + '">' + esc(st.text) + '</span>' : '') +
         '</div>';
     });
 

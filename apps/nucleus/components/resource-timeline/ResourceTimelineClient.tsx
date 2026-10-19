@@ -23,7 +23,6 @@ import {
   CG_TCS_FOCUS,
   type GroupMode,
   type ViewMode,
-  STATUS_LABELS,
   barLabel,
   bookedDaysLine,
   buildGroups,
@@ -747,7 +746,6 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                       </button>
 
                       {group.resources.map((resource) => {
-                        const status = STATUS_LABELS[resource.status]
                         const avatarColour = resolveAvatarColours(resource, supplierColours)
                         return (
                           <div key={resource.resourceId} className={styles.resLeftRow}>
@@ -786,11 +784,6 @@ export function ResourceTimelineClient({ data }: { data: ResourceTimelineData })
                                 </div>
                               )}
                             </div>
-                            {status.text && (
-                              <span className={styles.statusTag} style={{ color: status.colour }}>
-                                {status.text}
-                              </span>
-                            )}
                             {editMode && (
                               <ResourceVisibilityToggle
                                 resource={resource}
